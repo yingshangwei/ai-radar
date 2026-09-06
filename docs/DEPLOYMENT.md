@@ -2,9 +2,21 @@
 
 目标实例：`lhins-e5gcg722`，`ap-seoul`，公网 `43.155.203.253`，Ubuntu Server 24.04 LTS，2 核 4 GB。
 
+## 当前部署状态 · 2026-09-06
+
+- 已通过用户配置的腾讯云官方 CLI + TAT 部署，当前 API release 为 `/opt/ai-radar/releases/20260906-c8f7568`。
+- HTTPS 地址：`https://radar.yswdra.cn`；`/healthz` 已从本机及服务器验证为 200。无令牌读取返回 401，reader 读取返回 200，reader 调用管理任务返回 403。
+- 官方 Caddy 2.11.4 已安装并运行，使用独立 `radar` 主机规则；DNSPod 新增 `radar` A 记录，防火墙只追加 TCP 443。原有根域名、`www`、22/80/8080 规则未更改。
+- 原有 8080 进程 PID `303258` 保持运行，部署前后访问根路径均返回 404；新 API 仅监听 `127.0.0.1:18473`。
+- 5 个官方来源完成首次采集，共 23 条有效信息；X/Facebook 等待授权。
+- Codex CLI 0.153.3 完整原生包已安装，包括 code-mode host、bwrap、rg 和包清单。服务用户的设备码登录已发起，尚待完成；调度器暂未启用。
+- reader 连接信息通过临时 RSA 公钥加密传回本机，仅保存在仓库忽略的 `credentials/cloud-reader.env`（0600）中，未输出到日志。腾讯云密钥和模型凭据没有打进 App。
+
+原 CLI 授权和浏览器上传阻碍已解决；以下盘点记录与安装步骤用于解释部署过程和后续维护。
+
 2026-09-06 已通过腾讯云自动化助手执行只读盘点：已有进程 `server` 使用 `8080`；SSH 使用 `22`；没有发现 Docker、Nginx、Caddy 或 Node。系统盘约 50 GB 可用。盘点脚本末尾的不存在目录使 TAT 返回 ExitCode 2，前面的服务、端口和资源输出已成功获取，不能将其误读为整个盘点没有运行。
 
-已在轻量云控制台确认域名 `yswdra.cn` 存在，当前轻量云关联的解析列表为空。这不是 DNSPod 全量记录的查询结果；正式添加 `radar` 记录前仍需检查完整解析表。
+最初轻量云关联的解析列表为空，但随后通过 DNSPod 完整查询发现根域名和 `www` 已指向本机，已保留这两条记录并为本项目单独添加 `radar`。
 
 ## 隔离布局
 
@@ -20,7 +32,7 @@
 | 配置 | `/etc/ai-radar/config.toml` |
 | 私有环境文件 | `/etc/ai-radar/server.env`，权限 0600 |
 | 服务 | `ai-radar.service` |
-| 拟用域名 | `radar.yswdra.cn`，需核实 DNS 后配置 |
+| 域名 | `radar.yswdra.cn` |
 
 现有 8080 业务不修改、不停止。新服务限制为约 1.2 GB 内存和 1 个 CPU。API 默认只绑定回环地址，发布前需要单独配置 HTTPS 反向代理，不直接开放 18473。
 
@@ -34,7 +46,9 @@ server/.venv/bin/tccli configure
 bash scripts/tencent-audit.sh
 ```
 
-也可以使用控制台的官方自动化助手和文件管理。当前已登录控制台，但本机公网 SSH 连接超时。Chrome 上传部署包需要扩展启用本地文件访问；如果该权限尚未启用，不能声称上传成功。
+也可以使用控制台的官方自动化助手和文件管理。本次公网 SSH 超时、Chrome 文件上传缺少权限，后续在用户授权官方 CLI 后使用 TAT 分块传输部署包，并在服务器上校验完整 SHA-256 后解包。
+
+仓库的 `scripts/tencent-command.py` 是对官方 CLI 的薄封装：`run <script> --name <name>` 提交一次临时命令并返回 invocation；`status <invocation>` 查看同一任务结果。不会自动重复提交失败或超时的命令，不读取、打印或嵌入腾讯云凭据。
 
 ## 安装已审核的部署包
 
@@ -55,10 +69,10 @@ bash /opt/ai-radar/releases/20260906/scripts/install-server.sh
 
 ## Codex 授权
 
-官方 npm 原生发行包可避免额外安装 Node。安装脚本校验 npm 的 SHA-512 integrity 后，只提取固定路径的 Codex 可执行文件，不展开不受控的归档路径：
+官方 npm 原生发行包可避免额外安装 Node。安装脚本校验 npm 的 SHA-512 integrity 与 `codex-package.json` 后，保留完整原生 bundle，并拒绝目录穿越和符号链接条目。0.153.3 的入口实际为 `bin/codex`；最初脚本预期旧目录而安装失败，已修正并在真实发行包和目标 Linux 主机验证。当前机器修正后的安装工具位于 `/opt/ai-radar/tools/install-codex.py`：
 
 ```bash
-python3 /opt/ai-radar/current/scripts/install-codex.py
+python3 /opt/ai-radar/tools/install-codex.py
 sudo -u ai-radar env HOME=/var/lib/ai-radar CODEX_HOME=/var/lib/ai-radar/codex \
   /opt/ai-radar/tools/bin/codex login --device-auth
 ```

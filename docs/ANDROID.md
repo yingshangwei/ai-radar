@@ -62,4 +62,6 @@ adb install -r app/android/app/build/outputs/apk/release/app-release.apk
 adb shell am start -n cn.yswdra.airadar/.MainActivity
 ```
 
-2026-09-07 已在 Android 16/API 36 ARM64 模拟器完成安装、云端读取、历史日报、文章详情、收藏和取消、覆盖更新保留登录，以及断网冷启动缓存阅读。最新 0.2.0 / code 2 包位于 `dist/ai-radar-0.2.0-android.apk`，继续使用相同私有签名；已验证中文正文、原文切换、中文日期、旧版覆盖安装和离线中英阅读，测试后网络已恢复。详细校验记录见 [VALIDATION.md](VALIDATION.md)。尚未在用户手机上安装，也没有提交应用商店。
+2026-09-07 已在 Android 16/API 36 ARM64 模拟器完成安装、云端读取、历史日报、文章详情、收藏和取消、覆盖更新保留登录，以及断网冷启动缓存阅读。最新 0.2.1 / code 3 包位于 `dist/ai-radar-0.2.1-android.apk`，继续使用相同私有签名；0.2.0 的中文正文、原文切换与离线中英阅读验收保留，0.2.1 增加了 DeepSeek 余额不足提示。
+
+余额告警在独立本地 API 中用真实 SDK 模拟 402，验证首页、详情和设置的提示及调用恢复后自动清除。为访问本地 HTTP，测试包临时允许明文连接，Hermes bundle 与最终交付包完全一致；该测试包不对外交付。交付包使用原来的生产网络配置，只连接 HTTPS 云端。详细校验记录见 [VALIDATION.md](VALIDATION.md)。尚未在用户手机上安装，也没有提交应用商店。

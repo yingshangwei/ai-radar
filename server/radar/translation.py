@@ -531,12 +531,12 @@ class TranslationService:
         with self.sessions() as session:
             return translation_status(session, self.config)
 
-    async def evidence(self, articles: list[dict]) -> list[dict]:
+    async def evidence(self, articles: list[dict], *, force=False) -> list[dict]:
         if not self.config.enabled or not secret(self.config.api_key_env):
             return articles
         with self.sessions.begin() as session:
             keys = [ensure_translation(session, a["title"], a["text"], self.config).id for a in articles]
-        await asyncio.gather(*(self.translate_one(key) for key in dict.fromkeys(keys)))
+        await asyncio.gather(*(self.translate_one(key, force=force) for key in dict.fromkeys(keys)))
         with self.sessions() as session:
             rows = {t.id: t for t in session.scalars(select(Translation).where(Translation.id.in_(keys)))}
             return [

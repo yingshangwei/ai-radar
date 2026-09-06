@@ -207,15 +207,15 @@ class ReadingService:
                 needs_analysis = analysis.status != "ready" and (force or analysis.retry_at <= now_iso())
                 translation = session.get(Translation, cache_key(doc.title, doc.text, self.config.translation))
                 needs_translation = self.config.translation.enabled and (not translation or (
-                    translation.status != "ready" and translation.retry_at <= now_iso()
-                    and translation.attempts < self.config.translation.max_attempts))
+                    translation.status != "ready" and (force or (translation.retry_at <= now_iso()
+                    and translation.attempts < self.config.translation.max_attempts))))
                 if not needs_analysis and not needs_translation:
                     continue
                 payloads.append({"id": key, "url": doc.final_url or doc.url, "title": doc.title,
                                  "text": doc.text, "partial": doc.partial,
                                  "needs_analysis": needs_analysis})
         payloads = payloads[:self.config.reading.max_documents]
-        payloads = await self.translations.evidence(payloads)
+        payloads = await self.translations.evidence(payloads, force=force)
         to_analyze = [{k: v for k, v in doc.items() if k != "needs_analysis"}
                       for doc in payloads if doc["needs_analysis"]]
         completed = 0

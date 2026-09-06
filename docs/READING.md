@@ -38,7 +38,7 @@ refresh_hours = 24
 revision = "reading-zh-v1"
 ```
 
-`max_documents` 限制每轮下载及待处理文档数，积压在后续任务继续。普通采集 / 日报任务自动处理；管理员可调用 `POST /v1/admin/jobs?kind=read` 只补读已有消息，避免再次请求 X。`force=true` 允许失败读取和解读立即重试，已成功且仍在缓存期的正文不重复下载或分析。翻译单独遵循自己的重试时间及次数。
+`max_documents` 限制每轮下载及待处理文档数，积压在后续任务继续。普通采集 / 日报任务自动处理；管理员可调用 `POST /v1/admin/jobs?kind=read` 只补读已有消息，避免再次请求 X。`force=true` 允许失败读取、解读和未通过校对的全文译文立即重试；已成功且仍在缓存期的正文、解读和译文不会重做。普通任务遵循重试时间及次数。
 
 摘要使用现有可替换 Provider 配置（Codex / Claude / 自定义 CLI / SDK），翻译独立使用 Translation 配置。新增表均为独立表，原消息、原文、收藏及已有人工校订译文不修改。
 

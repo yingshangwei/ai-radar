@@ -13,14 +13,14 @@ from radar.api import create_app
 from radar.config import RadarConfig, ReadingConfig, Settings, TranslationConfig
 from radar.db import database
 from radar.links import html_references, mentioned_references, normalize_link, text_references
-from radar.models import Article, Digest, DocumentAnalysis, WebDocument
+from radar.models import Article, Digest, DocumentAnalysis, Translation, WebDocument
 from radar.page_parser import extract_page, parse_page
 from radar.pipeline import as_dict, ingest
 from radar.providers import StructuredProvider
-from radar.reading import ReadingService, resource_views
+from radar.reading import ReadingService, fingerprint, resource_views
 from radar.schemas import IncomingArticle, ReadingOutput
 from radar.sources import x_references
-from radar.translation import TranslationService
+from radar.translation import TranslationService, ensure_translation
 from radar.web_reader import PageFetcher, PageUnavailable, public_addresses, public_ip
 
 
@@ -309,4 +309,37 @@ async def test_translation_restores_exact_markdown_urls(tmp_path, monkeypatch, r
     sent = json.loads(route.calls[0].request.content)
     assert '⟪原文链接-0⟫' in sent['messages'][1]['content']
     assert url not in sent['messages'][1]['content']
+    engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_force_read_resumes_only_unfinished_translation(tmp_path, monkeypatch):
+    monkeypatch.setenv('DEEPSEEK_API_KEY', 'test-only')
+    engine, sessions = database(f'sqlite:///{tmp_path}/resume.db')
+    config = RadarConfig(reading=ReadingConfig(enabled=True, mention_catalog={}),
+                         translation=TranslationConfig(enabled=True))
+    with sessions.begin() as s:
+        ingest(s, [incoming()], config)
+        doc = s.scalar(select(WebDocument))
+        doc.title, doc.text, doc.content_hash = 'AI paper', 'Saved source text', 'hash'
+        doc.status, doc.retry_at = 'fetched', '2999-01-01'
+        doc.analysis_id = fingerprint('hash', config.reading.revision)
+        s.add(DocumentAnalysis(id=doc.analysis_id, status='ready'))
+        row = ensure_translation(s, doc.title, doc.text, config.translation)
+        row.status, row.retry_at, row.attempts = 'review_required', '2999-01-01', 3
+    translations = TranslationService(sessions, config.translation)
+    calls = []
+
+    async def translate(key, force=False):
+        calls.append(force)
+        with sessions.begin() as s:
+            s.get(Translation, key).status = 'ready'
+
+    translations.translate_one = translate
+    reader = ReadingService(sessions, config, translations)
+    await reader.pending()
+    assert calls == []
+    await reader.pending(force=True)
+    await reader.pending(force=True)
+    assert calls == [True]
     engine.dispose()

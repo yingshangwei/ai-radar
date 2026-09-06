@@ -13,6 +13,7 @@ export interface Article {
       | "running"
       | "ready"
       | "review_required"
+      | "insufficient_balance"
       | "error";
     updated_at?: string;
   };
@@ -75,6 +76,12 @@ export interface Status {
     enabled: boolean;
     configured: boolean;
     counts: Record<string, number>;
+    alert?: {
+      code: "insufficient_balance";
+      title: string;
+      message: string;
+      observed_at: string;
+    } | null;
   };
   sources: Source[];
   jobs: {

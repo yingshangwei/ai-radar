@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  AppState,
   FlatList,
   KeyboardAvoidingView,
   Linking,
@@ -94,6 +95,8 @@ const translationNote = (a: Article) => {
       return "译文仍有疑点，待复核 · 当前显示原文";
     case "error":
       return "翻译暂未完成 · 当前显示原文";
+    case "insufficient_balance":
+      return "翻译账户余额不足 · 当前显示原文";
     case "disabled":
       return "翻译尚未启用 · 当前显示原文";
     default:
@@ -352,6 +355,15 @@ function Reader({
   const [newHandle, setNewHandle] = useState("");
   const [demoSaved, setDemoSaved] = useState<string[]>(["demo-2"]);
   const [demoDisabled, setDemoDisabled] = useState<string[]>([]);
+  const [appActive, setAppActive] = useState(
+    AppState.currentState !== "background",
+  );
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (next) =>
+      setAppActive(next === "active"),
+    );
+    return () => subscription.remove();
+  }, []);
   useEffect(() => {
     const timer = setTimeout(() => {
       setQuery(search);
@@ -361,6 +373,9 @@ function Reader({
   const prefix = [connection.url, demo ? "demo" : "live"];
   const status = useQuery({
     queryKey: [...prefix, "status"],
+    enabled: appActive,
+    staleTime: 0,
+    refetchInterval: !demo && appActive ? 30000 : false,
     queryFn: async () =>
       demo
         ? { data: demoStatus, offline: false }
@@ -597,6 +612,11 @@ function Reader({
           <T style={{ fontSize: 12, color: C.accent }}>
             当前显示离线缓存 · 下拉刷新以重新连接
           </T>
+        </View>
+      )}
+      {state?.translation?.alert && (
+        <View style={{ paddingHorizontal: 24, paddingVertical: 8 }}>
+          <TranslationNotice status={state} offline={!!status.data?.offline} />
         </View>
       )}
       {!!activeError && (
@@ -1083,6 +1103,7 @@ function Reader({
     <SafeAreaView style={s.screen}>
       <View style={s.container}>{body}</View>
       <Sheet open={!!detail} onClose={() => setDetail(null)} title="深入阅读">
+        <TranslationNotice status={state} offline={!!status.data?.offline} />
         {detail && (
           <>
             {detail.story ? (
@@ -1330,6 +1351,7 @@ function Reader({
         onClose={() => setSettingsOpen(false)}
         title="你的雷达"
       >
+        <TranslationNotice status={state} offline={!!status.data?.offline} />
         <View style={[s.note, { marginBottom: 25 }]}>
           <T style={s.label}>连接状态</T>
           <T style={[s.body, { marginTop: 7 }]}>
@@ -1457,7 +1479,7 @@ function Reader({
         <T
           style={[s.label, { textAlign: "center", marginTop: 28, fontSize: 9 }]}
         >
-          AI RADAR / 前沿 · 0.2.0
+          AI RADAR / 前沿 · 0.2.1
         </T>
       </Sheet>
     </SafeAreaView>
@@ -1466,6 +1488,38 @@ function Reader({
 function humanErrorOrEmpty(error: unknown) {
   return error ? humanError(error) : "";
 }
+function TranslationNotice({
+  status,
+  offline,
+}: {
+  status?: Status;
+  offline: boolean;
+}) {
+  const alert = status?.translation?.alert;
+  if (!alert) return null;
+  return (
+    <View
+      accessibilityRole="alert"
+      accessibilityLiveRegion="polite"
+      style={[
+        s.note,
+        { borderLeftWidth: 3, borderLeftColor: C.accent, marginBottom: 12 },
+      ]}
+    >
+      <T style={{ color: C.accent, fontWeight: "700", marginBottom: 5 }}>
+        {offline ? "上次记录：" : ""}
+        {alert.title}
+      </T>
+      <T style={[s.muted, { lineHeight: 21 }]}>{alert.message}</T>
+      {offline && (
+        <T style={[s.muted, { fontSize: 10, marginTop: 5 }]}>
+          当前离线，恢复网络后更新状态。
+        </T>
+      )}
+    </View>
+  );
+}
+
 function Sheet({
   open,
   onClose,

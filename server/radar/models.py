@@ -74,6 +74,13 @@ class ArticleTranslation(Base):
     translation_id: Mapped[str] = mapped_column(ForeignKey("translations.id"), index=True)
 
 
+class TranslationAccountState(Base):
+    __tablename__ = "translation_account_states"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    code: Mapped[str] = mapped_column(String(40), default="")
+    observed_at: Mapped[str] = mapped_column(String(40), default=now_iso)
+
+
 class SourceState(Base):
     __tablename__ = "sources"
     id: Mapped[str] = mapped_column(String(100), primary_key=True)

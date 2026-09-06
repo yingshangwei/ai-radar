@@ -2,13 +2,13 @@
   "expo": {
     "name": "前沿 · AI Radar",
     "slug": "ai-radar",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "icon": "./assets/icon.png",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "scheme": "airadar",
     "ios": {
-      "buildNumber": "2",
+      "buildNumber": "3",
       "bundleIdentifier": "cn.yswdra.airadar",
       "supportsTablet": true,
       "infoPlist": {
@@ -16,7 +16,7 @@
       }
     },
     "android": {
-      "versionCode": 2,
+      "versionCode": 3,
       "package": "cn.yswdra.airadar",
       "permissions": [],
       "blockedPermissions": [

@@ -12,14 +12,16 @@ import unicodedata
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 import httpx
+from openai import APIStatusError
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select, update
 
 from .config import TranslationConfig, secret
-from .models import Article, ArticleTranslation, Translation, now_iso
+from .models import Article, ArticleTranslation, Translation, TranslationAccountState, now_iso
 
 HAN = re.compile(r"[\u3400-\u9fff]")
 URL = re.compile(r"https?://[^\s\u3400-\u9fff<>]+")
@@ -220,6 +222,24 @@ def present_articles(session, articles, config: TranslationConfig) -> list[dict]
     return output
 
 
+def account_scope(config: TranslationConfig) -> str:
+    # Account failures are independent of individual articles/models; never expose credentials.
+    return hashlib.sha256(f"{config.base_url.rstrip('/')}|{config.api_key_env}".encode()).hexdigest()
+
+
+def balance_alert(session, config: TranslationConfig) -> dict | None:
+    row = session.get(TranslationAccountState, account_scope(config)) if config.enabled else None
+    if not row or row.code != "insufficient_balance":
+        return None
+    name = "DeepSeek" if urlsplit(config.base_url).hostname == "api.deepseek.com" else "翻译服务"
+    return {
+        "code": row.code,
+        "title": f"{name} 余额不足",
+        "observed_at": row.observed_at,
+        "message": "新的中文翻译暂时无法完成，已有译文和原文仍可阅读。请为翻译账户充值；下一次翻译调用成功后会自动恢复。",
+    }
+
+
 def translation_status(session, config: TranslationConfig) -> dict:
     counts = dict(
         session.execute(
@@ -234,6 +254,7 @@ def translation_status(session, config: TranslationConfig) -> dict:
         "model": config.model,
         "review_model": config.review_model,
         "counts": counts,
+        "alert": balance_alert(session, config),
     }
 
 
@@ -253,11 +274,13 @@ class TranslationService:
     def __init__(self, sessions, config: TranslationConfig):
         self.sessions, self.config = sessions, config
         self.semaphore = asyncio.Semaphore(config.concurrency)
+        self.balance_blocked = False
 
     async def request(self, parts: list[dict], *, review: bool) -> dict[str, TranslatedPart]:
         from openai import AsyncOpenAI
 
         config = self.config
+        started = now_iso()
         protected, headers = [], {}
         for part in parts:
             headers[part["id"]] = QUOTE_HEADER.findall(part["source"])
@@ -286,6 +309,11 @@ class TranslationService:
                 max_tokens=12000,
                 extra_body=config.request_options,
             )
+        with self.sessions.begin() as session:
+            account = session.get(TranslationAccountState, account_scope(config))
+            # An older in-flight success must not clear a more recent 402.
+            if account and account.observed_at <= started:
+                account.code = ""
         if not response.choices or response.choices[0].finish_reason != "stop":
             raise ValueError("翻译输出不完整")
         content = response.choices[0].message.content
@@ -342,6 +370,8 @@ class TranslationService:
 
     async def translate_one(self, key: str, force=False):
         async with self.semaphore:
+            if self.balance_blocked:
+                return
             owner = str(uuid4())
             now = now_iso()
             with self.sessions.begin() as session:
@@ -420,12 +450,28 @@ class TranslationService:
                         row.retry_at = (datetime.now(UTC) + timedelta(minutes=30)).isoformat()
                     row.lease_until, row.owner, row.updated_at = "", "", now_iso()
             except BaseException as exc:
+                insufficient = isinstance(exc, APIStatusError) and exc.status_code == 402
+                if insufficient:
+                    self.balance_blocked = True
                 with self.sessions.begin() as session:
+                    if insufficient:
+                        session.merge(
+                            TranslationAccountState(
+                                id=account_scope(self.config),
+                                code="insufficient_balance",
+                                observed_at=now_iso(),
+                            )
+                        )
                     row = session.get(Translation, key)
                     if row.owner == owner:
-                        row.status = "error"
+                        row.status = "insufficient_balance" if insufficient else "error"
                         # Provider exception strings may contain keys or source contents.
-                        row.issues = ["翻译服务暂不可用，已保存进度"]
+                        row.issues = [
+                            "翻译账户余额不足，已保存进度" if insufficient else "翻译服务暂不可用，已保存进度"
+                        ]
+                        if insufficient:
+                            # Waiting for a top-up must not permanently exhaust content retries.
+                            row.attempts -= 1
                         row.retry_at = (datetime.now(UTC) + timedelta(minutes=30)).isoformat()
                         row.lease_until, row.owner, row.updated_at = "", "", now_iso()
                 if isinstance(exc, (asyncio.CancelledError, KeyboardInterrupt, SystemExit)):
@@ -434,6 +480,7 @@ class TranslationService:
     async def pending(self, force=False) -> dict:
         if not self.config.enabled:
             return {"enabled": False}
+        self.balance_blocked = False
         with self.sessions.begin() as session:
             for article in session.scalars(select(Article).order_by(Article.published_at.desc())):
                 queue_article(session, article, self.config)

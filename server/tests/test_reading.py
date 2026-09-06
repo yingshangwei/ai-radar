@@ -304,7 +304,7 @@ async def test_translation_restores_exact_markdown_urls(tmp_path, monkeypatch, r
             'content': json.dumps({'translations': [{'id': 'body-0', 'zh': '参见[论文](⟪原文链接-0⟫)。',
                 'approved': True, 'issues': []}]})}}]})
     output = await service.request([{'id': 'body-0', 'source': f'See [paper]({url}).',
-                                      'draft': '参见论文。'}], review=True)
+                                      'draft': f'参见[论文]({url})，当前版本。'}], review=True)
     assert output['body-0'].zh == f'参见[论文]({url})。'
     sent = json.loads(route.calls[0].request.content)
     assert '⟪原文链接-0⟫' in sent['messages'][1]['content']

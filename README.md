@@ -32,7 +32,7 @@ ai-radar/
 
 服务地址为 `https://radar.yswdra.cn`，已部署到指定腾讯云实例；[健康检查](https://radar.yswdra.cn/healthz)可公开访问，内容接口需要设备令牌。本机连接信息保存在未纳入 Git 的 `credentials/cloud-reader.env`，只允许当前用户读取。App 连接页填写其中的服务地址和 reader token。
 
-已完成云端采集与 HTTPS 鉴权验证，截至 2026-09-07 01:05 有 33 条真实信息，其中 25 条来自 6 个健康官方来源，8 条来自本次已授权 X 浏览器采集。服务器 Codex 设备授权和真实模型调用已通过，9 月 4 日历史日报包含 6 条总结、9 个来源；每天北京时间 08:00 汇报、每两小时采集已开启。Android 0.1.0 签名安装包已构建并通过模拟器云端读写和离线检查，位于本机 `dist/ai-radar-0.1.0-android.apk`。X 浏览器单次采集和真实中文日报已验证；持续采集仍待完成，官方 API 等待充值选择与凭据接入，Facebook 账号正在审核，iOS 等待 Expo 授权后构建。Meta 官方新闻是独立来源，不代表 Facebook 社交帖已接通。
+已完成云端采集与 HTTPS 鉴权验证，截至 2026-09-07 01:45 有 34 条真实信息，其中 26 条来自 6 个健康官方来源，8 条来自本次已授权 X 浏览器采集。服务器 Codex 设备授权和真实模型调用已通过，补齐材料后的 9 月 4 日历史日报包含 6 条总结、10 个引用来源；每天北京时间 08:00 汇报、每两小时采集已开启。Android 0.1.0 签名安装包已构建并通过模拟器云端读写和离线检查，位于本机 `dist/ai-radar-0.1.0-android.apk`。X 浏览器单次采集和真实中文日报已验证；持续采集仍待完成，官方 API 等待充值选择与凭据接入，Facebook 账号正在审核。Expo 已授权，iOS 模拟器原生构建与产物校验已完成，文件位于 `dist/ai-radar-0.1.0-ios-simulator.tar.gz`；尚无实际 iOS 运行验证，真机签名仍待 Apple Developer 账号。Meta 官方新闻是独立来源，不代表 Facebook 社交帖已接通。
 
 ## 本地启动
 
@@ -79,7 +79,7 @@ pnpm exec expo export --platform all
 `app/android` 和 `app/ios` 是已生成的原生工程。修改 Expo 配置后运行 `pnpm prebuild`，不要使用会删除原生更改的 `--clean`。
 
 - Android：独立签名 Release 已完成；使用 `python3 scripts/build-android.py` 构建，环境、签名备份和本机 Google 下载兼容选项见 [Android 构建说明](docs/ANDROID.md)。Debug 版本需要 Metro。
-- iOS：完整 Xcode 26.2+、CocoaPods；`cd app && pnpm ios`。真机包需要 Apple 签名，模拟器包不等同于可安装 IPA。
+- iOS：可在完整 Xcode 26.2+、CocoaPods 环境运行 `cd app && pnpm ios`，或使用已关联的 EAS 云构建。构建与签名说明见 [IOS.md](docs/IOS.md)；真机包需要 Apple 签名，模拟器包不等同于可安装 IPA。
 - EAS 官方云构建：`cd app && pnpm dlx eas-cli login`，授权后运行 `pnpm dlx eas-cli build --platform android --profile preview` 或 `--platform ios --profile preview`。配置见 `eas.json`，不会自动提交应用商店。
 
 ## 配置和运行边界

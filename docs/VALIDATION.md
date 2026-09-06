@@ -9,6 +9,10 @@
 | TypeScript | `tsc --noEmit` 通过 |
 | Expo 依赖匹配 | `expo install --check` 通过 |
 | 原生工程生成 | Android / iOS prebuild 通过 |
+| Expo 云构建授权 | CLI 回调登录成功，独立账号查询确认 `yswdra`；项目已关联，免费套餐本月有 15 次 iOS 构建额度，未升级付费套餐 |
+| iOS 构建上传 | 官方 `build:inspect` 检查 72 个工作文件及 158 个浅克隆 Git 对象，设备令牌和私有签名材料未上传 |
+| iOS 原生编译 | 两次 EAS 云构建成功；最终 `e54ecfe1-a025-4f8d-bb96-a208411ee7ea` 已包含直接声明的 expo-font。云端 Doctor 为 19/20，唯一提醒是保留原生工程需手动同步 app.json，本次 prebuild 差异已审查 |
+| iOS 模拟器产物 | 已下载并保存 `.app` 与压缩包；应用标识、0.1.0/1、iOS 15.1+、arm64/x86_64 模拟器架构、Hermes、秘密扫描与 codesign 校验通过；尚无原生运行验证，不是 iPhone IPA |
 | Android Release 安装包 | 四 ABI、API 24+、私有 RSA 3072 签名，APK Signature v2 校验通过；内置 Hermes，无需 Metro；设备令牌和签名密码未进入包内 |
 | Android 实际运行 | Android 16/API 36 ARM64 模拟器安装启动成功；连接腾讯云、当期与历史日报、文章详情、收藏写入和取消、收藏列表均验证；云端确认测试收藏已恢复原状态 |
 | Android 更新与离线 | 覆盖安装后登录保留；关闭模拟器 Wi-Fi/数据并冷启动，日报与信息流缓存可读且明确显示离线提示；网络已恢复，未发现 AndroidRuntime/ReactNativeJS 致命错误 |
@@ -43,7 +47,7 @@
 
 1. **X 持续采集与 Facebook 实际采集**：X 已完成一批真实浏览器采集和云端日报联调，尚未建立可定时运行的 X 数据链路。X 开发者账号已开通，官方 API 余额为 0；已准备最低 5 美元充值选项，尚未付款，等待用户选择。Bearer Token 尚未接入服务器。Facebook 账号正在审核，后续 Graph API 还需具体应用权限与 Page ID。
 2. **Android 真机与商店发布**：已交付本机签名 APK 并通过原生模拟器验证；尚未在用户手机上安装，也未提交应用商店。
-3. **可安装 IPA/模拟器原生构建**：本机只有 Command Line Tools，没有完整 Xcode；Expo CLI 登录进程仍在等待用户完成授权（原标签关闭后已在 Chrome 重新打开同一授权页，尚未收到成功回调）。iOS 工程和 Hermes bundle 不是经过签名的 IPA。
+3. **iOS 运行与真机 IPA**：模拟器原生构建与产物校验已完成；本机没有完整 Xcode，当前账号也未开放 EAS 远程模拟器运行，尚未实际启动 iOS App。真机签名等待 Apple Developer 账号状态，未生成可在 iPhone 安装的 IPA。产物与操作见 [IOS.md](IOS.md)。
 
 Tibo 默认采用已核验有 AI 产品相关动态的 `tibo_maker`；这是可在 App 中调整的关注配置，不作为构建或授权的阻碍。
 

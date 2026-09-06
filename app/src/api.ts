@@ -99,7 +99,12 @@ export async function cached<T>(
   const key = `airadar.cache.${connection.url}${path}`;
   try {
     const data = await api<T>(connection, path);
-    await AsyncStorage.setItem(key, JSON.stringify(data));
+    try {
+      await AsyncStorage.setItem(key, JSON.stringify(data));
+    } catch {
+      // A full device cache must not discard a successfully fetched document.
+      // Offline access remains available for entries that were actually saved.
+    }
     return { data, offline: false };
   } catch (error) {
     // Never hide expired credentials behind cached private data.

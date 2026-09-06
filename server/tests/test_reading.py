@@ -10,7 +10,7 @@ from pypdf import PdfWriter
 from sqlalchemy import select
 
 from radar.api import create_app
-from radar.config import RadarConfig, ReadingConfig, Settings
+from radar.config import RadarConfig, ReadingConfig, Settings, TranslationConfig
 from radar.db import database
 from radar.links import html_references, mentioned_references, normalize_link, text_references
 from radar.models import Article, Digest, DocumentAnalysis, WebDocument
@@ -289,4 +289,24 @@ def test_expanded_x_url_does_not_consume_two_link_slots(tmp_path):
             text='AI paper https://t.co/short', references=[{'url': 'https://example.org/paper',
                 'short_url': 'https://t.co/short'}])], config)
         assert [d.url for d in s.scalars(select(WebDocument))] == ['https://example.org/paper']
+    engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_translation_restores_exact_markdown_urls(tmp_path, monkeypatch, respx_mock):
+    monkeypatch.setenv('DEEPSEEK_API_KEY', 'test-only')
+    engine, sessions = database(f'sqlite:///{tmp_path}/translation.db')
+    service = TranslationService(sessions, TranslationConfig(enabled=True))
+    url = 'https://example.org/paper?v=3&utm_source=post'
+    route = respx_mock.post('https://api.deepseek.com/chat/completions').respond(200, json={
+        'id': 'chat_1', 'object': 'chat.completion', 'created': 1788652800, 'model': 'test',
+        'choices': [{'index': 0, 'finish_reason': 'stop', 'message': {'role': 'assistant',
+            'content': json.dumps({'translations': [{'id': 'body-0', 'zh': '参见[论文](⟪原文链接-0⟫)。',
+                'approved': True, 'issues': []}]})}}]})
+    output = await service.request([{'id': 'body-0', 'source': f'See [paper]({url}).',
+                                      'draft': '参见论文。'}], review=True)
+    assert output['body-0'].zh == f'参见[论文]({url})。'
+    sent = json.loads(route.calls[0].request.content)
+    assert '⟪原文链接-0⟫' in sent['messages'][1]['content']
+    assert url not in sent['messages'][1]['content']
     engine.dispose()

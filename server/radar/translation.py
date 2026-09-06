@@ -43,7 +43,8 @@ POLICY = """你是 AI 科技内容的严谨中英翻译编辑。任务是完整�
 英文单词表示的数字也用中文汉字表达，例如 one 译为一、June 译为六月，不额外引入阿拉伯数字。
 保留公司、产品、模型和代码标识原名（如 OpenAI、Claude、GPT、AIRA₃、API），普通英文句子必须翻译。
 来源本来为中文的内容保留原文。术语表是参考，须结合上下文，不能把开放权重擅自译成开源。
-形如 ⟪引用元信息-0⟫ 的占位符必须逐字原样保留，不得改写或遗漏。
+形如 ⟪引用元信息-0⟫、⟪原文链接-0⟫ 的占位符必须逐字原样保留，不得改写或遗漏。
+Markdown 链接保留结构，只翻译链接的显示文字。校对时草稿漏掉的链接占位符须按原文补回。
 每个输入项对应一个输出项，id 原样返回，不得合并或遗漏。只返回 JSON 对象：
 {"translations":[{"id":"title","zh":"中文译文","approved":true,"issues":[]}]}
 """
@@ -285,7 +286,7 @@ class TranslationService:
 
         config = self.config
         started = now_iso()
-        protected, headers = [], {}
+        protected, headers, links = [], {}, {}
         for part in parts:
             headers[part["id"]] = QUOTE_HEADER.findall(part["source"])
             copy = dict(part)
@@ -295,6 +296,15 @@ class TranslationService:
                     copy[field] = QUOTE_HEADER.sub(
                         lambda m, index=index: f"⟪引用元信息-{next(index, 'unknown')}⟫", copy[field]
                     )
+            # Protect exact URLs from accidental rewriting or omission; their labels remain translatable.
+            urls = list(dict.fromkeys(m.rstrip(".,);]") for m in URL.findall(copy["source"])))
+            links[part["id"]] = [(f"⟪原文链接-{i}⟫", url) for i, url in enumerate(urls)]
+            for field in ("source", "draft"):
+                if field in copy:
+                    mapping = {url: marker for marker, url in links[part["id"]]}
+                    copy[field] = URL.sub(lambda m, mapping=mapping: (
+                        mapping.get(m[0].rstrip(".,);]"), m[0].rstrip(".,);]"))
+                        + m[0][len(m[0].rstrip(".,);]")):]), copy[field])
             protected.append(copy)
         payload = {"glossary": config.glossary, "untrusted_parts": protected}
         async with AsyncOpenAI(
@@ -328,6 +338,11 @@ class TranslationService:
         if len(byid) != len(result.translations) or set(byid) != {p["id"] for p in parts}:
             raise ValueError("翻译段落未一一对应")
         for uid, translated in byid.items():
+            original = next(p for p in protected if p["id"] == uid)["source"]
+            for marker, url in links[uid]:
+                if translated.zh.count(marker) != original.count(marker):
+                    raise ValueError("原文链接未完整保留")
+                translated.zh = translated.zh.replace(marker, url)
             for index, header in enumerate(headers[uid]):
                 marker = f"⟪引用元信息-{index}⟫"
                 if translated.zh.count(marker) != 1:

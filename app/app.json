@@ -10,7 +10,9 @@
     "ios": {
       "bundleIdentifier": "cn.yswdra.airadar",
       "supportsTablet": true,
-      "infoPlist": { "ITSAppUsesNonExemptEncryption": false }
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "cn.yswdra.airadar",
@@ -22,7 +24,19 @@
         "android.permission.VIBRATE"
       ]
     },
-    "web": { "name": "前沿 · AI Radar", "bundler": "metro" },
-    "plugins": ["expo-secure-store"]
+    "web": {
+      "name": "前沿 · AI Radar",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-font"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "f6697808-ced9-4ea1-9f2c-27a19cdbe41a"
+      }
+    },
+    "owner": "yswdra"
   }
 }

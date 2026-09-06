@@ -26,6 +26,9 @@ importers:
       expo:
         specifier: ~55.0.0
         version: 55.0.31(@babel/core@7.29.7)(@expo/dom-webview@55.0.6)(@expo/metro-runtime@55.0.12)(react-dom@19.2.0(react@19.2.0))(react-native@0.83.10(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.0))(react@19.2.0)(typescript@5.9.3)
+      expo-font:
+        specifier: ~55.0.8
+        version: 55.0.8(expo@55.0.31)(react-native@0.83.10(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.0))(react@19.2.0)
       expo-secure-store:
         specifier: ~55.0.18
         version: 55.0.18(expo@55.0.31)

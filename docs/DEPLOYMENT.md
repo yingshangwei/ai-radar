@@ -2,14 +2,15 @@
 
 目标实例：`lhins-e5gcg722`，`ap-seoul`，公网 `43.155.203.253`，Ubuntu Server 24.04 LTS，2 核 4 GB。
 
-## 当前部署状态 · 2026-09-06
+## 当前部署状态 · 2026-09-07
 
 - 已通过用户配置的腾讯云官方 CLI + TAT 部署，当前 API release 为 `/opt/ai-radar/releases/20260906-c8f7568`。
 - HTTPS 地址：`https://radar.yswdra.cn`；`/healthz` 已从本机及服务器验证为 200。无令牌读取返回 401，reader 读取返回 200，reader 调用管理任务返回 403。
 - 官方 Caddy 2.11.4 已安装并运行，使用独立 `radar` 主机规则；DNSPod 新增 `radar` A 记录，防火墙只追加 TCP 443。原有根域名、`www`、22/80/8080 规则未更改。
 - 原有 8080 进程 PID `303258` 保持运行，部署前后访问根路径均返回 404；新 API 仅监听 `127.0.0.1:18473`。
 - 5 个官方来源完成首次采集，共 23 条有效信息；X/Facebook 等待授权。
-- Codex CLI 0.153.3 完整原生包已安装，包括 code-mode host、bwrap、rg 和包清单。服务用户的设备码登录已发起，尚待完成；调度器暂未启用。
+- Codex CLI 0.153.3 完整原生包已安装，包括 code-mode host、bwrap、rg 和包清单。9 月 7 日 00:03（北京时间）服务用户完成设备码登录，独立 `codex login status` 返回 `Logged in using ChatGPT`。
+- 云端实际调用 Codex 生成 9 月 4 日历史日报，6 条中文总结使用 9 个来源，所有引用 ID 均匹配原文。任务完成后开启调度器：每天北京时间 08:00 汇报，每两小时采集。
 - reader 连接信息通过临时 RSA 公钥加密传回本机，仅保存在仓库忽略的 `credentials/cloud-reader.env`（0600）中，未输出到日志。腾讯云密钥和模型凭据没有打进 App。
 
 原 CLI 授权和浏览器上传阻碍已解决；以下盘点记录与安装步骤用于解释部署过程和后续维护。
@@ -77,9 +78,9 @@ sudo -u ai-radar env HOME=/var/lib/ai-radar CODEX_HOME=/var/lib/ai-radar/codex \
   /opt/ai-radar/tools/bin/codex login --device-auth
 ```
 
-由用户完成设备码登录，再执行相同环境下的 `codex login status`。不上传本机整个 Codex 目录。若设备码方式在账号中未开启，按官方文档使用浏览器登录/SSH 转发，不绕过授权。
+由用户完成设备码登录，再执行相同环境下的 `codex login status`。浏览器须选择开启设备码授权的同一账号；通过账号授权后，还需在设备码页输入本次 CLI 生成的九位代码。当前这次登录已完整验证成功。不上传本机整个 Codex 目录。若设备码方式在账号中未开启，按官方文档使用浏览器登录/SSH 转发，不绕过授权。
 
-来源凭证写入 `/etc/ai-radar/server.env`；模型参数写入 `config.toml`。授权验证后将环境文件中的 `RADAR_SCHEDULER_ENABLED=false` 改为 `true`，重启 **AI Radar 自己的服务**。
+来源凭证写入 `/etc/ai-radar/server.env`；模型参数写入 `config.toml`。当前 `RADAR_SCHEDULER_ENABLED=true` 已生效；后续变更只重启 **AI Radar 自己的服务**。首次开启前已保留权限为 0600 的环境文件备份。
 
 ## HTTPS 与域名
 

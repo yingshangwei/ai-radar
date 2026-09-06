@@ -54,7 +54,7 @@ HTTP：`POST /v1/admin/import`，以管理令牌作 Bearer。不要把 Cookie �
 
 只需修改 `[provider]`，无需改变 API 或 App。所有输出最终都通过统一 schema 和引用校验，引用 ID 必须存在于输入材料中。来源内容按不可信数据处理。引用校验保证引用存在，不能自动证明摘要的每个语义判断正确。
 
-Codex（默认，已通过本机真实调用验证）：
+Codex（默认，已通过本机和腾讯云服务用户的真实调用验证）：
 
 ```toml
 [provider]

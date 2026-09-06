@@ -1,4 +1,4 @@
-# 验证记录 · 2026-09-06
+# 验证记录 · 2026-09-07
 
 ## 已验证
 
@@ -20,7 +20,9 @@
 | 腾讯云盘点 | 已通过官方 TAT 读取目标主机端口、服务和资源；现有业务监听 8080 |
 | 腾讯云真实部署 | API 与官方 Caddy 服务已运行；HTTPS 健康检查 200，未授权 401，reader 正常读取 200、管理操作 403；原有 8080 进程未变 |
 | 云端真实采集 | 5 个官方来源完成首次采集，收录 23 条信息；通过公网 HTTPS + reader token 从本机读取成功 |
-| Linux Codex 安装 | 0.153.3 完整官方原生 bundle 经 SHA-512 与包清单校验，实际执行 `codex --version` 通过；设备授权尚待完成 |
+| Linux Codex 安装与授权 | 0.153.3 完整官方原生 bundle 经 SHA-512 与包清单校验，实际执行 `codex --version` 通过；9 月 7 日设备授权成功，独立服务用户的 `codex login status` 返回已登录 ChatGPT |
+| 云端真实模型日报 | 管理 API 触发 2026-09-04 历史日报，Codex 任务在约 57 秒内完成；公网读取验证 6 条中文总结、9 个真实来源，所有引用 ID 均匹配原文。该历史回放确实调用模型，不能与无新增报告混淆 |
+| 云端调度配置 | 真实模型任务完成后开启；API 返回 `scheduler_enabled=true`，每天北京时间 08:00 汇报、每两小时采集。首轮定时触发尚未到时，已验证的是人工触发的同一处理流程 |
 
 模型 API 的 OpenAI、Chat Completions、Anthropic 分支通过模拟响应测试；**只有 Codex 分支已用真实账号调用**。Claude Code CLI 与 Generic CLI 均实现适配，Generic CLI 已用真实子进程契约测试，Claude CLI 尚未完成真实授权联调。
 
@@ -28,12 +30,10 @@
 
 ## 尚未完成，不能视为已交付
 
-1. **云端日报与自动任务**：API 和 HTTPS 已部署，真实来源采集及鉴权已验证；尚需服务器模型授权后生成真实日报并启用每日调度，才能视为服务端完整联调通过。
-2. **服务器上的 Codex 授权**：独立服务用户下的设备码登录已发起，等待用户完成。没有将本机个人凭据复制到服务器。
-3. **X 与 Facebook 实际采集**：官方适配与模拟接口测试已完成，实际账户授权仍待用户。浏览器 X 未登录，登录页面已保留。Facebook 的 Graph API 读取还需要具体应用权限与 Page ID。
-4. **可安装 APK**：原生 Gradle 构建实际尝试过；Gradle 9 下载成功，但原生插件依赖解析失败；SDK 36、Build Tools 36 和 NDK 27.1 下载持续超时/SSL 握手失败。云端部署后再次使用本机现有代理复查：Gradle 插件仓库可访问，但 Google Maven 的 TLS 握手仍超时，Gradle 配置阶段失败。当前没有 APK。不能将 Hermes bundle 当作 APK。
-5. **可安装 IPA/模拟器原生构建**：本机只有 Command Line Tools，没有完整 Xcode；等待安装 Xcode 或授权 Expo EAS。iOS 工程和 Hermes bundle 不是经过签名的 IPA。
-6. **账号身份细节**：Tibo 默认设为 `tibo_maker`，仍待用户确认。关注名单可以在 App 中调整。
+1. **X 与 Facebook 实际采集**：官方适配与模拟接口测试已完成，实际账户授权仍待用户。浏览器 X 未登录，登录页面已保留。Facebook 的 Graph API 读取还需要具体应用权限与 Page ID。
+2. **可安装 APK**：原生 Gradle 构建实际尝试过；Gradle 9 下载成功，但原生插件依赖解析失败；SDK 36、Build Tools 36 和 NDK 27.1 下载持续超时/SSL 握手失败。云端部署后再次使用本机现有代理复查：Gradle 插件仓库可访问，但 Google Maven 的 TLS 握手仍超时，Gradle 配置阶段失败。当前没有 APK。不能将 Hermes bundle 当作 APK。
+3. **可安装 IPA/模拟器原生构建**：本机只有 Command Line Tools，没有完整 Xcode；等待安装 Xcode 或授权 Expo EAS。iOS 工程和 Hermes bundle 不是经过签名的 IPA。
+4. **账号身份细节**：Tibo 默认设为 `tibo_maker`，仍待用户确认。关注名单可以在 App 中调整。
 
 ## 本地查看
 

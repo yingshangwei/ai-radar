@@ -17,7 +17,14 @@ class SourceUnavailable(Exception):
         super().__init__(message)
 
 
-async def get_json(client: httpx.AsyncClient, url: str, *, params: dict, headers: dict):
+async def get_json(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    params: dict,
+    headers: dict,
+    allow_partial: bool = False,
+):
     response = await client.get(url, params=params, headers=headers)
     if response.status_code in (401, 403):
         raise SourceUnavailable("auth_required", "授权无效或缺少读取权限，请检查平台凭证与应用权限。")
@@ -25,7 +32,8 @@ async def get_json(client: httpx.AsyncClient, url: str, *, params: dict, headers
         raise SourceUnavailable("rate_limited", "平台额度或频率受限，本轮停止请求，等待下次采集。")
     response.raise_for_status()
     body = response.json()
-    if body.get("error") or body.get("errors"):
+    partial_posts = allow_partial and isinstance(body.get("data"), list) and bool(body["data"])
+    if body.get("error") or (body.get("errors") and not partial_posts):
         raise SourceUnavailable("error", "平台返回部分或完整请求错误，请检查查询及账号访问权限。")
     return body
 
@@ -71,6 +79,29 @@ async def fetch_rss(client: httpx.AsyncClient, feed: FeedConfig) -> list[Incomin
     return items
 
 
+def x_full_text(post: dict) -> str:
+    # X returns long-form text separately from the shortened standard text field.
+    return ((post.get("note_tweet") or {}).get("text") or post.get("text") or "").strip()
+
+
+def x_text_with_quotes(post: dict, referenced: dict, users: dict) -> str:
+    parts = [x_full_text(post)]
+    for reference in post.get("referenced_tweets", []):
+        if reference.get("type") != "quoted":
+            continue
+        quoted = referenced.get(reference["id"])
+        if not quoted or not x_full_text(quoted):
+            parts.append("[引用帖不可用，未取得原文]")
+            continue
+        author = users.get(quoted.get("author_id"), {})
+        identity = "@" + author["username"] if author.get("username") else "作者未返回"
+        stamp = quoted.get("created_at") or "发布时间未返回"
+        # Context is evidence under the original author's attribution, not a new
+        # post by the main author. Keep its date separate from the main post date.
+        parts.append(f"[引用帖：{identity}，{stamp}]\n{x_full_text(quoted)}")
+    return "\n\n".join(part for part in parts if part)[:30000]
+
+
 async def fetch_x(
     client: httpx.AsyncClient, config: RadarConfig, handles: list[str]
 ) -> list[IncomingArticle]:
@@ -90,10 +121,10 @@ async def fetch_x(
     for query in queries:
         params = {
             "query": query,
-            "max_results": 100,
+            "max_results": config.x_page_size,
             "start_time": start,
-            "tweet.fields": "created_at,public_metrics,author_id",
-            "expansions": "author_id",
+            "tweet.fields": "created_at,public_metrics,author_id,note_tweet,referenced_tweets",
+            "expansions": "author_id,referenced_tweets.id,referenced_tweets.id.author_id",
             "user.fields": "name,username",
         }
         for _ in range(config.x_max_pages):
@@ -102,9 +133,14 @@ async def fetch_x(
                 "https://api.x.com/2/tweets/search/recent",
                 params=params,
                 headers={"Authorization": f"Bearer {token}"},
+                allow_partial=True,
             )
             users = {u["id"]: u for u in body.get("includes", {}).get("users", [])}
+            referenced = {p["id"]: p for p in body.get("includes", {}).get("tweets", [])}
             for post in body.get("data", []):
+                text = x_text_with_quotes(post, referenced, users)
+                if not text:
+                    continue  # A video without readable text is not textual evidence.
                 author = users.get(post["author_id"], {})
                 handle = author.get("username", "i")
                 items[post["id"]] = IncomingArticle(
@@ -112,8 +148,8 @@ async def fetch_x(
                     source_id="x",
                     external_id=post["id"],
                     url=f"https://x.com/{handle}/status/{post['id']}",
-                    title=post["text"][:180],
-                    text=post["text"][:30000],
+                    title=(x_full_text(post) or text)[:180],
+                    text=text,
                     author=author.get("name", handle),
                     handle=handle,
                     published_at=post["created_at"],

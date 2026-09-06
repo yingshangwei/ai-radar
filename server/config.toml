@@ -6,6 +6,7 @@ lookback_hours = 168
 anthropic_news_enabled = true
 min_engagement = 30
 x_max_pages = 2
+x_page_size = 100
 x_query = '(AI OR "artificial intelligence" OR LLM OR agents OR robotics) -is:retweet'
 facebook_version = "v23.0"
 facebook_page_ids = []

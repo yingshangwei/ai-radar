@@ -2,9 +2,13 @@
 
 ## X / Twitter
 
-在服务器私有环境文件配置 `X_BEARER_TOKEN`，其值来自 X Developer 应用的官方授权。使用 `/2/tweets/search/recent`，读取 `created_at`、`public_metrics` 和作者扩展。搜索查询和页数在 `config.toml` 配置。
+在服务器私有环境文件配置 `X_BEARER_TOKEN`，其值来自 X Developer 应用的官方授权。使用 `/2/tweets/search/recent`，读取 `created_at`、`public_metrics`、`note_tweet`、`referenced_tweets` 和作者/引用扩展。搜索查询、页数和每页条数在 `config.toml` 配置。
 
-默认同时搜索 AI 关键词和重点名单。每个查询最多 2 页，每页 100 条；重点名单每 12 个账号组成一个查询。页面上限限制调用量，但并不保证覆盖所有动态。X 的具体价格、配额、搜索权限由你的账户决定。没有 Token、权限失效或额度用尽时保留明确状态，不自动改用未经授权的抓取工具。
+默认同时搜索 AI 关键词和重点名单。每个查询最多 `x_max_pages=2` 页，每页 `x_page_size=100` 条（可设为 10–100）；重点名单每 12 个账号组成一个查询。初次联调可配置每页 10 条、每查询 1 页。页数和每页条数限制结果规模，不能保证完整覆盖，也不是金额上限。X 的具体价格、配额、搜索权限由你的账户决定。没有 Token、权限失效或额度用尽时保留明确状态，不自动改用未经授权的抓取工具。
+
+长帖优先读取 `note_tweet.text`；引用帖原文单独标明作者及原始时间，使“现已向所有用户开放”这类依赖上下文的更新能正确进入 AI 筛选。主帖始终保留自己的发布时间与互动数，引用帖不会被重复当成新发布。引用原文不可用时明确标注；API 返回有效主帖和引用资源错误时保留可读主帖，没有有效数据的错误仍报错。不会借用被回复帖的 AI 关键词，把无关问候误收为新闻。
+
+字段实现依据 [X 数据字典](https://docs.x.com/x-api/fundamentals/data-dictionary) 与 [扩展对象说明](https://docs.x.com/x-api/fundamentals/expansions)，已通过接口契约测试，真实付费 API 调用仍待凭据接入。
 
 [X 官方搜索接入文档](https://docs.x.com/x-api/posts/search/integrate/overview)
 

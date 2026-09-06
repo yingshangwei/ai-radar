@@ -39,6 +39,7 @@ class RadarConfig(BaseModel):
     enrich_official_articles: bool = True
     min_engagement: int = Field(default=30, ge=0)
     x_max_pages: int = Field(default=2, ge=1, le=10)
+    x_page_size: int = Field(default=100, ge=10, le=100)
     x_query: str = '(AI OR "artificial intelligence" OR LLM OR agents OR robotics) -is:retweet'
     facebook_version: str = "v23.0"
     facebook_page_ids: list[str] = Field(default_factory=list)

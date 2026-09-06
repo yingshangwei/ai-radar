@@ -522,7 +522,7 @@ function Reader({
           <T style={s.muted}>{shortDate(a.published_at)}</T>
         </View>
         <T style={s.cardTitle}>{articleTitle(a)}</T>
-        {a.text.trim() !== a.title.trim() && (
+        {articleText(a).trim() !== articleTitle(a).trim() && (
           <T
             numberOfLines={2}
             style={[s.muted, { fontSize: 13, lineHeight: 23, marginTop: 9 }]}
@@ -1164,9 +1164,12 @@ function Reader({
                   </View>
                 )}
                 <T style={s.h1}>
-                  {original
-                    ? detail.article.title
-                    : articleTitle(detail.article)}
+                  {detail.article.platform === "x" ||
+                  detail.article.platform === "facebook"
+                    ? `${detail.article.author} 的动态`
+                    : original
+                      ? detail.article.title
+                      : articleTitle(detail.article)}
                 </T>
                 <T style={[s.muted, { marginVertical: 18 }]}>
                   {detail.article.author} ·{" "}

@@ -2,6 +2,12 @@
 
 应用 ID 为 `cn.yswdra.airadar`，原生工程位于 `app/ios`。React Native 界面、云端 API 和设备令牌存储与 Android 共用。发布版本内置 JavaScript，不依赖 Metro。
 
+## 0.3.0 / code 4
+
+EAS 模拟器构建 `5227dc71-de1b-4b34-b112-5a96b9f7c5b9` 成功，源码 `3781b62`。实际产物为 `dist/ios-simulator-v0.3/AIRadar.app`，压缩交付包 `dist/ai-radar-0.3.0-ios-simulator.tar.gz`，14,222,673 字节，SHA-256 `84df5c685e6c810ac43cc821423c30a6c038794a3cc53a272afa470b0f21c129`。
+
+包标识、版本、arm64 / x86_64 模拟器架构、最低 iOS 15.1、签名完整性与秘密扫描均通过。新增网页解读与保存的中英正文。仍未进行实际 iOS 运行测试；此文件不能安装到实体 iPhone，真机签名仍需 Apple Developer 授权。使用既有免费构建额度，没有购买或升级。
+
 ## EAS 项目
 
 2026-09-07 已确认 Expo CLI 浏览器授权成功，并通过独立 `eas whoami` 核验账号。项目 [@yswdra/ai-radar](https://expo.dev/accounts/yswdra/projects/ai-radar) 已关联到 `app/app.json`，ID 为 `f6697808-ced9-4ea1-9f2c-27a19cdbe41a`。

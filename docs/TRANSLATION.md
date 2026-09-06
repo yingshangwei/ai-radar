@@ -53,3 +53,7 @@ App 在前台每 30 秒更新服务状态，重新进入前台也会刷新；离
 默认使用 DeepSeek 加本地免费规则校验，不额外占用服务器运行另一个翻译模型。若已部署官方 [LibreTranslate](https://github.com/LibreTranslate/LibreTranslate)，可配置 `auxiliary_url`；如需鉴权，设置 `LIBRETRANSLATE_API_KEY`。该服务基于 [Argos Translate](https://github.com/argosopentech/argos-translate)，有额外内存、模型下载与许可证要求（LibreTranslate 为 AGPL-3.0），本项目未捆绑其运行时或模型。
 
 辅助输出只作为 DeepSeek 的候选参考，不能跳过模型校对直接发布；辅助不可用时继续由 DeepSeek 完成。没有配置时不会把内容发送到未知公共翻译服务。
+
+## 网页全文补读
+
+0.3.0 起，网页原文和直接关联资料的全文也进入同一翻译 / 校对缓存，见 [READING.md](READING.md)。Markdown 链接先用可还原占位符保护；中文标点不参与 URL 比对。分段优先在段落或句末切开，避免破坏语义。Transformer 架构语境中的明确术语误译会被拦截。需要人工修订的样本保留旧译文、修订原因及准确的复核来源；自动校对仍可能漏错。

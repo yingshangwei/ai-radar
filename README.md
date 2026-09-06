@@ -20,6 +20,7 @@ ai-radar/
 
 - 每日中文汇报、历史日报、信号详情、原始引用；无新增内容时明确说明来源覆盖与数据空缺。
 - DeepSeek 持久化中英对照：采集时翻译、单独校对，中文搜索与离线阅读复用缓存；数字、单位、链接和引用信息校验，原文完整保留。详见 [翻译配置](docs/TRANSLATION.md)。
+- 网页原文与直接关联文章 / 应用的持久化中文解读、关键要点和正文；不递归扩展，日报与手机复用缓存。详见 [读取范围与配置](docs/READING.md)。
 - DeepSeek 余额不足时在手机首页、详情和设置持续提示；保存翻译进度，后续调用成功自动恢复。
 - X/Twitter 官方搜索 API（关键词发现 + 重点账号），Facebook Graph API（授权主页）；支持分页、互动指标与显式授权/限额状态。
 - OpenAI、Google AI、DeepMind、Hugging Face、Meta Newsroom 官方 RSS，以及 Anthropic 官方新闻页。
@@ -40,7 +41,7 @@ ai-radar/
 
 现有 40 条内容已补齐中文，日报引用也可中英切换。真实日报重建验证了 40 份翻译缓存的调用次数与时间戳均未改变。DeepSeek 密钥仅配置在服务端，摘要引擎仍为独立的 Codex CLI。
 
-Android 0.2.1 签名安装包位于本机 `dist/ai-radar-0.2.1-android.apk`，可覆盖旧版保留登录；包含中文阅读、原文切换、离线缓存和余额不足提示。iOS 模拟器原生构建与产物见 [IOS.md](docs/IOS.md)；尚无实际 iOS 运行验证，真机签名仍待 Apple Developer 账号。Facebook 账号正在审核；Meta 官方新闻和 Meta 的 X 帖子不代表 Facebook 社交帖已接通。
+Android 0.3.0 签名安装包位于本机 `dist/ai-radar-0.3.0-android.apk`，可覆盖旧版保留登录；包含网页与文章解读、中文阅读、原文切换、离线缓存和余额不足提示。iOS 模拟器原生构建与产物见 [IOS.md](docs/IOS.md)；尚无实际 iOS 运行验证，真机签名仍待 Apple Developer 账号。Facebook 账号正在审核；Meta 官方新闻和 Meta 的 X 帖子不代表 Facebook 社交帖已接通。
 
 ## 本地启动
 

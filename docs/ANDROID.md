@@ -2,6 +2,10 @@
 
 应用 ID 为 `cn.yswdra.airadar`，最低 Android 7（API 24）。Release 会内置 JavaScript 和 Hermes 字节码，启动时不需要 Metro；服务地址默认使用已部署的 `https://radar.yswdra.cn`，设备令牌由用户在连接页填写。
 
+## 0.3.0 / code 4
+
+交付包 `dist/ai-radar-0.3.0-android.apk`，68,523,485 字节，SHA-256 `f4564dc8ab42718cee969edfa748e24ef999d276981bc495cc08355b5bf8d1f2`。四 ABI，原签名证书保持一致；可覆盖安装并保留连接。新增网页解读、关键要点、关注价值与保存的中英正文，详见 [READING.md](READING.md)。下文保留早期构建过程与历史产物信息。
+
 ## 环境
 
 - JDK 17、Node.js 24、pnpm 10。

@@ -42,4 +42,6 @@ revision = "reading-zh-v1"
 
 摘要使用现有可替换 Provider 配置（Codex / Claude / 自定义 CLI / SDK），翻译独立使用 Translation 配置。新增表均为独立表，原消息、原文、收藏及已有人工校订译文不修改。
 
+X 展开链接依据：[官方 Post Lookup](https://docs.x.com/x-api/posts/lookup/introduction) 与 [数据字典](https://docs.x.com/x-api/fundamentals/data-dictionary)。
+
 实现依据：[Trafilatura 官方文档](https://trafilatura.readthedocs.io/en/latest/corefunctions.html)、[HTTPX 官方 SNI 扩展](https://www.python-httpx.org/advanced/extensions/)、[pypdf 文字提取与资源限制说明](https://pypdf.readthedocs.io/en/stable/user/extract-text.html)。

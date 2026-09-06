@@ -4,7 +4,9 @@
 
 ## 当前部署状态 · 2026-09-07
 
-最新升级：已部署 DeepSeek 余额不足持久告警，当前 release 为 `20260907-52fd8e5`，上一版 `20260907-ccd71d0` 与此前版本均保留。升级前备份为 `/var/lib/ai-radar/backups/radar-20260906T203000Z.db`；新增账户状态表，不修改原有内容表。40 条原文与中文缓存逐项核验未变，当前无余额不足告警。私有环境和配置哈希、调度器、Codex 授权与原有 8080 服务保持不变。
+最新升级：网页正文与直接资源解读，release `20260907-5a980ec`；原始 40 条消息及其中文字段逐项保持不变，新增数据存于独立表。外部配置只新增 `[reading]`，私有环境、X 参数、Codex 授权、调度和其他服务保留。最终升级前备份 `/var/lib/ai-radar/backups/radar-20260906T222021Z.db`。独立复核确认 API 仅监听 `127.0.0.1:18473`，Caddy 正常，原有 8080 服务仍为 PID 303258。读取范围及重试见 [READING.md](READING.md)。
+
+0.2.1 历史升级：release `20260907-52fd8e5` 增加 DeepSeek 余额不足持久告警，相关版本与备份均保留。
 
 此前 04:05 已启用 DeepSeek 翻译和独立校对，补齐 40 条中文。密钥以一次性 RSA OAEP 加密传输、0600 保存；真实日报重建证明 40 份翻译缓存没有再次调用翻译。配置与复核说明见 [TRANSLATION.md](TRANSLATION.md)。
 
@@ -12,7 +14,7 @@
 
 首轮官方 API 任务 `c700474d-e3a8-4b38-967a-6f6a2c65c3de` 完成，读取 30 条、新增 6 条、更新 1 条旧帖，总计 40 条，X 为 healthy。Codex 任务 `b5d910c6-6ecc-4575-bfbc-117ae6cef67f` 已更新 9 月 6 日日报，5 条输入形成 1 条报道、4 个引用，原文和日期窗口校验通过。下面的部署记录保留各阶段的历史计数。
 
-- 已通过用户配置的腾讯云官方 CLI + TAT 部署，当前 API release 为 `/opt/ai-radar/releases/20260907-52fd8e5`；历史版本均已保留。
+- 已通过用户配置的腾讯云官方 CLI + TAT 部署，当前 API release 为 `/opt/ai-radar/releases/20260907-5a980ec`；历史版本均已保留。
 - HTTPS 地址：`https://radar.yswdra.cn`；`/healthz` 已从本机及服务器验证为 200。无令牌读取返回 401，reader 读取返回 200，reader 调用管理任务返回 403。
 - 官方 Caddy 2.11.4 已安装并运行，使用独立 `radar` 主机规则；DNSPod 新增 `radar` A 记录，防火墙只追加 TCP 443。原有根域名、`www`、22/80/8080 规则未更改。
 - 原有 8080 进程 PID `303258` 保持运行，部署前后访问根路径均返回 404；新 API 仅监听 `127.0.0.1:18473`。
@@ -24,7 +26,7 @@
 - 随后发布了 X 长帖、引用上下文和分页中断保留数据的修复。43 项测试通过；部署包校验 SHA-256 后解压到新目录，新建独立 `.venv`，复验来源文件与仓库一致、33 条数据保留、调度器仍开启、私有配置文件哈希未变、Codex 仍已登录。升级前使用 SQLite backup API 生成一致性备份。
 - 新版本再次真实采集成功，新增 1 条官方信息，总计 34 条；6 个官方来源健康。HTTPS、读写权限隔离与原有 8080 进程再次通过复验。
 
-最新升级包为 `dist/ai-radar-server-20260907-52fd8e5.tar.gz`，SHA-256 `d807fe186d6089d514cba0caae967e65a2b60ef9ea9acd8674cd9b3f2256403b`。包内以 `requirements.lock` 安装服务端依赖，不需要开发用 `uv.lock`；不含数据库、令牌和移动端签名材料。
+最新升级包为 `dist/ai-radar-server-20260907-5a980ec.tar.gz`，SHA-256 `ac02ca1fccf67efa53b1543f08b740c3f5f7e22c12434f0e717fbb1524a3354a`。包内以 `requirements.lock` 安装服务端依赖，不需要开发用 `uv.lock`；不含数据库、令牌和移动端签名材料。
 
 原 CLI 授权和浏览器上传阻碍已解决；以下盘点记录与安装步骤用于解释部署过程和后续维护。
 
@@ -110,6 +112,6 @@ sudo -u ai-radar python3 /opt/ai-radar/current/scripts/backup.py \
   /var/lib/ai-radar/radar.db /var/lib/ai-radar/backups
 ```
 
-使用 SQLite backup API，避免单独复制主库遗漏 WAL 数据。升级前备份并保留旧 release。当前为初始数据库结构；未来涉及结构修改时须提供明确迁移，不能仅依靠 `create_all` 升级旧库。不要将旧版代码和不兼容的新库混用。
+使用 SQLite backup API，避免单独复制主库遗漏 WAL 数据。升级前备份并保留旧 release。本次采用新增独立表，不改既有列；未来涉及既有结构修改时须提供明确迁移，不能仅依靠 `create_all` 升级旧库。不要将旧版代码和不兼容的新库混用。
 
 Docker Compose 是另一个可选方案，配置在 `deploy/compose.yaml`。目标主机尚未装 Docker，当前不为部署强制安装它。不要同时启动 systemd 方案与 Compose 方案。

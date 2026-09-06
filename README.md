@@ -28,6 +28,12 @@ ai-radar/
 
 **尚待完成的外部接入与原生构建，请看 [验证记录](docs/VALIDATION.md)。** 示例模式有明确标识，绝不写入实际数据库。
 
+## 当前云端服务
+
+服务地址为 `https://radar.yswdra.cn`，已部署到指定腾讯云实例；[健康检查](https://radar.yswdra.cn/healthz)可公开访问，内容接口需要设备令牌。本机连接信息保存在未纳入 Git 的 `credentials/cloud-reader.env`，只允许当前用户读取。App 连接页填写其中的服务地址和 reader token。
+
+已完成云端采集与 HTTPS 鉴权验证，当前有 23 条真实官方信息；服务器 Codex 设备授权、X/Facebook 接入以及原生安装包仍待完成。当天无新增报告明确披露来源覆盖，不能视为已完成全网 AI 动态汇报。
+
 ## 本地启动
 
 需要 Python 3.11+、Node.js 22.13+（推荐 24）、pnpm 10。

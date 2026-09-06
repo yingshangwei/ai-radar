@@ -31,7 +31,7 @@
 1. **云端日报与自动任务**：API 和 HTTPS 已部署，真实来源采集及鉴权已验证；尚需服务器模型授权后生成真实日报并启用每日调度，才能视为服务端完整联调通过。
 2. **服务器上的 Codex 授权**：独立服务用户下的设备码登录已发起，等待用户完成。没有将本机个人凭据复制到服务器。
 3. **X 与 Facebook 实际采集**：官方适配与模拟接口测试已完成，实际账户授权仍待用户。浏览器 X 未登录，登录页面已保留。Facebook 的 Graph API 读取还需要具体应用权限与 Page ID。
-4. **可安装 APK**：原生 Gradle 构建实际尝试过；Gradle 9 下载成功，但原生插件依赖解析失败；SDK 36、Build Tools 36 和 NDK 27.1 下载持续超时/SSL 握手失败。当前没有 APK。不能将 Hermes bundle 当作 APK。
+4. **可安装 APK**：原生 Gradle 构建实际尝试过；Gradle 9 下载成功，但原生插件依赖解析失败；SDK 36、Build Tools 36 和 NDK 27.1 下载持续超时/SSL 握手失败。云端部署后再次使用本机现有代理复查：Gradle 插件仓库可访问，但 Google Maven 的 TLS 握手仍超时，Gradle 配置阶段失败。当前没有 APK。不能将 Hermes bundle 当作 APK。
 5. **可安装 IPA/模拟器原生构建**：本机只有 Command Line Tools，没有完整 Xcode；等待安装 Xcode 或授权 Expo EAS。iOS 工程和 Hermes bundle 不是经过签名的 IPA。
 6. **账号身份细节**：Tibo 默认设为 `tibo_maker`，仍待用户确认。关注名单可以在 App 中调整。
 

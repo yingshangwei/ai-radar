@@ -58,11 +58,10 @@ const T = ({
     {children}
   </Text>
 );
-const shortDate = (value: string) =>
-  new Date(value).toLocaleDateString("zh-CN", {
-    month: "long",
-    day: "numeric",
-  });
+const shortDate = (value: string) => {
+  const date = new Date(value);
+  return `${date.getMonth() + 1}月${date.getDate()}日`;
+};
 const platformName = (p: string) =>
   ({
     x: "X / Twitter",
@@ -239,7 +238,7 @@ function Connect({ onConnect }: { onConnect: (c: Connection) => void }) {
               <Orbit size={290} />
             </View>
             <T style={[s.label, { color: "#B7C1AD", marginBottom: 24 }]}>
-              STAY CURIOUS. STAY AHEAD.
+              保持好奇，紧跟前沿。
             </T>
             <T style={s.heroTitle}>读懂 AI 的{`\n`}下一步。</T>
             <T style={{ color: "#BBC6B6", fontSize: 12, marginTop: 22 }}>
@@ -532,7 +531,9 @@ function Reader({
           </T>
         )}
         {!chineseReady(a) && !!translationNote(a) && (
-          <T style={[s.muted, { fontSize: 11, marginTop: 10 }]}>{translationNote(a)}</T>
+          <T style={[s.muted, { fontSize: 11, marginTop: 10 }]}>
+            {translationNote(a)}
+          </T>
         )}
         <View style={[s.spread, { marginTop: 16 }]}>
           <T numberOfLines={1} style={[s.muted, { maxWidth: "65%" }]}>
@@ -608,7 +609,7 @@ function Reader({
           contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 32 }}
         >
           <View style={[s.spread, { marginTop: 22, marginBottom: 16 }]}>
-            <T style={s.label}>YOUR DAILY PERSPECTIVE</T>
+            <T style={s.label}>每天，看见新进展</T>
             <Pressable
               accessibilityRole="button"
               onPress={() => setHistory(true)}
@@ -630,7 +631,7 @@ function Reader({
               <Orbit />
             </View>
             <T style={[s.label, { color: "#B7C1AD", marginBottom: 19 }]}>
-              THE AI BRIEFING
+              人工智能 · 每日简报
             </T>
             <T style={s.heroTitle}>保持好奇。{`\n`}看见下一步。</T>
             <View style={[s.row, { gap: 8, marginTop: 22 }]}>
@@ -702,7 +703,7 @@ function Reader({
               </View>
               <View style={[s.spread, { paddingVertical: 10 }]}>
                 <T style={s.sectionTitle}>值得关注</T>
-                <T style={s.label}>THE SIGNALS</T>
+                <T style={s.label}>值得关注的动态</T>
               </View>
               {d.stories.map((story, i) => (
                 <Pressable
@@ -784,7 +785,7 @@ function Reader({
               { textAlign: "center", fontSize: 9, marginTop: 35 },
             ]}
           >
-            LESS NOISE. MORE PERSPECTIVE.
+            少些噪音，多些洞见。
           </T>
         </ScrollView>
       ) : tab === "watches" ? (
@@ -1081,7 +1082,7 @@ function Reader({
             {detail.story ? (
               <>
                 <T style={[s.label, { color: C.accent, marginBottom: 14 }]}>
-                  {detail.story.category} / THE BIG PICTURE
+                  {detail.story.category} / 前沿观察
                 </T>
                 <T style={s.h1}>{detail.story.title}</T>
                 <T
@@ -1449,7 +1450,7 @@ function Reader({
         <T
           style={[s.label, { textAlign: "center", marginTop: 28, fontSize: 9 }]}
         >
-          AI RADAR / 前沿 · 0.1.0
+          AI RADAR / 前沿 · 0.2.0
         </T>
       </Sheet>
     </SafeAreaView>

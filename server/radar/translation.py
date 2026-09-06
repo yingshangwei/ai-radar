@@ -11,6 +11,7 @@ import re
 import unicodedata
 from collections import Counter
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from uuid import uuid4
 
 import httpx
@@ -24,6 +25,7 @@ HAN = re.compile(r"[\u3400-\u9fff]")
 URL = re.compile(r"https?://[^\s\u3400-\u9fff<>]+")
 MENTION = re.compile(r"(?<!\w)@[A-Za-z0-9_]+")
 NUMBER = re.compile(r"\d+(?:[.,]\d+)*")
+QUOTE_HEADER = re.compile(r"\[引用帖[^\]]*\]")
 MONTHS = list(
     zip(
         "January February March April May June July August September October November December".split(),
@@ -39,6 +41,7 @@ POLICY = """你是 AI 科技内容的严谨中英翻译编辑。任务是完整�
 英文单词表示的数字也用中文汉字表达，例如 one 译为一、June 译为六月，不额外引入阿拉伯数字。
 保留公司、产品、模型和代码标识原名（如 OpenAI、Claude、GPT、AIRA₃、API），普通英文句子必须翻译。
 来源本来为中文的内容保留原文。术语表是参考，须结合上下文，不能把开放权重擅自译成开源。
+形如 ⟪引用元信息-0⟫ 的占位符必须逐字原样保留，不得改写或遗漏。
 每个输入项对应一个输出项，id 原样返回，不得合并或遗漏。只返回 JSON 对象：
 {"translations":[{"id":"title","zh":"中文译文","approved":true,"issues":[]}]}
 """
@@ -46,6 +49,8 @@ REVIEW = """你现在独立校对译文。逐句对照完整原文，而非仅�
 重点检查数字/单位、专有名词、主客体、否定、因果、比较方向、事实与推测、引用归属、删漏和增译。
 直接修正能够确定的错误，输出完整修正译文。仍不能确定忠实性的项目设 approved=false，
 issues 用简短中文说明具体疑点；只有逐句核对通过才设 approved=true。不要给出无依据的准确率。
+issues 只列修正后仍未解决的疑点；已修复的问题和通过的检查不要列入 issues。
+不得改写方括号中的引用元信息；保留形如 ⟪引用元信息-0⟫ 的占位符原样。
 """
 
 
@@ -87,6 +92,33 @@ def quality_issues(source: str, chinese: str) -> list[str]:
         for index, (english, chinese) in reversed(list(enumerate(MONTHS, 1))):
             value = re.sub(r"\b" + english + r"\b", str(index) + "月", value)
             value = value.replace(chinese, str(index) + "月")
+        scales = {
+            "billion": 10**9,
+            "million": 10**6,
+            "thousand": 10**3,
+            "B": 10**9,
+            "M": 10**6,
+            "K": 10**3,
+            "k": 10**3,
+            "十亿": 10**9,
+            "千万": 10**7,
+            "百万": 10**6,
+            "亿": 10**8,
+            "万": 10**4,
+            "千": 10**3,
+        }
+        pattern = (
+            r"(\d+(?:,\d{3})*(?:\.\d+)?)\s*(billion\b|million\b|thousand\b|[BMKk]\b|十亿|千万|百万|亿|万|千)"
+        )
+        value = re.sub(
+            pattern, lambda m: format((Decimal(m[1].replace(",", "")) * scales[m[2]]).normalize(), "f"), value
+        )
+        digits = "零一二三四五六七八九十"
+        value = re.sub(
+            r"第([一二三四五六七八九十])(?![一二三四五六七八九十百千万])",
+            lambda m: "第" + str(digits.index(m[1])),
+            value,
+        )
         numbers = NUMBER.findall(unicodedata.normalize("NFKC", value))
         # A thousands separator may disappear in Chinese; values and decimals may not.
         return Counter(re.sub(r",(?=\d{3}(?:\D|$))", "", n) for n in numbers)
@@ -99,7 +131,11 @@ def quality_issues(source: str, chinese: str) -> list[str]:
     if Counter(MENTION.findall(source)) != Counter(MENTION.findall(chinese)):
         issues.append("引用账号不一致")
     for symbol in ["%", "$", "€", "£", "¥"]:
-        if source.count(symbol) != chinese.count(symbol):
+        normalized_source, normalized_chinese = source, chinese
+        for word, marker in [("美元", "$"), ("欧元", "€"), ("英镑", "£")]:
+            normalized_source = normalized_source.replace(word, marker)
+            normalized_chinese = normalized_chinese.replace(word, marker)
+        if normalized_source.count(symbol) != normalized_chinese.count(symbol):
             issues.append("百分比或货币标记不一致")
             break
     prose = MENTION.sub("", URL.sub("", source))
@@ -222,7 +258,18 @@ class TranslationService:
         from openai import AsyncOpenAI
 
         config = self.config
-        payload = {"glossary": config.glossary, "untrusted_parts": parts}
+        protected, headers = [], {}
+        for part in parts:
+            headers[part["id"]] = QUOTE_HEADER.findall(part["source"])
+            copy = dict(part)
+            for field in ("source", "draft"):
+                if field in copy:
+                    index = iter(range(len(headers[part["id"]])))
+                    copy[field] = QUOTE_HEADER.sub(
+                        lambda m, index=index: f"⟪引用元信息-{next(index, 'unknown')}⟫", copy[field]
+                    )
+            protected.append(copy)
+        payload = {"glossary": config.glossary, "untrusted_parts": protected}
         async with AsyncOpenAI(
             api_key=secret(config.api_key_env),
             base_url=config.base_url,
@@ -248,6 +295,12 @@ class TranslationService:
         byid = {p.id: p for p in result.translations}
         if len(byid) != len(result.translations) or set(byid) != {p["id"] for p in parts}:
             raise ValueError("翻译段落未一一对应")
+        for uid, translated in byid.items():
+            for index, header in enumerate(headers[uid]):
+                marker = f"⟪引用元信息-{index}⟫"
+                if translated.zh.count(marker) != 1:
+                    raise ValueError("引用元信息未完整保留")
+                translated.zh = translated.zh.replace(marker, header)
         return byid
 
     async def auxiliary(self, parts: list[dict]) -> dict[str, str]:

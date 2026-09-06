@@ -194,6 +194,10 @@ def test_parts_preserve_long_content_and_policy_invalidation():
     assert quality_issues("Model v1.2 costs $20 at 50%.", "模型 v1.2 价格 $20，比例为 50%。") == []
     assert quality_issues("AI reached 4,000 teams.", "AI 覆盖 4000 支队伍。") == []
     assert quality_issues("AI reached 4,000 teams.", "AI 覆盖 400 支队伍。")
+    assert quality_issues("In June, 13 million lines of AI code.", "六月，1300 万行 AI 代码。") == []
+    assert quality_issues("AI investment: $1 billion.", "AI 投资：10 亿美元。") == []
+    assert quality_issues("AI investment: $1 billion.", "AI 投资：1 亿美元。")
+    assert quality_issues("AI ranked 8th.", "AI 排名第八。") == []
 
 
 @pytest.mark.asyncio
@@ -241,6 +245,47 @@ async def test_auxiliary_is_only_a_hint_and_failure_is_optional(store, respx_moc
     assert await service.auxiliary([{"id": "x", "source": "AI agent"}]) == {"x": "一个提示"}
     route.mock(side_effect=httpx.ConnectError("offline"))
     assert await service.auxiliary([{"id": "x", "source": "AI agent"}]) == {}
+
+
+@pytest.mark.asyncio
+async def test_quote_header_survives_translation_without_model_date_reformatting(store, respx_mock):
+    route = respx_mock.post("https://api.deepseek.com/chat/completions").respond(
+        200,
+        json={
+            "id": "test",
+            "object": "chat.completion",
+            "created": 0,
+            "model": "test",
+            "choices": [
+                {
+                    "index": 0,
+                    "finish_reason": "stop",
+                    "message": {
+                        "role": "assistant",
+                        "content": json.dumps(
+                            {
+                                "translations": [
+                                    {
+                                        "id": "body-0",
+                                        "zh": "智能体\n⟪引用元信息-0⟫\n模型",
+                                        "approved": True,
+                                        "issues": [],
+                                    }
+                                ]
+                            }
+                        ),
+                    },
+                }
+            ],
+        },
+    )
+    header = "[引用帖：@OpenAI，2026-09-03T09:50:50.000Z]"
+    service = TranslationService(store, TranslationConfig(enabled=True))
+    result = await service.request(
+        [{"id": "body-0", "source": "AI agents\n" + header + "\nAI models"}], review=False
+    )
+    assert header in result["body-0"].zh
+    assert header not in json.loads(route.calls[0].request.content)["messages"][1]["content"]
 
 
 def test_existing_database_api_chinese_search_and_citation_without_model_calls(tmp_path, monkeypatch):

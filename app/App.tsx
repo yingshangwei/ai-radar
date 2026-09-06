@@ -62,6 +62,13 @@ const shortDate = (value: string) => {
   const date = new Date(value);
   return `${date.getMonth() + 1}月${date.getDate()}日`;
 };
+const dateTime = (value: string) => {
+  const date = new Date(value);
+  const time = [date.getHours(), date.getMinutes(), date.getSeconds()]
+    .map((part) => String(part).padStart(2, "0"))
+    .join(":");
+  return `${date.getFullYear()}年${shortDate(value)} ${time}`;
+};
 const platformName = (p: string) =>
   ({
     x: "X / Twitter",
@@ -757,8 +764,7 @@ function Reader({
                       : demo
                         ? "以上内容为虚构设计示例。"
                         : "由 AI 整理，保留原始引用。判断与推测请以原文为准。"}
-                  {`\n`}统计至 {new Date(d.window_end).toLocaleString("zh-CN")}
-                  。
+                  {`\n`}统计至 {dateTime(d.window_end)}。
                 </T>
               </View>
               {d.coverage.some((x) => x.status !== "healthy") && !demo && (
@@ -1175,9 +1181,7 @@ function Reader({
                   {detail.article.author} ·{" "}
                   {detail.article.published_precision === "date"
                     ? `${shortDate(detail.article.published_at)}（来源仅公布日期）`
-                    : new Date(detail.article.published_at).toLocaleString(
-                        "zh-CN",
-                      )}
+                    : dateTime(detail.article.published_at)}
                 </T>
                 {!!translationNote(detail.article) && (
                   <T style={[s.muted, { marginBottom: 16, fontSize: 11 }]}>
@@ -1393,7 +1397,7 @@ function Reader({
             {source.last_success_at && (
               <T style={[s.muted, { fontSize: 10, marginTop: 5 }]}>
                 最近成功：
-                {new Date(source.last_success_at).toLocaleString("zh-CN")}
+                {dateTime(source.last_success_at)}
               </T>
             )}
           </View>

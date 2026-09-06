@@ -499,12 +499,14 @@ function Reader({
           <T style={s.muted}>{shortDate(a.published_at)}</T>
         </View>
         <T style={s.cardTitle}>{a.title}</T>
-        <T
-          numberOfLines={2}
-          style={[s.muted, { fontSize: 13, lineHeight: 23, marginTop: 9 }]}
-        >
-          {a.text}
-        </T>
+        {a.text.trim() !== a.title.trim() && (
+          <T
+            numberOfLines={2}
+            style={[s.muted, { fontSize: 13, lineHeight: 23, marginTop: 9 }]}
+          >
+            {a.text}
+          </T>
+        )}
         <View style={[s.spread, { marginTop: 16 }]}>
           <T numberOfLines={1} style={[s.muted, { maxWidth: "65%" }]}>
             {a.author} · {a.topics[0]}
@@ -1119,7 +1121,9 @@ function Reader({
                   selectable
                   style={[s.body, { fontSize: 16, lineHeight: 30 }]}
                 >
-                  {detail.article.text}
+                  {detail.article.text.trim() === detail.article.title.trim()
+                    ? "此来源仅提供标题，可打开原始链接阅读全文。"
+                    : detail.article.text}
                 </T>
                 <View style={[s.row, { gap: 12, marginTop: 28 }]}>
                   <Pressable

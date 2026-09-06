@@ -8,6 +8,8 @@
 
 [X 官方搜索接入文档](https://docs.x.com/x-api/posts/search/integrate/overview)
 
+2026-09-07 接入状态：用户已登录 X，AI Radar 开发者账号与应用已创建；余额为 0，最低充值选项为 5 美元。未付款，等待用户决定是否使用付费 API；尚未提取或配置 Bearer Token，定时任务不会因此产生 X API 费用。
+
 ## Facebook
 
 配置 `FACEBOOK_ACCESS_TOKEN` 与 `facebook_page_ids`（数字 Page ID）；Graph API 版本通过 `facebook_version` 替换。请求已授权 Page 的 `/posts`，读取原文、发布时间、原始链接、反应数、评论数和分享数。
@@ -16,9 +18,13 @@
 
 [Meta Page Public Content Access](https://developers.facebook.com/docs/features-reference/page-public-content-access/)
 
+2026-09-07 用户反馈 Facebook 账号需要审核，暂时无法继续授权。保留未接通状态；已另外接入 Meta Newsroom 官方 RSS，补充公司的一手 AI 新闻。这不覆盖 Facebook 用户、Page 或社交互动数据。
+
 ## 官方网站与 RSS
 
 直接使用发布方的公开内容，作为独立的一手渠道。Anthropic 新闻页通过 Beautiful Soup 解析可见的标题、日期和简介，不使用未公开的内部 API。仅公布日期的来源会标记 `published_precision=date`，归一化为 UTC 当日零点；这不声称知道准确发布时刻。页面结构改变后会报告解析错误。
+
+Meta 使用 [官方 Newsroom RSS](https://about.fb.com/feed/)，沿用相同日期、主题与去重规则；全站新闻中的非 AI 内容会被过滤。目前 Meta 输入使用 RSS 原始摘录，正文提取白名单尚未包含 Meta，摘要模型会收到明确的摘录证据标记。
 
 生成日报时使用成熟的 [Trafilatura](https://trafilatura.readthedocs.io/en/latest/quickstart.html) 提取官方文章正文，避免只依据 RSS 标题分析。仅允许明确列出的官方发布方 HTTPS 域名，逐次验证重定向；用户导入的任意 URL 不会触发服务端抓取。正文读取失败时保留原始摘录，并向摘要模型标明证据类型。可用 `enrich_official_articles=false` 关闭。
 

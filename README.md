@@ -20,7 +20,7 @@ ai-radar/
 
 - 每日中文汇报、历史日报、信号详情、原始引用；无新增内容时明确说明来源覆盖与数据空缺。
 - X/Twitter 官方搜索 API（关键词发现 + 重点账号），Facebook Graph API（授权主页）；支持分页、互动指标与显式授权/限额状态。
-- OpenAI、Google AI、DeepMind、Hugging Face 官方 RSS，以及 Anthropic 官方新闻页。
+- OpenAI、Google AI、DeepMind、Hugging Face、Meta Newsroom 官方 RSS，以及 Anthropic 官方新闻页。
 - 重点账号管理、可配置热度门槛、AI 主题过滤、最近一周的信息流、关键词检索与收藏。
 - 可切换 Codex CLI、Claude Code CLI、自定义 CLI、OpenAI Responses、兼容 Chat Completions 的服务、Anthropic API。模型与服务地址均为配置项。
 - 手机使用系统安全存储保存设备令牌；网页预览只使用会话存储。缓存文章和日报可离线阅读，认证失败不会被缓存掩盖。
@@ -32,7 +32,7 @@ ai-radar/
 
 服务地址为 `https://radar.yswdra.cn`，已部署到指定腾讯云实例；[健康检查](https://radar.yswdra.cn/healthz)可公开访问，内容接口需要设备令牌。本机连接信息保存在未纳入 Git 的 `credentials/cloud-reader.env`，只允许当前用户读取。App 连接页填写其中的服务地址和 reader token。
 
-已完成云端采集与 HTTPS 鉴权验证，当前有 23 条真实官方信息。2026-09-07 已完成服务器 Codex 设备授权，并通过真实模型调用生成 9 月 4 日历史日报（6 条总结、9 个来源）；每天北京时间 08:00 汇报、每两小时采集已开启。X/Facebook 接入以及原生安装包仍待完成。当天无新增报告明确披露来源覆盖，不能视为已完成全网 AI 动态汇报。
+已完成云端采集与 HTTPS 鉴权验证，截至 2026-09-07 00:52 有 25 条真实官方信息、6 个健康来源。服务器 Codex 设备授权和真实模型调用已通过，9 月 4 日历史日报包含 6 条总结、9 个来源；每天北京时间 08:00 汇报、每两小时采集已开启。Android 0.1.0 签名安装包已构建并通过模拟器云端读写和离线检查，位于本机 `dist/ai-radar-0.1.0-android.apk`。X 官方 API 等待充值选择与凭据接入，Facebook 账号正在审核，iOS 等待 Expo 授权后构建。Meta 官方新闻是独立来源，不代表 Facebook 社交帖已接通。
 
 ## 本地启动
 
@@ -78,7 +78,7 @@ pnpm exec expo export --platform all
 
 `app/android` 和 `app/ios` 是已生成的原生工程。修改 Expo 配置后运行 `pnpm prebuild`，不要使用会删除原生更改的 `--clean`。
 
-- Android：JDK 17、SDK 36、Build Tools 36.0.0、NDK 27.1.12297006；`cd app/android && ./gradlew assembleDebug`。Debug 版本需要 Metro。独立安装包应通过 EAS preview 或配置签名后构建 release。
+- Android：独立签名 Release 已完成；使用 `python3 scripts/build-android.py` 构建，环境、签名备份和本机 Google 下载兼容选项见 [Android 构建说明](docs/ANDROID.md)。Debug 版本需要 Metro。
 - iOS：完整 Xcode 26.2+、CocoaPods；`cd app && pnpm ios`。真机包需要 Apple 签名，模拟器包不等同于可安装 IPA。
 - EAS 官方云构建：`cd app && pnpm dlx eas-cli login`，授权后运行 `pnpm dlx eas-cli build --platform android --profile preview` 或 `--platform ios --profile preview`。配置见 `eas.json`，不会自动提交应用商店。
 

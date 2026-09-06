@@ -104,15 +104,24 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        release {
+            // Local builds read private signing credentials from the environment.
+            // EAS can populate this standard release signing config on its worker.
+            def keystorePath = System.getenv('AIRADAR_ANDROID_KEYSTORE')
+            if (keystorePath) {
+                storeFile file(keystorePath)
+                storePassword System.getenv('AIRADAR_ANDROID_STORE_PASSWORD')
+                keyAlias System.getenv('AIRADAR_ANDROID_KEY_ALIAS')
+                keyPassword System.getenv('AIRADAR_ANDROID_KEY_PASSWORD')
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.release
             def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
             shrinkResources enableShrinkResources.toBoolean()
             minifyEnabled enableMinifyInReleaseBuilds
@@ -129,6 +138,16 @@ android {
     }
     androidResources {
         ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:!CVS:!thumbs.db:!picasa.ini:!*~'
+    }
+}
+
+tasks.configureEach { task ->
+    if (task.name in ['packageRelease', 'bundleRelease']) {
+        task.doFirst {
+            if (!android.signingConfigs.release.storeFile) {
+                throw new GradleException('Release signing is missing. Configure AIRADAR_ANDROID_* credentials or use EAS managed signing. See docs/ANDROID.md.')
+            }
+        }
     }
 }
 

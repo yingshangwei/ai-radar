@@ -1,0 +1,18 @@
+// This invocation only: use Google's alternate TLS download hostname.
+// Dependencies, paths, TLS verification and artifact versions are unchanged.
+import org.gradle.api.artifacts.repositories.MavenArtifactRepository
+def useGoogleEndpoint = { repositories ->
+    repositories.withType(MavenArtifactRepository).configureEach { repository ->
+        if (repository.url.host == 'dl.google.com') {
+            repository.url = new URI(repository.url.toString().replace('://dl.google.com/', '://dl-ssl.google.com/'))
+        }
+    }
+}
+gradle.beforeSettings { settings ->
+    useGoogleEndpoint(settings.pluginManagement.repositories)
+    useGoogleEndpoint(settings.dependencyResolutionManagement.repositories)
+}
+gradle.beforeProject { project ->
+    useGoogleEndpoint(project.buildscript.repositories)
+    useGoogleEndpoint(project.repositories)
+}

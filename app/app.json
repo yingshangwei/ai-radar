@@ -14,7 +14,13 @@
     },
     "android": {
       "package": "cn.yswdra.airadar",
-      "permissions": []
+      "permissions": [],
+      "blockedPermissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.VIBRATE"
+      ]
     },
     "web": { "name": "前沿 · AI Radar", "bundler": "metro" },
     "plugins": ["expo-secure-store"]

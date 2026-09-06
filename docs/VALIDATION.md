@@ -9,6 +9,9 @@
 | TypeScript | `tsc --noEmit` 通过 |
 | Expo 依赖匹配 | `expo install --check` 通过 |
 | 原生工程生成 | Android / iOS prebuild 通过 |
+| Android Release 安装包 | 四 ABI、API 24+、私有 RSA 3072 签名，APK Signature v2 校验通过；内置 Hermes，无需 Metro；设备令牌和签名密码未进入包内 |
+| Android 实际运行 | Android 16/API 36 ARM64 模拟器安装启动成功；连接腾讯云、当期与历史日报、文章详情、收藏写入和取消、收藏列表均验证；云端确认测试收藏已恢复原状态 |
+| Android 更新与离线 | 覆盖安装后登录保留；关闭模拟器 Wi-Fi/数据并冷启动，日报与信息流缓存可读且明确显示离线提示；网络已恢复，未发现 AndroidRuntime/ReactNativeJS 致命错误 |
 | 三平台 JS 产物 | Android Hermes、iOS Hermes、Web export 全部通过 |
 | 依赖审计 | Python 锁文件 `pip-audit` 与 App `pnpm audit --prod` 均未发现已知漏洞 |
 | 真实官方采集 | 5 个官方来源已读取，收录近一周 23 条有效信息 |
@@ -23,6 +26,7 @@
 | Linux Codex 安装与授权 | 0.153.3 完整官方原生 bundle 经 SHA-512 与包清单校验，实际执行 `codex --version` 通过；9 月 7 日设备授权成功，独立服务用户的 `codex login status` 返回已登录 ChatGPT |
 | 云端真实模型日报 | 管理 API 触发 2026-09-04 历史日报，Codex 任务在约 57 秒内完成；公网读取验证 6 条中文总结、9 个真实来源，所有引用 ID 均匹配原文。该历史回放确实调用模型，不能与无新增报告混淆 |
 | 云端调度配置 | 真实模型任务完成后开启；API 返回 `scheduler_enabled=true`，每天北京时间 08:00 汇报、每两小时采集。首轮定时触发尚未到时，已验证的是人工触发的同一处理流程 |
+| Meta 官方新闻源 | 9 月 7 日 00:52 云端采集完成，Meta Newsroom 读取 10 条并接受 1 条符合时效/AI 筛选的消息；本轮另新增 1 条 OpenAI 消息，总计 25 条、6 个健康官方来源；Facebook 社交 API 仍未授权 |
 
 模型 API 的 OpenAI、Chat Completions、Anthropic 分支通过模拟响应测试；**只有 Codex 分支已用真实账号调用**。Claude Code CLI 与 Generic CLI 均实现适配，Generic CLI 已用真实子进程契约测试，Claude CLI 尚未完成真实授权联调。
 
@@ -30,10 +34,17 @@
 
 ## 尚未完成，不能视为已交付
 
-1. **X 与 Facebook 实际采集**：官方适配与模拟接口测试已完成，实际账户授权仍待用户。浏览器 X 未登录，登录页面已保留。Facebook 的 Graph API 读取还需要具体应用权限与 Page ID。
-2. **可安装 APK**：原生 Gradle 构建实际尝试过；Gradle 9 下载成功，但原生插件依赖解析失败；SDK 36、Build Tools 36 和 NDK 27.1 下载持续超时/SSL 握手失败。云端部署后再次使用本机现有代理复查：Gradle 插件仓库可访问，但 Google Maven 的 TLS 握手仍超时，Gradle 配置阶段失败。当前没有 APK。不能将 Hermes bundle 当作 APK。
-3. **可安装 IPA/模拟器原生构建**：本机只有 Command Line Tools，没有完整 Xcode；等待安装 Xcode 或授权 Expo EAS。iOS 工程和 Hermes bundle 不是经过签名的 IPA。
+1. **X 与 Facebook 实际采集**：X 已在 Chrome 登录并完成开发者账号开通，官方 API 余额为 0；已准备最低 5 美元充值选项，尚未付款，等待用户选择。Bearer Token 尚未接入服务器。Facebook 账号正在审核，后续 Graph API 还需具体应用权限与 Page ID。
+2. **Android 真机与商店发布**：已交付本机签名 APK 并通过原生模拟器验证；尚未在用户手机上安装，也未提交应用商店。
+3. **可安装 IPA/模拟器原生构建**：本机只有 Command Line Tools，没有完整 Xcode；Expo 官方浏览器登录正在等待用户完成。iOS 工程和 Hermes bundle 不是经过签名的 IPA。
 4. **账号身份细节**：Tibo 默认设为 `tibo_maker`，仍待用户确认。关注名单可以在 App 中调整。
+
+## Android 交付产物
+
+- 文件：`dist/ai-radar-0.1.0-android.apk`（68,515,641 字节），校验文件位于同目录。
+- SHA-256：`473a360d55c4b00c4b62059dfad9563d6f3b7049d690ee8eaa8ba962c54f0524`。
+- 包名 `cn.yswdra.airadar`，版本 `0.1.0` / `1`。构建方式与签名备份见 [ANDROID.md](ANDROID.md)。
+- 原生测试截图和日志保存在本机 Git 忽略的 `dist/android-smoke/`，不包含登录令牌。
 
 ## 本地查看
 
@@ -42,4 +53,4 @@
 - 当前 Chrome 预览另接 `127.0.0.1:18474` 的本机测试实例，使用非生产的临时 reader token，管理操作禁用。生产部署不会使用该测试令牌。
 - 这些本地进程只在本机运行期间可用；启动命令见 README。
 
-下一步以授权和网络条件解决后的真实部署、原生构建、端到端复验为准，不重复把已经完成的代码当成整项任务完成。
+后续以 X/Facebook 的实际接入、iOS 原生构建与真机检查为准；上述进展不代表整项跨平台目标已完成。

@@ -20,4 +20,5 @@ Pods/
 *.keystore
 !debug.keystore
 credentials/
+credentials.json
 secrets/

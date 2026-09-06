@@ -11,11 +11,11 @@ WorkingDirectory=/opt/ai-radar/current/server
 EnvironmentFile=/etc/ai-radar/server.env
 Environment=HOME=/var/lib/ai-radar
 Environment=CODEX_HOME=/var/lib/ai-radar/codex
-Environment=PATH=/opt/ai-radar/tools/bin:/opt/ai-radar/venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=/opt/ai-radar/tools/bin:/opt/ai-radar/current/.venv/bin:/usr/local/bin:/usr/bin:/bin
 Environment=RADAR_DATABASE_URL=sqlite:////var/lib/ai-radar/radar.db
 Environment=RADAR_CONFIG_PATH=/etc/ai-radar/config.toml
-Environment=RADAR_SCHEDULER_ENABLED=true
-ExecStart=/opt/ai-radar/venv/bin/uvicorn radar.api:create_app --factory --host 127.0.0.1 --port 18473 --workers 1 --no-access-log
+Environment=RADAR_SCHEDULER_ENABLED=false
+ExecStart=/opt/ai-radar/current/.venv/bin/uvicorn radar.api:create_app --factory --host 127.0.0.1 --port 18473 --workers 1 --no-access-log
 Restart=on-failure
 RestartSec=10
 TimeoutStopSec=30

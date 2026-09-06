@@ -10,8 +10,6 @@ services:
       - "127.0.0.1:18473:18473"
     env_file:
       - /etc/ai-radar/server.env
-    environment:
-      RADAR_SCHEDULER_ENABLED: "true"
     volumes:
       - radar-data:/data
       - /etc/ai-radar/config.toml:/srv/radar/config.toml:ro

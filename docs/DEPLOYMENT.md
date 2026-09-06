@@ -14,7 +14,7 @@
 | 系统用户 | `ai-radar`，无交互登录 shell |
 | 代码发布 | `/opt/ai-radar/releases/<release>` |
 | 当前版本 | `/opt/ai-radar/current` |
-| Python 环境 | `/opt/ai-radar/venv` |
+| Python 环境 | 每个 release 下独立的 `.venv`，通过 `/opt/ai-radar/current/.venv` 使用 |
 | Codex 二进制 | `/opt/ai-radar/tools/bin/codex` |
 | 数据和独立模型授权 | `/var/lib/ai-radar` |
 | 配置 | `/etc/ai-radar/config.toml` |
@@ -49,7 +49,7 @@ tar -xzf /root/ai-radar-server-20260906.tar.gz -C /opt/ai-radar/releases/2026090
 bash /opt/ai-radar/releases/20260906/scripts/install-server.sh
 ```
 
-安装脚本检查端口冲突，创建独立用户、虚拟环境和 service，通过锁文件校验依赖。初次自动生成服务令牌但不打印。只更新 AI Radar 自己的文件；如果原来已有 AI Radar 版本，健康检查失败会恢复原来的代码链接。
+安装脚本检查端口冲突，创建独立用户、虚拟环境和 service，通过锁文件校验依赖。初次自动生成服务令牌但不打印。每次升级必须使用新的 release 目录，脚本拒绝改写当前运行版本；旧版本的 Python 依赖不会被覆盖。切换后的任何启动或健康检查失败都会恢复旧代码链接、旧 service 文件及启用/运行状态。首次安装失败会停止并禁用新服务，保留文件供诊断。
 
 该脚本会安装 Python venv 所需的系统包。不会修改现有域名、SSH 授权、防火墙、反向代理或其他业务端口。完成后先验证 `curl http://127.0.0.1:18473/healthz`。
 

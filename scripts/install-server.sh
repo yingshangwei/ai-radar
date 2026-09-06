@@ -1,19 +1,29 @@
 #!/usr/bin/env bash
 # Install an already-uploaded, reviewed release on Ubuntu; does not change firewall, DNS or reverse proxy.
 set -euo pipefail
+umask 022
 [[ "$(id -u)" == 0 ]] || { echo 'Run as root on the target server.' >&2; exit 1; }
 RADAR_RELEASE="$(cd "$(dirname "$0")/.." && pwd)"
-RADAR_PREVIOUS="$(readlink -f /opt/ai-radar/current 2>/dev/null || true)"
+RADAR_PREVIOUS=""
+if [[ -L /opt/ai-radar/current ]]; then
+    RADAR_PREVIOUS="$(readlink -f /opt/ai-radar/current)"
+elif [[ -e /opt/ai-radar/current ]]; then
+    echo 'The current release path is not a symlink; refusing to replace it.' >&2; exit 1
+fi
+RADAR_VENV="$RADAR_RELEASE/.venv"
+if [[ "$RADAR_PREVIOUS" == "$RADAR_RELEASE" ]]; then
+    echo 'This release is already active. Upload to a new release directory for an upgrade.' >&2; exit 1
+fi
 if [[ -n "$(ss -H -ltn 'sport = :18473')" ]] && ! systemctl is-active --quiet ai-radar; then
     echo 'Port 18473 belongs to another service; stopping.' >&2; exit 1
 fi
-if ! python3 -m venv /opt/ai-radar/venv; then
+if ! python3 -m venv "$RADAR_VENV"; then
     apt-get update -qq
     DEBIAN_FRONTEND=noninteractive apt-get install -y python3-venv
-    python3 -m venv /opt/ai-radar/venv
+    python3 -m venv "$RADAR_VENV"
 fi
-/opt/ai-radar/venv/bin/pip install --require-hashes -r "$RADAR_RELEASE/server/requirements.lock"
-/opt/ai-radar/venv/bin/pip install --no-deps -e "$RADAR_RELEASE/server"
+"$RADAR_VENV/bin/pip" install --require-hashes -r "$RADAR_RELEASE/server/requirements.lock"
+"$RADAR_VENV/bin/pip" install --no-deps -e "$RADAR_RELEASE/server"
 id ai-radar >/dev/null 2>&1 || useradd --system --user-group --home-dir /var/lib/ai-radar --shell /usr/sbin/nologin ai-radar
 install -d -m 0750 -o ai-radar -g ai-radar /var/lib/ai-radar
 install -d -m 0700 -o ai-radar -g ai-radar /var/lib/ai-radar/codex
@@ -31,8 +41,42 @@ with os.fdopen(fd,'w') as f:
     f.write('RADAR_SCHEDULER_ENABLED=false\n')
 PY
 fi
+RADAR_WAS_ACTIVE=false
+RADAR_WAS_ENABLED=false
+systemctl is-active --quiet ai-radar && RADAR_WAS_ACTIVE=true
+systemctl is-enabled --quiet ai-radar && RADAR_WAS_ENABLED=true
+RADAR_UNIT=/etc/systemd/system/ai-radar.service
+RADAR_OLD_UNIT="$RADAR_RELEASE/.previous-ai-radar.service"
+if [[ -f "$RADAR_UNIT" ]]; then
+    cp -p "$RADAR_UNIT" "$RADAR_OLD_UNIT"
+fi
+rollback() {
+    local result=$?
+    trap - EXIT
+    if [[ "$result" == 0 ]]; then return; fi
+    set +e
+    systemctl stop ai-radar
+    if [[ -n "$RADAR_PREVIOUS" ]]; then
+        ln -sfn "$RADAR_PREVIOUS" /opt/ai-radar/current
+    fi
+    if [[ -f "$RADAR_OLD_UNIT" ]]; then
+        cp -p "$RADAR_OLD_UNIT" "$RADAR_UNIT"
+    fi
+    systemctl daemon-reload
+    if [[ "$RADAR_WAS_ENABLED" == true ]]; then
+        systemctl enable ai-radar
+    else
+        systemctl disable ai-radar
+    fi
+    if [[ "$RADAR_WAS_ACTIVE" == true && -n "$RADAR_PREVIOUS" ]]; then
+        systemctl restart ai-radar
+    fi
+    echo 'Activation failed; attempted to restore the previous release and service state. Check ai-radar logs and status.' >&2
+    exit "$result"
+}
+trap rollback EXIT
 ln -sfn "$RADAR_RELEASE" /opt/ai-radar/current
-install -m 0644 "$RADAR_RELEASE/deploy/ai-radar.service" /etc/systemd/system/ai-radar.service
+install -m 0644 "$RADAR_RELEASE/deploy/ai-radar.service" "$RADAR_UNIT"
 systemctl daemon-reload
 systemctl enable ai-radar
 systemctl restart ai-radar
@@ -44,11 +88,8 @@ for attempt in 1 2 3 4 5; do
     sleep 2
 done
 if [[ "$RADAR_HEALTHY" != true ]]; then
-    if [[ -n "$RADAR_PREVIOUS" && "$RADAR_PREVIOUS" != "$RADAR_RELEASE" ]]; then
-        ln -sfn "$RADAR_PREVIOUS" /opt/ai-radar/current
-        systemctl restart ai-radar
-    fi
     echo 'Health check failed. Review ai-radar service logs.' >&2; exit 1
 fi
+trap - EXIT
 echo 'AI Radar is running on localhost:18473. Automatic jobs remain disabled until source/model authorization.'
 echo 'Existing services, public ports and DNS were not modified.'

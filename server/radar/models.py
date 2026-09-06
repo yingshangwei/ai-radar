@@ -81,6 +81,54 @@ class TranslationAccountState(Base):
     observed_at: Mapped[str] = mapped_column(String(40), default=now_iso)
 
 
+class ArticleReading(Base):
+    __tablename__ = "article_reading"
+    article_id: Mapped[str] = mapped_column(ForeignKey("articles.id"), primary_key=True)
+    references: Mapped[list] = mapped_column(JSON, default=list)
+
+
+class WebDocument(Base):
+    __tablename__ = "web_documents"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    url: Mapped[str] = mapped_column(Text)
+    final_url: Mapped[str] = mapped_column(Text, default="")
+    title: Mapped[str] = mapped_column(Text, default="")
+    text: Mapped[str] = mapped_column(Text, default="")
+    content_hash: Mapped[str] = mapped_column(String(64), default="")
+    content_type: Mapped[str] = mapped_column(String(100), default="")
+    links: Mapped[list] = mapped_column(JSON, default=list)
+    partial: Mapped[bool] = mapped_column(Boolean, default=False)
+    status: Mapped[str] = mapped_column(String(40), default="pending")
+    message: Mapped[str] = mapped_column(Text, default="")
+    etag: Mapped[str] = mapped_column(Text, default="")
+    modified: Mapped[str] = mapped_column(Text, default="")
+    fetched_at: Mapped[str] = mapped_column(String(40), default="")
+    retry_at: Mapped[str] = mapped_column(String(40), default="")
+    analysis_id: Mapped[str] = mapped_column(String(64), default="", index=True)
+
+
+class ArticleDocument(Base):
+    __tablename__ = "article_documents"
+    article_id: Mapped[str] = mapped_column(ForeignKey("articles.id"), primary_key=True)
+    document_id: Mapped[str] = mapped_column(ForeignKey("web_documents.id"), primary_key=True)
+    relation: Mapped[str] = mapped_column(String(30))
+    label: Mapped[str] = mapped_column(String(300), default="")
+
+
+class DocumentAnalysis(Base):
+    __tablename__ = "document_analyses"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    title_zh: Mapped[str] = mapped_column(Text, default="")
+    summary_zh: Mapped[str] = mapped_column(Text, default="")
+    key_points_zh: Mapped[list] = mapped_column(JSON, default=list)
+    why_it_matters_zh: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(30), default="pending")
+    provider: Mapped[str] = mapped_column(String(60), default="")
+    model: Mapped[str] = mapped_column(String(100), default="")
+    retry_at: Mapped[str] = mapped_column(String(40), default="")
+    updated_at: Mapped[str] = mapped_column(String(40), default=now_iso)
+
+
 class SourceState(Base):
     __tablename__ = "sources"
     id: Mapped[str] = mapped_column(String(100), primary_key=True)

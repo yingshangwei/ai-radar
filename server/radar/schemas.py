@@ -1,8 +1,13 @@
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Annotated, Literal
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+class DirectReference(BaseModel):
+    url: str = Field(min_length=1, max_length=4000)
+    label: str = Field(default="", max_length=300)
 
 
 class IncomingArticle(BaseModel):
@@ -17,6 +22,7 @@ class IncomingArticle(BaseModel):
     published_precision: Literal["timestamp", "date"] = "timestamp"
     metrics: dict[str, int] = Field(default_factory=dict)
     source_id: str = Field(default="import", max_length=100)
+    references: list[DirectReference] = Field(default_factory=list, max_length=30)
 
     @field_validator("url")
     @classmethod
@@ -60,6 +66,20 @@ class DigestOutput(BaseModel):
     title: str = Field(min_length=1, max_length=160)
     overview: str = Field(min_length=1, max_length=2000)
     stories: list[Story] = Field(min_length=1, max_length=12)
+
+
+class DocumentSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source_id: str
+    title_zh: str = Field(min_length=1, max_length=200)
+    summary_zh: str = Field(min_length=1, max_length=1800)
+    key_points_zh: list[Annotated[str, Field(min_length=1, max_length=600)]] = Field(min_length=1, max_length=6)
+    why_it_matters_zh: str = Field(min_length=1, max_length=800)
+
+
+class ReadingOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    documents: list[DocumentSummary] = Field(min_length=1, max_length=8)
 
 
 class ImportBatch(BaseModel):

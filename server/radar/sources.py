@@ -8,6 +8,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from .config import FeedConfig, RadarConfig, secret
+from .links import html_references
 from .schemas import IncomingArticle
 
 
@@ -75,6 +76,7 @@ async def fetch_rss(client: httpx.AsyncClient, feed: FeedConfig) -> list[Incomin
                 author=feed.name,
                 published_at=datetime.fromtimestamp(calendar.timegm(stamp), UTC),
                 source_id=feed.id,
+                references=html_references(body, entry.link),
             )
         )
     return items
@@ -103,6 +105,19 @@ def x_text_with_quotes(post: dict, referenced: dict, users: dict) -> str:
     return "\n\n".join(part for part in parts if part)[:30000]
 
 
+def x_references(post: dict, referenced: dict) -> list[dict]:
+    posts = [post] + [referenced[r["id"]] for r in post.get("referenced_tweets", [])
+                      if r.get("type") == "quoted" and r["id"] in referenced]
+    refs = {}
+    for item in posts:
+        for entities in [item.get("entities", {}), (item.get("note_tweet") or {}).get("entities", {})]:
+            for entry in entities.get("urls", []):
+                url = entry.get("unwound_url") or entry.get("expanded_url") or entry.get("url")
+                if url and len(url) <= 4000:
+                    refs[url] = {"url": url, "label": (entry.get("title") or "")[:300]}
+    return list(refs.values())[:30]
+
+
 async def fetch_x(
     client: httpx.AsyncClient, config: RadarConfig, handles: list[str]
 ) -> list[IncomingArticle]:
@@ -124,7 +139,7 @@ async def fetch_x(
             "query": query,
             "max_results": config.x_page_size,
             "start_time": start,
-            "tweet.fields": "created_at,public_metrics,author_id,note_tweet,referenced_tweets",
+            "tweet.fields": "created_at,public_metrics,author_id,note_tweet,referenced_tweets,entities",
             "expansions": "author_id,referenced_tweets.id,referenced_tweets.id.author_id",
             "user.fields": "name,username",
         }
@@ -165,6 +180,7 @@ async def fetch_x(
                     handle=handle,
                     published_at=post["created_at"],
                     metrics=post.get("public_metrics", {}),
+                    references=x_references(post, referenced),
                 )
             next_token = body.get("meta", {}).get("next_token")
             if not next_token:

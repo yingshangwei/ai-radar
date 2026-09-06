@@ -15,7 +15,7 @@ from .schemas import ImportBatch
 
 def main():
     parser = argparse.ArgumentParser(description="AI Radar server operations")
-    parser.add_argument("action", choices=["init", "collect", "digest", "daily", "import", "translate"])
+    parser.add_argument("action", choices=["init", "collect", "digest", "daily", "import", "translate", "read"])
     parser.add_argument("--date", type=date.fromisoformat)
     parser.add_argument("--file", type=Path)
     parser.add_argument("--force", action="store_true")
@@ -39,9 +39,11 @@ def main():
             batch = ImportBatch.model_validate_json(args.file.read_text())
             with sessions.begin() as session:
                 print(json.dumps({"accepted": ingest(session, batch.articles, config)}))
-            if config.translation.enabled:
-                result = asyncio.run(Pipeline(sessions, config).translations.pending())
-                print(json.dumps(result, ensure_ascii=False))
+            if config.translation.enabled or config.reading.enabled:
+                pipeline = Pipeline(sessions, config)
+                uid = asyncio.run(pipeline.run("read" if config.reading.enabled else "translate"))
+                with sessions() as session:
+                    print(json.dumps(as_dict(session.get(Job, uid)), ensure_ascii=False))
         else:
             pipeline = Pipeline(sessions, config)
             uid = asyncio.run(pipeline.run(args.action, args.date, args.force))

@@ -11,6 +11,7 @@ from .enrichment import enrich
 from .models import Article, Digest, Job, SourceState, Watch, now_iso
 from .providers import make_provider
 from .ranking import article_id, canonicalize, classify, engagement, rank
+from .reading import ReadingService, remember_references, sync_documents
 from .schemas import IncomingArticle
 from .sources import SourceUnavailable, fetch_anthropic, fetch_facebook, fetch_rss, fetch_x
 from .translation import TranslationService, queue_article
@@ -42,7 +43,7 @@ def ingest(session, items: list[IncomingArticle], config: RadarConfig, authority
             continue
         uid = article_id(item)
         existing = session.get(Article, uid)
-        values = item.model_dump(exclude={"published_at"})
+        values = item.model_dump(exclude={"published_at", "references"})
         values.update(
             id=uid,
             published_at=item.published_at.isoformat(),
@@ -60,6 +61,9 @@ def ingest(session, items: list[IncomingArticle], config: RadarConfig, authority
             accepted += 1
         session.flush()
         queue_article(session, existing, config.translation)
+        remember_references(session, existing, [r.model_dump() for r in item.references])
+        if config.reading.enabled:
+            sync_documents(session, existing, config)
     return accepted
 
 
@@ -75,6 +79,7 @@ class Pipeline:
         self.sessions, self.config = sessions, config
         self.lock = asyncio.Lock()
         self.translations = TranslationService(sessions, config.translation)
+        self.reading = ReadingService(sessions, config, self.translations)
         with sessions.begin() as session:
             sources = [("x", "X / Twitter", "x"), ("facebook", "Facebook", "facebook")]
             sources += [(f.id, f.name, "rss") for f in config.feeds]
@@ -212,7 +217,9 @@ class Pipeline:
                     )
                 )
             return day.isoformat()
-        if self.config.enrich_official_articles:
+        if self.config.reading.enabled:
+            selected = self.reading.evidence(selected)
+        elif self.config.enrich_official_articles:
             selected = await enrich(selected)
         selected = await self.translations.evidence(selected)
         result = await make_provider(self.config.provider).generate(selected, day.isoformat())
@@ -259,6 +266,9 @@ class Pipeline:
                     message += f"中文版本 {counts.get('ready', 0)} 条"
                     waiting = sum(n for status, n in counts.items() if status != "ready")
                     message += f"，{waiting} 条仍在等待翻译或校对。" if waiting else "。"
+                if self.config.reading.enabled and kind != "translate":
+                    reading = await self.reading.pending(force=force if kind == "read" else False)
+                    message += f"本轮处理 {reading['fetched']} 个直接来源，完成 {reading['summarized']} 份网页解读。"
                 if kind in ("digest", "daily"):
                     message += f"已生成 {await self.digest(day or self.latest_day(), force)} 日报。"
                 with self.sessions.begin() as session:

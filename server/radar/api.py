@@ -160,7 +160,7 @@ def create_app(settings: Settings | None = None):
         row = session.get(Article, uid)
         if not row:
             raise HTTPException(404, "文章不存在")
-        return present_articles(session, [row], config.translation)[0]
+        return present_articles(session, [row], config.translation, full_resources=True)[0]
 
     @app.put("/v1/articles/{uid}/bookmark", dependencies=[Depends(authenticated)])
     def bookmark(uid: str, body: Bookmark, session=Depends(session_dep)):
@@ -223,18 +223,19 @@ def create_app(settings: Settings | None = None):
     async def import_articles(body: ImportBatch, session=Depends(session_dep)):
         count = ingest(session, body.articles, config)
         session.commit()
-        if config.translation.enabled and not pipeline.lock.locked() and not tasks:
-            job = Job(kind="translate")
+        if (config.translation.enabled or config.reading.enabled) and not pipeline.lock.locked() and not tasks:
+            kind = "read" if config.reading.enabled else "translate"
+            job = Job(kind=kind)
             session.add(job)
             session.commit()
-            task = asyncio.create_task(pipeline.run(kind="translate", job_id=job.id))
+            task = asyncio.create_task(pipeline.run(kind=kind, job_id=job.id))
             tasks.add(task)
             task.add_done_callback(tasks.discard)
         return {"accepted": count, "received": len(body.articles)}
 
     @app.post("/v1/admin/jobs", status_code=202, dependencies=[Depends(admin)])
     async def start_job(
-        kind: Literal["collect", "digest", "daily", "translate"] = "daily",
+        kind: Literal["collect", "digest", "daily", "translate", "read"] = "daily",
         day: date | None = None,
         force: bool = False,
         session=Depends(session_dep),

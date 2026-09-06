@@ -199,8 +199,11 @@ def queue_article(session, article: Article, config: TranslationConfig):
         session.add(ArticleTranslation(article_id=article.id, translation_id=row.id))
 
 
-def present_articles(session, articles, config: TranslationConfig) -> list[dict]:
+def present_articles(session, articles, config: TranslationConfig, *, full_resources=False) -> list[dict]:
+    from .reading import resource_views
+
     articles = list(articles)
+    resources = resource_views(session, [a.id for a in articles], config, full=full_resources)
     keys = [cache_key(a.title, a.text, config) for a in articles]
     translations = {t.id: t for t in session.scalars(select(Translation).where(Translation.id.in_(keys)))}
     output = []
@@ -209,6 +212,7 @@ def present_articles(session, articles, config: TranslationConfig) -> list[dict]
         row = translations.get(key)
         ready = row is not None and row.status == "ready"
         item.update(
+            resources=resources[article.id],
             title_zh=row.title_zh if ready else None,
             text_zh=row.text_zh if ready else None,
             translation={

@@ -32,6 +32,7 @@ import type {
   Article,
   Connection,
   Digest,
+  ReadResource,
   Status,
   Story,
   Watch,
@@ -448,6 +449,16 @@ function Reader({
       return { data: { items, total: items.length }, offline: false };
     },
   });
+  const articleDetails = useQuery({
+    queryKey: [...prefix, "article", detail?.article?.id],
+    enabled: !!detail?.article && !demo,
+    queryFn: () =>
+      cached<Article>(connection, `/v1/articles/${detail!.article!.id}`),
+  });
+  const resourceArticle =
+    articleDetails.data?.data?.id === detail?.article?.id
+      ? articleDetails.data?.data
+      : detail?.article;
   useEffect(() => {
     if (demo) void qc.invalidateQueries({ queryKey: [...prefix, "articles"] });
   }, [demoSaved]);
@@ -544,6 +555,12 @@ function Reader({
           <T style={s.muted}>{shortDate(a.published_at)}</T>
         </View>
         <T style={s.cardTitle}>{articleTitle(a)}</T>
+        {!!a.resources?.length && (
+          <T style={[s.muted, { color: C.green, marginTop: 8, fontSize: 11 }]}>
+            {a.resources.filter((r) => r.status === "ready").length} 份网页解读
+            · {a.resources.length} 个直接来源
+          </T>
+        )}
         {articleText(a).trim() !== articleTitle(a).trim() && (
           <T
             numberOfLines={2}
@@ -1221,6 +1238,31 @@ function Reader({
                       ? detail.article.text
                       : articleText(detail.article)}
                 </T>
+                {!!resourceArticle?.resources?.length && (
+                  <View style={{ marginTop: 28, marginBottom: 8 }}>
+                    <T style={s.sectionTitle}>网页与文章解读</T>
+                    <T
+                      style={[
+                        s.muted,
+                        { marginTop: 7, marginBottom: 18, fontSize: 11 },
+                      ]}
+                    >
+                      只读原文与直接关联内容，保留来源，方便核对。
+                    </T>
+                    {articleDetails.data?.offline && (
+                      <T style={[s.muted, { marginBottom: 12 }]}>
+                        当前显示已保存的离线内容。
+                      </T>
+                    )}
+                    {resourceArticle.resources.map((resource) => (
+                      <ResourceCard
+                        key={resource.id}
+                        resource={resource}
+                        onOpen={openSource}
+                      />
+                    ))}
+                  </View>
+                )}
                 <View style={[s.row, { gap: 12, marginTop: 28 }]}>
                   <Pressable
                     disabled={pending}
@@ -1479,7 +1521,7 @@ function Reader({
         <T
           style={[s.label, { textAlign: "center", marginTop: 28, fontSize: 9 }]}
         >
-          AI RADAR / 前沿 · 0.2.1
+          AI RADAR / 前沿 · 0.3.0
         </T>
       </Sheet>
     </SafeAreaView>
@@ -1488,6 +1530,127 @@ function Reader({
 function humanErrorOrEmpty(error: unknown) {
   return error ? humanError(error) : "";
 }
+function ResourceCard({
+  resource: r,
+  onOpen,
+}: {
+  resource: ReadResource;
+  onOpen: (url: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [original, setOriginal] = useState(false);
+  const domain = (() => {
+    try {
+      return new URL(r.resolved_url).hostname;
+    } catch {
+      return "来源网页";
+    }
+  })();
+  const waiting =
+    (
+      {
+        pending: "正在等待正文读取或内容解读。",
+        analysis_error: "正文已保存，解读暂未完成，后续任务会重试。",
+        auth_required: "页面需要授权或限制读取，尚未取得正文。",
+        restricted: "网站限制自动读取，尚未取得正文。",
+        blocked: "该链接不是可读取的公开网页。",
+        unavailable: "正文暂时无法读取。",
+        rate_limited: "访问频率受限，稍后重试。",
+      } as Record<string, string>
+    )[r.status] || "暂未完成内容解读。";
+  return (
+    <View style={[s.note, { marginBottom: 16, padding: 20 }]}>
+      <T style={[s.label, { color: C.green, marginBottom: 10 }]}>
+        {r.relation === "source"
+          ? "原文正文"
+          : r.relation === "mention"
+            ? "文中提及"
+            : "直接关联"}{" "}
+        · {domain}
+      </T>
+      <T style={[s.cardTitle, { fontSize: 19 }]}>{r.title_zh || r.title}</T>
+      {r.status === "ready" ? (
+        <>
+          <T selectable style={[s.body, { marginTop: 16, lineHeight: 27 }]}>
+            {r.summary_zh}
+          </T>
+          <View style={{ marginTop: 16, gap: 10 }}>
+            {r.key_points_zh.map((point, i) => (
+              <View key={i} style={{ flexDirection: "row", gap: 10 }}>
+                <T style={{ color: C.accent }}>•</T>
+                <T selectable style={[s.body, { flex: 1, lineHeight: 25 }]}>
+                  {point}
+                </T>
+              </View>
+            ))}
+          </View>
+          {!!r.why_it_matters_zh && (
+            <View style={{ marginTop: 18 }}>
+              <T style={[s.label, { marginBottom: 8 }]}>值得关注</T>
+              <T selectable style={[s.body, { lineHeight: 25 }]}>
+                {r.why_it_matters_zh}
+              </T>
+            </View>
+          )}
+        </>
+      ) : (
+        <T style={[s.muted, { marginTop: 14 }]}>{r.message || waiting}</T>
+      )}
+      {r.partial && (
+        <T style={[s.muted, { marginTop: 14 }]}>
+          已取得部分正文，解读仅依据这部分内容。
+        </T>
+      )}
+      {r.status === "ready" && r.fetch_status !== "fetched" && (
+        <T style={[s.muted, { marginTop: 14 }]}>
+          当前使用上次保存的正文。{r.message}
+        </T>
+      )}
+      <View style={[s.spread, { marginTop: 20 }]}>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => setExpanded(!expanded)}
+          disabled={!r.text}
+        >
+          <T style={{ color: r.text ? C.accent : C.muted, fontSize: 12 }}>
+            {expanded
+              ? "收起正文 ↑"
+              : r.text
+                ? "查看保存的正文 ↓"
+                : r.fetched_at
+                  ? "正文暂未加载"
+                  : "正文尚未保存"}
+          </T>
+        </Pressable>
+        <Pressable
+          accessibilityRole="link"
+          onPress={() => onOpen(r.resolved_url)}
+        >
+          <T style={{ color: C.accent, fontSize: 12 }}>打开来源 ↗</T>
+        </Pressable>
+      </View>
+      {expanded && (
+        <View style={{ marginTop: 20 }}>
+          {r.text_zh ? (
+            <Pressable onPress={() => setOriginal(!original)}>
+              <T style={{ color: C.accent, marginBottom: 12 }}>
+                {original ? "切换中文" : "切换原文"}
+              </T>
+            </Pressable>
+          ) : (
+            <T style={[s.muted, { marginBottom: 12 }]}>
+              中文正文尚待翻译或校对，当前显示原文。
+            </T>
+          )}
+          <T selectable style={[s.body, { lineHeight: 27 }]}>
+            {original || !r.text_zh ? r.text : r.text_zh}
+          </T>
+        </View>
+      )}
+    </View>
+  );
+}
+
 function TranslationNotice({
   status,
   offline,

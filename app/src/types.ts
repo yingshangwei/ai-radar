@@ -27,6 +27,26 @@ export interface Article {
   score: number;
   priority: boolean;
   saved: boolean;
+  resources?: ReadResource[];
+}
+export interface ReadResource {
+  id: string;
+  url: string;
+  resolved_url: string;
+  relation: "source" | "link" | "mention";
+  title: string;
+  title_zh?: string | null;
+  status: string;
+  fetch_status: string;
+  message: string;
+  partial: boolean;
+  fetched_at?: string | null;
+  summary_zh?: string | null;
+  key_points_zh: string[];
+  why_it_matters_zh?: string | null;
+  translation_status: string;
+  text?: string;
+  text_zh?: string | null;
 }
 export interface Story {
   title: string;

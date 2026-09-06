@@ -50,6 +50,22 @@ class TranslationConfig(BaseModel):
     })
 
 
+class ReadingConfig(BaseModel):
+    enabled: bool = False
+    max_links_per_article: int = Field(default=4, ge=1, le=10)
+    max_documents: int = Field(default=24, ge=1, le=100)
+    concurrency: int = Field(default=2, ge=1, le=4)
+    refresh_hours: int = Field(default=24, ge=1, le=168)
+    revision: str = "reading-zh-v1"
+    # Explicit names only; administrators can add verified article/app destinations.
+    mention_catalog: dict[str, str] = Field(default_factory=lambda: {
+        "ChatGPT": "https://openai.com/chatgpt/overview/",
+        "Claude Code": "https://www.anthropic.com/claude-code",
+        "Gemini CLI": "https://github.com/google-gemini/gemini-cli",
+        "Cursor": "https://www.cursor.com/",
+    })
+
+
 class RadarConfig(BaseModel):
     timezone: str = "Asia/Shanghai"
     daily_hour: int = Field(default=8, ge=0, le=23)
@@ -67,6 +83,7 @@ class RadarConfig(BaseModel):
     feeds: list[FeedConfig] = Field(default_factory=list)
     provider: ProviderConfig = Field(default_factory=ProviderConfig)
     translation: TranslationConfig = Field(default_factory=TranslationConfig)
+    reading: ReadingConfig = Field(default_factory=ReadingConfig)
 
     @field_validator("timezone")
     @classmethod

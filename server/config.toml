@@ -34,6 +34,17 @@ max_documents = 100
 # Optional self-hosted LibreTranslate draft aid, always reviewed by DeepSeek:
 # auxiliary_url = "http://127.0.0.1:5000"
 
+[reading]
+enabled = true
+max_links_per_article = 4
+max_documents = 24
+concurrency = 2
+refresh_hours = 24
+revision = "reading-zh-v1"
+# Only original-source links and verified named destinations are read; no recursive crawling.
+# [reading.mention_catalog]
+# "An explicitly named app" = "https://its-verified-official-site.example/"
+
 [[feeds]]
 id = "openai"
 name = "OpenAI News"

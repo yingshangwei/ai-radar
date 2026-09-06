@@ -43,11 +43,16 @@ def sync_documents(session, article: Article, config: RadarConfig):
     root_url = normalize_link(article.url)
     if article.platform in {"rss", "web"} and root_url:
         seeds.append({"url": root_url, "label": article.title[:300], "relation": "source"})
-    direct = list(source.references if source else []) + text_references(article.text)
+    direct = list(source.references if source else [])
+    expanded = {normalize_link(ref.get("short_url", "")) for ref in direct
+                if ref.get("short_url") and ref["short_url"] != ref["url"]}
+    direct += [ref for ref in text_references(article.text) if ref["url"] not in expanded]
     # Only the SOURCE page can contribute first-hop links. Child document links are never expanded.
     root = session.get(WebDocument, fingerprint(root_url)) if seeds else None
     if root:
-        direct += root.links
+        direct += [ref for ref in root.links if not (
+            urlsplit(ref['url']).hostname == urlsplit(root.final_url or root.url).hostname
+            and urlsplit(ref['url']).path.rstrip('/') in {'', '/blog', '/news', '/index'})]
     mentions = mentioned_references(article.title + "\n" + article.text, config.reading.mention_catalog)
     if root:
         mentions += mentioned_references(root.text, config.reading.mention_catalog)

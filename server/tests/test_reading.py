@@ -34,6 +34,8 @@ def test_explicit_references_and_normalization():
                            'https://example.org/') == [{'url': 'https://example.org/paper', 'label': '论文'}]
     assert mentioned_references('Use Claude Code, not Claude Coder.', {'Claude Code': 'https://example.org/'}) == [
         {'url': 'https://example.org/', 'label': 'Claude Code', 'relation': 'mention'}]
+    assert mentioned_references('使用Cursor开发', {'Cursor': 'https://cursor.com/'})
+    assert normalize_link('https://example.org/?key=a%20b&sig=c%2fd') == 'https://example.org/?key=a%20b&sig=c%2fd'
     post = {'entities': {'urls': [{'url': 'https://t.co/x', 'expanded_url': 'https://example.org/a',
                                   'unwound_url': 'https://example.org/final'}]},
             'referenced_tweets': [{'type': 'quoted', 'id': 'q'}]}
@@ -41,6 +43,7 @@ def test_explicit_references_and_normalization():
              'referenced_tweets': [{'type': 'quoted', 'id': 'deeper'}]}
     assert {r['url'] for r in x_references(post, {'q': quote, 'deeper': post})} == {
         'https://example.org/final', 'https://example.org/paper'}
+    assert x_references(post, {})[0]['short_url'] == 'https://t.co/x'
 
 
 @pytest.mark.parametrize('address', ['127.0.0.1', '10.0.0.1', '169.254.169.254', '198.18.0.1',
@@ -276,3 +279,14 @@ def test_api_reads_saved_analysis_only_and_detail_contains_body(tmp_path, monkey
         assert detail['resources'][0]['text'] == 'Original saved text'
         digest = client.get('/v1/digests/latest', headers=h).json()
         assert digest['sources'][0]['resources'] == listing['resources']
+
+
+def test_expanded_x_url_does_not_consume_two_link_slots(tmp_path):
+    engine, sessions = database(f'sqlite:///{tmp_path}/links.db')
+    config = RadarConfig(reading=ReadingConfig(enabled=True, mention_catalog={}))
+    with sessions.begin() as s:
+        ingest(s, [incoming(platform='x', handle='OpenAI', metrics={'like_count': 500},
+            text='AI paper https://t.co/short', references=[{'url': 'https://example.org/paper',
+                'short_url': 'https://t.co/short'}])], config)
+        assert [d.url for d in s.scalars(select(WebDocument))] == ['https://example.org/paper']
+    engine.dispose()

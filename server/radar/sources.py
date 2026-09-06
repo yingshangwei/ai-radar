@@ -114,7 +114,8 @@ def x_references(post: dict, referenced: dict) -> list[dict]:
             for entry in entities.get("urls", []):
                 url = entry.get("unwound_url") or entry.get("expanded_url") or entry.get("url")
                 if url and len(url) <= 4000:
-                    refs[url] = {"url": url, "label": (entry.get("title") or "")[:300]}
+                    refs[url] = {"url": url, "label": (entry.get("title") or "")[:300],
+                                 "short_url": (entry.get("url") or "")[:4000]}
     return list(refs.values())[:30]
 
 

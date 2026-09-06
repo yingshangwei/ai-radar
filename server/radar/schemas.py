@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 class DirectReference(BaseModel):
     url: str = Field(min_length=1, max_length=4000)
     label: str = Field(default="", max_length=300)
+    short_url: str = Field(default="", max_length=4000)
 
 
 class IncomingArticle(BaseModel):

@@ -1,0 +1,29 @@
+name: ai-radar
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    init: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:18473:18473"
+    env_file:
+      - /etc/ai-radar/server.env
+    environment:
+      RADAR_SCHEDULER_ENABLED: "true"
+    volumes:
+      - radar-data:/data
+      - /etc/ai-radar/config.toml:/srv/radar/config.toml:ro
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,size=128m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 1200m
+    cpus: 1.0
+    pids_limit: 128
+volumes:
+  radar-data:

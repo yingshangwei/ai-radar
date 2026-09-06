@@ -1,0 +1,45 @@
+timezone = "Asia/Shanghai"
+daily_hour = 8
+daily_minute = 0
+collect_minutes = 120
+lookback_hours = 168
+anthropic_news_enabled = true
+min_engagement = 30
+x_max_pages = 2
+x_query = '(AI OR "artificial intelligence" OR LLM OR agents OR robotics) -is:retweet'
+facebook_version = "v23.0"
+facebook_page_ids = []
+
+[provider]
+kind = "codex"
+command = ["codex"]
+# model = "your-authorized-model"
+timeout_seconds = 240
+max_items = 35
+# Alternatives: claude_cli / command / openai / anthropic / extractive
+# base_url = "https://api.openai.com/v1"
+# api_key_env = "OPENAI_API_KEY"
+
+[[feeds]]
+id = "openai"
+name = "OpenAI News"
+url = "https://openai.com/news/rss.xml"
+authority = 2.0
+
+[[feeds]]
+id = "google-ai"
+name = "Google AI"
+url = "https://blog.google/technology/ai/rss/"
+authority = 2.0
+
+[[feeds]]
+id = "deepmind"
+name = "Google DeepMind"
+url = "https://deepmind.google/blog/rss.xml"
+authority = 2.0
+
+[[feeds]]
+id = "huggingface"
+name = "Hugging Face"
+url = "https://huggingface.co/blog/feed.xml"
+authority = 1.5

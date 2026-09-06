@@ -1,0 +1,1450 @@
+import React, { useEffect, useState } from "react";
+import {
+  ActivityIndicator,
+  FlatList,
+  KeyboardAvoidingView,
+  Linking,
+  Modal,
+  Platform,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import { StatusBar } from "expo-status-bar";
+import Feather from "@expo/vector-icons/Feather";
+import Svg, { Circle, Ellipse, Line, Path } from "react-native-svg";
+import {
+  QueryClient,
+  QueryClientProvider,
+  useQuery,
+  useInfiniteQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { api, APIError, cached, normalizeURL, storage } from "./src/api";
+import { C, s } from "./src/theme";
+import { demoArticles, demoDigest, demoStatus, demoWatches } from "./src/demo";
+import type {
+  Article,
+  Connection,
+  Digest,
+  Status,
+  Story,
+  Watch,
+} from "./src/types";
+
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: 1, staleTime: 60000 } },
+});
+type IconName = React.ComponentProps<typeof Feather>["name"];
+const Icon = ({
+  name,
+  size = 20,
+  color = C.ink,
+}: {
+  name: IconName;
+  size?: number;
+  color?: string;
+}) => <Feather name={name} size={size} color={color} />;
+const T = ({
+  children,
+  style,
+  ...props
+}: React.ComponentProps<typeof Text>) => (
+  <Text {...props} style={[s.body, style]}>
+    {children}
+  </Text>
+);
+const shortDate = (value: string) =>
+  new Date(value).toLocaleDateString("zh-CN", {
+    month: "long",
+    day: "numeric",
+  });
+const platformName = (p: string) =>
+  ({
+    x: "X / Twitter",
+    facebook: "Facebook",
+    rss: "官方订阅",
+    web: "网页来源",
+  })[p] || p;
+const humanError = (error: unknown) =>
+  error instanceof Error ? error.message : "操作未完成，请稍后重试。";
+
+function Orbit({ size = 230 }: { size?: number }) {
+  return (
+    <Svg
+      width={size}
+      height={size}
+      viewBox="0 0 240 240"
+      accessibilityLabel="AI Radar 轨道图形"
+    >
+      <Circle
+        cx="120"
+        cy="120"
+        r="88"
+        stroke="#9BAB93"
+        strokeOpacity={0.25}
+        fill="none"
+      />
+      <Circle
+        cx="120"
+        cy="120"
+        r="63"
+        stroke="#9BAB93"
+        strokeOpacity={0.25}
+        fill="none"
+      />
+      <Ellipse
+        cx="120"
+        cy="120"
+        rx="108"
+        ry="39"
+        rotation={-40}
+        origin="120,120"
+        stroke="#C6CFAB"
+        strokeOpacity={0.7}
+        fill="none"
+      />
+      <Ellipse
+        cx="120"
+        cy="120"
+        rx="39"
+        ry="108"
+        rotation={-40}
+        origin="120,120"
+        stroke="#C6CFAB"
+        strokeOpacity={0.35}
+        fill="none"
+      />
+      <Line
+        x1="20"
+        y1="120"
+        x2="220"
+        y2="120"
+        stroke="#B4C1A2"
+        strokeOpacity={0.17}
+      />
+      <Line
+        x1="120"
+        y1="20"
+        x2="120"
+        y2="220"
+        stroke="#B4C1A2"
+        strokeOpacity={0.17}
+      />
+      <Circle cx="120" cy="120" r="22" fill={C.accent} />
+      <Circle cx="191" cy="64" r="6" fill="#E5C894" />
+      <Path d="M112 120h16m-8-8v16" stroke="#FFF7E5" strokeWidth={1.6} />
+    </Svg>
+  );
+}
+function Brand() {
+  return (
+    <View style={[s.row, { gap: 10 }]}>
+      <T style={{ fontSize: 35, color: C.accent, lineHeight: 40 }}>✳</T>
+      <View>
+        <T style={s.logo}>前沿</T>
+        <T style={[s.label, { fontSize: 8, letterSpacing: 2.5 }]}>AI RADAR</T>
+      </View>
+    </View>
+  );
+}
+function ErrorBox({ message }: { message: string }) {
+  return (
+    <View accessibilityRole="alert" style={s.error}>
+      <T style={{ fontSize: 13, color: "#A53B25" }}>{message}</T>
+    </View>
+  );
+}
+function Empty({
+  title,
+  detail,
+  icon = "inbox",
+}: {
+  title: string;
+  detail: string;
+  icon?: IconName;
+}) {
+  return (
+    <View style={s.empty}>
+      <Icon name={icon} size={30} color={C.muted} />
+      <T style={s.h2}>{title}</T>
+      <T style={[s.muted, { textAlign: "center", maxWidth: 300 }]}>{detail}</T>
+    </View>
+  );
+}
+
+function Connect({ onConnect }: { onConnect: (c: Connection) => void }) {
+  const [url, setUrl] = useState(
+    process.env.EXPO_PUBLIC_API_URL || "https://radar.yswdra.cn",
+  );
+  const [token, setToken] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const connect = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      const c = { url: normalizeURL(url), token: token.trim() };
+      if (!c.token) throw new Error("请输入设备访问令牌。");
+      await api(c, "/v1/status");
+      await storage.save(c);
+      onConnect(c);
+    } catch (e) {
+      setError(humanError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <SafeAreaView style={s.screen}>
+      <KeyboardAvoidingView
+        style={s.container}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <ScrollView
+          contentContainerStyle={{ padding: 28, paddingBottom: 50 }}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={{ paddingTop: 16, paddingBottom: 38 }}>
+            <Brand />
+          </View>
+          <View style={[s.hero, { height: 260, marginBottom: 32 }]}>
+            <View style={{ position: "absolute", right: -60, top: 0 }}>
+              <Orbit size={290} />
+            </View>
+            <T style={[s.label, { color: "#B7C1AD", marginBottom: 24 }]}>
+              STAY CURIOUS. STAY AHEAD.
+            </T>
+            <T style={s.heroTitle}>读懂 AI 的{`\n`}下一步。</T>
+            <T style={{ color: "#BBC6B6", fontSize: 12, marginTop: 22 }}>
+              从海量动态，到值得关注的信号。
+            </T>
+          </View>
+          <T style={s.h2}>连接你的前沿雷达</T>
+          <T style={[s.muted, { marginTop: 8, marginBottom: 25 }]}>
+            每日一份简报，持续追踪重要的人与事。{`\n`}
+            输入私有服务地址和设备令牌，开始阅读。
+          </T>
+          <T style={[s.label, { marginBottom: 9 }]}>服务地址</T>
+          <TextInput
+            accessibilityLabel="服务地址"
+            style={s.input}
+            value={url}
+            onChangeText={setUrl}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
+          />
+          <T style={[s.label, { marginTop: 20, marginBottom: 9 }]}>
+            设备访问令牌
+          </T>
+          <TextInput
+            accessibilityLabel="设备访问令牌"
+            style={s.input}
+            value={token}
+            onChangeText={setToken}
+            secureTextEntry
+            autoCapitalize="none"
+            autoCorrect={false}
+            placeholder="由你的服务端提供"
+            placeholderTextColor={C.muted}
+          />
+          {!!error && (
+            <View style={{ marginTop: 15 }}>
+              <ErrorBox message={error} />
+            </View>
+          )}
+          <Pressable
+            accessibilityRole="button"
+            disabled={busy}
+            onPress={connect}
+            style={[s.button, { marginTop: 24, opacity: busy ? 0.6 : 1 }]}
+          >
+            {busy ? (
+              <ActivityIndicator color={C.paper} />
+            ) : (
+              <>
+                <T style={s.buttonText}>连接并开始阅读</T>
+                <Icon name="arrow-up-right" color={C.paper} size={18} />
+              </>
+            )}
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => onConnect({ url: "", token: "", demo: true })}
+            style={{ padding: 20, alignItems: "center" }}
+          >
+            <T style={[s.muted, { textDecorationLine: "underline" }]}>
+              先看看设计示例
+            </T>
+          </Pressable>
+          <T style={[s.muted, { fontSize: 10, textAlign: "center" }]}>
+            手机令牌保存在系统安全存储中。{`\n`}
+            社交平台与模型凭证只留在你的服务器。
+          </T>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
+}
+
+function Reader({
+  connection,
+  onDisconnect,
+}: {
+  connection: Connection;
+  onDisconnect: () => void;
+}) {
+  const qc = useQueryClient();
+  const demo = !!connection.demo;
+  const [tab, setTab] = useState("today");
+  const [topic, setTopic] = useState("全部");
+  const [search, setSearch] = useState("");
+  const [query, setQuery] = useState("");
+  const [platform, setPlatform] = useState("");
+  const [onlyPriority, setOnlyPriority] = useState(false);
+  const [latest, setLatest] = useState(false);
+  const [edition, setEdition] = useState("latest");
+  const [history, setHistory] = useState(false);
+  const [detail, setDetail] = useState<{
+    story?: Story;
+    article?: Article;
+  } | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [error, setError] = useState("");
+  const [pending, setPending] = useState(false);
+  const [addWatch, setAddWatch] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newHandle, setNewHandle] = useState("");
+  const [demoSaved, setDemoSaved] = useState<string[]>(["demo-2"]);
+  const [demoDisabled, setDemoDisabled] = useState<string[]>([]);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setQuery(search);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+  const prefix = [connection.url, demo ? "demo" : "live"];
+  const status = useQuery({
+    queryKey: [...prefix, "status"],
+    queryFn: async () =>
+      demo
+        ? { data: demoStatus, offline: false }
+        : cached<Status>(connection, "/v1/status"),
+  });
+  const digest = useQuery({
+    queryKey: [...prefix, "digest", edition],
+    queryFn: async () => {
+      if (demo) return { data: demoDigest, offline: false };
+      try {
+        return await cached<Digest>(connection, `/v1/digests/${edition}`);
+      } catch (e) {
+        if (e instanceof APIError && e.status === 404)
+          return { data: null, offline: false };
+        throw e;
+      }
+    },
+  });
+  const editions = useQuery({
+    queryKey: [...prefix, "editions"],
+    enabled: history,
+    queryFn: async () =>
+      demo
+        ? { items: [demoDigest] }
+        : api<{ items: Digest[] }>(connection, "/v1/digests"),
+  });
+  const watches = useQuery({
+    queryKey: [...prefix, "watches"],
+    queryFn: async () =>
+      demo
+        ? { items: demoWatches }
+        : api<{ items: Watch[] }>(connection, "/v1/watches"),
+  });
+  const params = new URLSearchParams({
+    limit: "30",
+    sort: latest ? "latest" : "score",
+  });
+  if (query) params.set("q", query);
+  if (topic !== "全部") params.set("topic", topic);
+  if (platform) params.set("platform", platform);
+  if (onlyPriority) params.set("priority", "true");
+  if (tab === "saved") params.set("saved", "true");
+  const articles = useInfiniteQuery<{
+    data: { items: Article[]; total: number };
+    offline: boolean;
+  }>({
+    queryKey: [...prefix, "articles", params.toString()],
+    initialPageParam: 0,
+    getNextPageParam: (last, pages) =>
+      pages.length * 30 < last.data.total ? pages.length * 30 : undefined,
+    queryFn: async ({ pageParam }) => {
+      if (!demo)
+        return cached<{ items: Article[]; total: number }>(
+          connection,
+          `/v1/articles?${params}&offset=${pageParam}`,
+        );
+      const items = demoArticles
+        .map((a) => ({ ...a, saved: demoSaved.includes(a.id) }))
+        .filter(
+          (a) =>
+            (tab !== "saved" || a.saved) &&
+            (!platform || a.platform === platform) &&
+            (!onlyPriority || a.priority) &&
+            (topic === "全部" || a.topics.includes(topic)) &&
+            (!query ||
+              `${a.title}${a.text}${a.author}`
+                .toLowerCase()
+                .includes(query.toLowerCase())),
+        );
+      return { data: { items, total: items.length }, offline: false };
+    },
+  });
+  useEffect(() => {
+    if (demo) void qc.invalidateQueries({ queryKey: [...prefix, "articles"] });
+  }, [demoSaved]);
+  const refresh = () => {
+    void qc.invalidateQueries({ queryKey: prefix });
+  };
+  const action = async (fn: () => Promise<unknown>) => {
+    setError("");
+    setPending(true);
+    try {
+      await fn();
+      refresh();
+    } catch (e) {
+      setError(humanError(e));
+    } finally {
+      setPending(false);
+    }
+  };
+  const bookmark = (article: Article) =>
+    action(async () => {
+      if (demo) {
+        setDemoSaved((x) =>
+          x.includes(article.id)
+            ? x.filter((id) => id !== article.id)
+            : [...x, article.id],
+        );
+      } else
+        await api(connection, `/v1/articles/${article.id}/bookmark`, {
+          method: "PUT",
+          body: JSON.stringify({ saved: !article.saved }),
+        });
+      if (detail?.article?.id === article.id)
+        setDetail({ article: { ...article, saved: !article.saved } });
+    });
+  const follow = (watch: Watch) =>
+    action(async () => {
+      if (demo) {
+        setDemoDisabled((x) =>
+          x.includes(watch.id)
+            ? x.filter((id) => id !== watch.id)
+            : [...x, watch.id],
+        );
+      } else
+        await api(connection, `/v1/watches/${encodeURIComponent(watch.id)}`, {
+          method: "PATCH",
+          body: JSON.stringify({ enabled: !watch.enabled }),
+        });
+    });
+  const d = digest.data?.data;
+  const state = status.data?.data;
+  const list = articles.data?.pages.flatMap((p) => p.data.items) || [];
+  const connectedSources =
+    state?.sources.filter((x) => x.status === "healthy").length || 0;
+  const offline =
+    status.data?.offline ||
+    digest.data?.offline ||
+    articles.data?.pages.some((p) => p.offline);
+  const dateText = shortDate(d?.date || new Date().toISOString());
+  const openSource = async (url: string) => {
+    try {
+      await Linking.openURL(url);
+    } catch {
+      setError("无法打开原始来源，请检查浏览器设置。");
+    }
+  };
+  const activeError =
+    error ||
+    humanErrorOrEmpty(
+      tab === "today"
+        ? digest.error
+        : tab === "watches"
+          ? watches.error
+          : articles.error,
+    );
+  function ArticleCard({ article: a }: { article: Article }) {
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`阅读：${a.title}`}
+        onPress={() => setDetail({ article: a })}
+        style={s.card}
+      >
+        <View style={[s.spread, { marginBottom: 10 }]}>
+          <View style={[s.row, { gap: 7 }]}>
+            <T style={[s.label, { letterSpacing: 0.5 }]}>
+              {platformName(a.platform)}
+            </T>
+            {a.priority && (
+              <View style={s.tag}>
+                <T style={s.tagText}>重点关注</T>
+              </View>
+            )}
+          </View>
+          <T style={s.muted}>{shortDate(a.published_at)}</T>
+        </View>
+        <T style={s.cardTitle}>{a.title}</T>
+        <T
+          numberOfLines={2}
+          style={[s.muted, { fontSize: 13, lineHeight: 23, marginTop: 9 }]}
+        >
+          {a.text}
+        </T>
+        <View style={[s.spread, { marginTop: 16 }]}>
+          <T numberOfLines={1} style={[s.muted, { maxWidth: "65%" }]}>
+            {a.author} · {a.topics[0]}
+          </T>
+          <View style={[s.row, { gap: 14 }]}>
+            {Object.keys(a.metrics).length > 0 && (
+              <T style={[s.muted, { fontSize: 11 }]}>
+                {(
+                  a.metrics.like_count ||
+                  a.metrics.reaction_count ||
+                  0
+                ).toLocaleString()}{" "}
+                赞
+              </T>
+            )}
+            <Icon
+              name={a.saved ? "bookmark" : "arrow-up-right"}
+              size={16}
+              color={a.saved ? C.accent : C.muted}
+            />
+          </View>
+        </View>
+      </Pressable>
+    );
+  }
+  const body = (
+    <>
+      <View style={s.top}>
+        <Brand />
+        <View style={[s.row, { gap: 12 }]}>
+          <T style={s.muted}>{demo ? "设计预览" : dateText}</T>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="打开设置"
+            onPress={() => setSettingsOpen(true)}
+            style={s.iconButton}
+          >
+            <Icon name="sliders" size={18} />
+          </Pressable>
+        </View>
+      </View>
+      {demo && (
+        <View
+          style={{ backgroundColor: C.pale, padding: 8, alignItems: "center" }}
+        >
+          <T style={{ fontSize: 11, color: C.accent }}>
+            设计示例 · 内容非实时新闻 · 尚未连接服务器
+          </T>
+        </View>
+      )}
+      {offline && (
+        <View style={{ paddingHorizontal: 24, paddingVertical: 8 }}>
+          <T style={{ fontSize: 12, color: C.accent }}>
+            当前显示离线缓存 · 下拉刷新以重新连接
+          </T>
+        </View>
+      )}
+      {!!activeError && (
+        <View style={[s.pad, { paddingVertical: 10 }]}>
+          <ErrorBox message={activeError} />
+        </View>
+      )}
+      {tab === "today" ? (
+        <ScrollView
+          refreshControl={
+            <RefreshControl
+              refreshing={digest.isFetching && !digest.isLoading}
+              onRefresh={refresh}
+              tintColor={C.accent}
+            />
+          }
+          contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 32 }}
+        >
+          <View style={[s.spread, { marginTop: 22, marginBottom: 16 }]}>
+            <T style={s.label}>YOUR DAILY PERSPECTIVE</T>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setHistory(true)}
+              style={[s.row, { gap: 5 }]}
+            >
+              <Icon name="calendar" size={13} color={C.muted} />
+              <T style={s.muted}>往期日报</T>
+            </Pressable>
+          </View>
+          <View style={s.hero}>
+            <View
+              style={{
+                position: "absolute",
+                right: -62,
+                top: 14,
+                opacity: 0.9,
+              }}
+            >
+              <Orbit />
+            </View>
+            <T style={[s.label, { color: "#B7C1AD", marginBottom: 19 }]}>
+              THE AI BRIEFING
+            </T>
+            <T style={s.heroTitle}>保持好奇。{`\n`}看见下一步。</T>
+            <View style={[s.row, { gap: 8, marginTop: 22 }]}>
+              <View
+                style={{
+                  width: 5,
+                  height: 5,
+                  borderRadius: 3,
+                  backgroundColor: "#CDDBA4",
+                }}
+              />
+              <T style={{ fontSize: 11, color: "#CCD3C1" }}>
+                {d
+                  ? `${d.source_count} 条来源 · ${d.stories.length} 个值得关注的信号`
+                  : "每一天，让重要的信息浮现"}
+              </T>
+            </View>
+          </View>
+          <View
+            style={[
+              s.spread,
+              {
+                paddingVertical: 21,
+                borderBottomWidth: 1,
+                borderColor: C.line,
+              },
+            ]}
+          >
+            <View>
+              <T style={s.label}>
+                {d &&
+                d.date !==
+                  new Date().toLocaleDateString("sv-SE", {
+                    timeZone: state?.timezone || "Asia/Shanghai",
+                  })
+                  ? "历史简报"
+                  : "今日简报"}
+              </T>
+              <T style={{ fontSize: 13, marginTop: 4 }}>
+                {d ? shortDate(d.date) : "等待第一份日报"}
+              </T>
+            </View>
+            <View style={{ alignItems: "flex-end" }}>
+              <T style={[s.label, { color: demo ? C.muted : C.green }]}>
+                {demo ? "示例模式" : `${connectedSources} 个来源已连接`}
+              </T>
+              <T style={s.muted}>
+                {state?.daily_time || "08:00"} ·{" "}
+                {state?.timezone || "Asia/Shanghai"}
+              </T>
+            </View>
+          </View>
+          {digest.isLoading ? (
+            <View style={{ padding: 40 }}>
+              <ActivityIndicator color={C.accent} />
+            </View>
+          ) : d ? (
+            <>
+              <View style={s.section}>
+                <T style={s.h2}>{d.title}</T>
+                <T
+                  style={[
+                    s.body,
+                    { marginTop: 13, color: "#62685D", lineHeight: 28 },
+                  ]}
+                >
+                  {d.overview}
+                </T>
+              </View>
+              <View style={[s.spread, { paddingVertical: 10 }]}>
+                <T style={s.sectionTitle}>值得关注</T>
+                <T style={s.label}>THE SIGNALS</T>
+              </View>
+              {d.stories.map((story, i) => (
+                <Pressable
+                  key={`${story.title}-${i}`}
+                  accessibilityRole="button"
+                  onPress={() => setDetail({ story })}
+                  style={[s.card, { flexDirection: "row", gap: 15 }]}
+                >
+                  <T
+                    style={{
+                      color: C.accent,
+                      fontSize: 15,
+                      fontWeight: "500",
+                      paddingTop: 2,
+                      fontVariant: ["tabular-nums"],
+                    }}
+                  >
+                    {String(i + 1).padStart(2, "0")}
+                  </T>
+                  <View style={{ flex: 1 }}>
+                    <View style={[s.spread, { marginBottom: 9 }]}>
+                      <T
+                        style={[s.label, { color: C.accent, letterSpacing: 1 }]}
+                      >
+                        {story.category}
+                      </T>
+                      <Icon name="arrow-up-right" size={16} color={C.muted} />
+                    </View>
+                    <T style={s.cardTitle}>{story.title}</T>
+                    <T
+                      numberOfLines={3}
+                      style={[
+                        s.muted,
+                        { fontSize: 13, lineHeight: 23, marginTop: 9 },
+                      ]}
+                    >
+                      {story.summary}
+                    </T>
+                    <T style={[s.muted, { marginTop: 12, fontSize: 10 }]}>
+                      {story.source_ids.length} 个原始来源 · 点击展开
+                    </T>
+                  </View>
+                </Pressable>
+              ))}
+              <View style={[s.note, { marginTop: 26 }]}>
+                <T style={[s.muted, { fontSize: 11 }]}>
+                  {d.provider === "no_updates"
+                    ? "本期为来源状态汇报，未调用 AI 生成内容。"
+                    : d.provider === "extractive"
+                      ? "当前为原文摘录，未生成 AI 分析。"
+                      : demo
+                        ? "以上内容为虚构设计示例。"
+                        : "由 AI 整理，保留原始引用。判断与推测请以原文为准。"}
+                  {`\n`}统计至 {new Date(d.window_end).toLocaleString("zh-CN")}
+                  。
+                </T>
+              </View>
+              {d.coverage.some((x) => x.status !== "healthy") && !demo && (
+                <Pressable
+                  onPress={() => setSettingsOpen(true)}
+                  style={{ paddingVertical: 14 }}
+                >
+                  <T style={{ fontSize: 12, color: C.accent }}>
+                    部分来源尚未接通 · 查看覆盖范围 →
+                  </T>
+                </Pressable>
+              )}
+            </>
+          ) : (
+            <Empty
+              title="第一份日报，即将开始"
+              detail="连接信息源并完成首次采集后，服务会在每日指定时间整理简报。可在设置中查看来源状态。"
+              icon="sunrise"
+            />
+          )}
+          <T
+            style={[
+              s.label,
+              { textAlign: "center", fontSize: 9, marginTop: 35 },
+            ]}
+          >
+            LESS NOISE. MORE PERSPECTIVE.
+          </T>
+        </ScrollView>
+      ) : tab === "watches" ? (
+        <ScrollView
+          contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 32 }}
+          refreshControl={
+            <RefreshControl
+              refreshing={watches.isRefetching}
+              onRefresh={refresh}
+            />
+          }
+        >
+          <View style={s.section}>
+            <T style={s.h1}>关注重要的人。</T>
+            <T style={[s.muted, { marginTop: 8 }]}>
+              从一手动态，感知思想、技术与产品的变化。
+            </T>
+          </View>
+          <View style={[s.spread, { marginBottom: 12 }]}>
+            <T style={s.label}>
+              {watches.data?.items.filter((w) =>
+                demo ? !demoDisabled.includes(w.id) : w.enabled,
+              ).length || 0}{" "}
+              个账号正在关注
+            </T>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setAddWatch(true)}
+              style={[s.smallButton, s.row, { gap: 5 }]}
+            >
+              <Icon name="plus" size={14} />
+              <T style={{ fontSize: 12 }}>添加账号</T>
+            </Pressable>
+          </View>
+          {watches.data?.items.map((w) => {
+            const enabled = demo ? !demoDisabled.includes(w.id) : w.enabled;
+            return (
+              <View
+                key={w.id}
+                style={[
+                  s.spread,
+                  {
+                    paddingVertical: 19,
+                    borderBottomWidth: 1,
+                    borderColor: C.line,
+                    gap: 12,
+                  },
+                ]}
+              >
+                <View
+                  style={[
+                    s.avatar,
+                    {
+                      backgroundColor:
+                        w.organization === "Anthropic"
+                          ? "#EFE0D0"
+                          : w.organization === "Google"
+                            ? "#E2E9EA"
+                            : "#E4E8DB",
+                    },
+                  ]}
+                >
+                  <T style={s.avatarText}>{w.name.slice(0, 2)}</T>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <T style={{ fontSize: 15, fontWeight: "600" }}>{w.name}</T>
+                  <T style={[s.muted, { fontSize: 11 }]}>@{w.handle}</T>
+                  <T style={[s.muted, { fontSize: 10 }]}>{w.role}</T>
+                </View>
+                <Pressable
+                  accessibilityRole="switch"
+                  accessibilityState={{ checked: enabled }}
+                  accessibilityLabel={`${enabled ? "取消关注" : "关注"} ${w.name}`}
+                  disabled={pending}
+                  onPress={() => follow(w)}
+                  style={[
+                    s.smallButton,
+                    enabled
+                      ? { backgroundColor: C.ink, borderColor: C.ink }
+                      : {},
+                  ]}
+                >
+                  <T
+                    style={{ color: enabled ? C.paper : C.muted, fontSize: 11 }}
+                  >
+                    {enabled ? "已关注" : "关注"}
+                  </T>
+                </Pressable>
+              </View>
+            );
+          })}
+          <View style={[s.note, { marginTop: 22 }]}>
+            <T style={s.muted}>
+              重点账号降低热度门槛，仍会过滤与 AI
+              无关的动态。账号身份与简介可根据实际情况调整。
+            </T>
+          </View>
+        </ScrollView>
+      ) : (
+        <FlatList
+          data={list}
+          keyExtractor={(a) => a.id}
+          renderItem={({ item }) => <ArticleCard article={item} />}
+          contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 30 }}
+          keyboardShouldPersistTaps="handled"
+          refreshControl={
+            <RefreshControl
+              refreshing={articles.isRefetching}
+              onRefresh={refresh}
+              tintColor={C.accent}
+            />
+          }
+          ListHeaderComponent={
+            <>
+              <View style={s.section}>
+                <T style={s.h1}>
+                  {tab === "saved" ? "留下值得回看的。" : "前沿，持续发生。"}
+                </T>
+                <T style={[s.muted, { marginTop: 8 }]}>
+                  {tab === "saved"
+                    ? "你的收藏，构成自己的知识线索。"
+                    : "模型、产品与思想的最新信号，在这里汇合。"}
+                </T>
+              </View>
+              <View
+                style={[
+                  s.row,
+                  s.input,
+                  { gap: 10, paddingVertical: 0, marginBottom: 17 },
+                ]}
+              >
+                <Icon name="search" size={17} color={C.muted} />
+                <TextInput
+                  accessibilityLabel="搜索信息"
+                  placeholder="搜索主题、人物或关键词"
+                  placeholderTextColor={C.muted}
+                  value={search}
+                  onChangeText={setSearch}
+                  style={{
+                    flex: 1,
+                    paddingVertical: 14,
+                    color: C.ink,
+                    fontSize: 13,
+                  }}
+                />
+              </View>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ gap: 8, paddingBottom: 16 }}
+              >
+                {["全部", "模型", "产品", "技术", "开源", "观点", "产业"].map(
+                  (t) => (
+                    <Pressable
+                      key={t}
+                      onPress={() => {
+                        setTopic(t);
+                      }}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: topic === t }}
+                      style={[s.pill, topic === t && s.pillActive]}
+                    >
+                      <T
+                        style={[s.pillText, topic === t && { color: C.paper }]}
+                      >
+                        {t}
+                      </T>
+                    </Pressable>
+                  ),
+                )}
+              </ScrollView>
+              <View
+                style={[
+                  s.spread,
+                  {
+                    paddingBottom: 14,
+                    borderBottomWidth: 1,
+                    borderColor: C.line,
+                  },
+                ]}
+              >
+                <Pressable
+                  onPress={() => setOnlyPriority(!onlyPriority)}
+                  style={[s.row, { gap: 5 }]}
+                >
+                  <Icon
+                    name="star"
+                    size={13}
+                    color={onlyPriority ? C.accent : C.muted}
+                  />
+                  <T style={[s.muted, onlyPriority && { color: C.accent }]}>
+                    仅重点
+                  </T>
+                </Pressable>
+                <Pressable onPress={() => setLatest(!latest)}>
+                  <T style={s.muted}>{latest ? "最新发布" : "热度优先"} ⇅</T>
+                </Pressable>
+                <Pressable
+                  onPress={() =>
+                    setPlatform((p) =>
+                      p === ""
+                        ? "x"
+                        : p === "x"
+                          ? "facebook"
+                          : p === "facebook"
+                            ? "rss"
+                            : "",
+                    )
+                  }
+                >
+                  <T style={s.muted}>
+                    {platform ? platformName(platform) : "全部来源"} ⌄
+                  </T>
+                </Pressable>
+              </View>
+            </>
+          }
+          ListEmptyComponent={
+            articles.isLoading ? (
+              <ActivityIndicator style={{ padding: 40 }} color={C.accent} />
+            ) : (
+              <Empty
+                title={
+                  tab === "saved"
+                    ? "把有价值的信息留下来"
+                    : "暂时没有匹配的信号"
+                }
+                detail={
+                  tab === "saved"
+                    ? "阅读文章时点击收藏，下次就能在这里找到。"
+                    : "试试其他关键词或筛选条件，也可以在设置中检查来源连接。"
+                }
+              />
+            )
+          }
+          ListFooterComponent={
+            articles.hasNextPage ? (
+              <Pressable
+                disabled={articles.isFetchingNextPage}
+                onPress={() => void articles.fetchNextPage()}
+                style={[s.smallButton, { alignSelf: "center", marginTop: 20 }]}
+              >
+                <T style={s.muted}>
+                  {articles.isFetchingNextPage ? "加载中…" : "加载更多"}
+                </T>
+              </Pressable>
+            ) : null
+          }
+        />
+      )}
+      <View style={s.nav}>
+        {(
+          [
+            { id: "today", label: "今日", icon: "sun" },
+            { id: "radar", label: "雷达", icon: "radio" },
+            { id: "watches", label: "关注", icon: "users" },
+            { id: "saved", label: "收藏", icon: "bookmark" },
+          ] as { id: string; label: string; icon: IconName }[]
+        ).map((t) => (
+          <Pressable
+            accessibilityRole="tab"
+            accessibilityState={{ selected: tab === t.id }}
+            key={t.id}
+            onPress={() => {
+              setTab(t.id);
+              setError("");
+            }}
+            style={s.navItem}
+          >
+            <Icon
+              name={t.icon}
+              size={21}
+              color={tab === t.id ? C.accent : C.muted}
+            />
+            <T
+              style={[
+                s.navText,
+                tab === t.id && { color: C.accent, fontWeight: "700" },
+              ]}
+            >
+              {t.label}
+            </T>
+          </Pressable>
+        ))}
+      </View>
+    </>
+  );
+  return (
+    <SafeAreaView style={s.screen}>
+      <View style={s.container}>{body}</View>
+      <Sheet open={!!detail} onClose={() => setDetail(null)} title="深入阅读">
+        {detail && (
+          <>
+            {detail.story ? (
+              <>
+                <T style={[s.label, { color: C.accent, marginBottom: 14 }]}>
+                  {detail.story.category} / THE BIG PICTURE
+                </T>
+                <T style={s.h1}>{detail.story.title}</T>
+                <T
+                  style={[
+                    s.body,
+                    { marginTop: 25, lineHeight: 30, fontSize: 16 },
+                  ]}
+                >
+                  {detail.story.summary}
+                </T>
+                <View style={[s.note, { marginVertical: 28, padding: 20 }]}>
+                  <T style={[s.label, { color: C.green, marginBottom: 10 }]}>
+                    为什么值得关注
+                  </T>
+                  <T style={s.body}>{detail.story.why_it_matters}</T>
+                </View>
+                <T style={s.sectionTitle}>回到一手来源</T>
+                {detail.story.source_ids.map((uid) => {
+                  const a = d?.sources?.find((x) => x.id === uid);
+                  return a ? (
+                    <View key={uid} style={s.card}>
+                      <T style={s.muted}>
+                        {platformName(a.platform)} · {a.author}
+                      </T>
+                      <T style={[s.cardTitle, { fontSize: 16, marginTop: 6 }]}>
+                        {a.title}
+                      </T>
+                      <View style={[s.spread, { marginTop: 12 }]}>
+                        <Pressable onPress={() => setDetail({ article: a })}>
+                          <T style={{ color: C.accent, fontSize: 12 }}>
+                            阅读原文摘录 →
+                          </T>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => openSource(a.url)}
+                          accessibilityLabel={`打开 ${a.author} 原始来源`}
+                        >
+                          <Icon name="external-link" size={17} />
+                        </Pressable>
+                      </View>
+                    </View>
+                  ) : (
+                    <T key={uid} style={s.muted}>
+                      来源暂不可用
+                    </T>
+                  );
+                })}
+              </>
+            ) : detail.article ? (
+              <>
+                <T style={[s.label, { color: C.accent, marginBottom: 14 }]}>
+                  {platformName(detail.article.platform)}
+                </T>
+                <T style={s.h1}>{detail.article.title}</T>
+                <T style={[s.muted, { marginVertical: 18 }]}>
+                  {detail.article.author} ·{" "}
+                  {detail.article.published_precision === "date"
+                    ? `${shortDate(detail.article.published_at)}（来源仅公布日期）`
+                    : new Date(detail.article.published_at).toLocaleString(
+                        "zh-CN",
+                      )}
+                </T>
+                <T
+                  selectable
+                  style={[s.body, { fontSize: 16, lineHeight: 30 }]}
+                >
+                  {detail.article.text}
+                </T>
+                <View style={[s.row, { gap: 12, marginTop: 28 }]}>
+                  <Pressable
+                    disabled={pending}
+                    onPress={() => bookmark(detail.article!)}
+                    style={[s.button, { flex: 1 }]}
+                  >
+                    <Icon name="bookmark" color={C.paper} size={17} />
+                    <T style={s.buttonText}>
+                      {detail.article.saved ? "取消收藏" : "收藏文章"}
+                    </T>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => openSource(detail.article!.url)}
+                    style={[
+                      s.button,
+                      {
+                        backgroundColor: C.paper,
+                        borderWidth: 1,
+                        borderColor: C.line,
+                        flex: 1,
+                      },
+                    ]}
+                  >
+                    <T style={[s.buttonText, { color: C.ink }]}>查看来源</T>
+                    <Icon name="external-link" size={17} />
+                  </Pressable>
+                </View>
+                <T
+                  selectable
+                  style={[s.muted, { fontSize: 10, marginTop: 18 }]}
+                >
+                  {detail.article.url}
+                </T>
+              </>
+            ) : null}
+          </>
+        )}
+        {!!error && (
+          <View style={{ marginTop: 20 }}>
+            <ErrorBox message={error} />
+          </View>
+        )}
+      </Sheet>
+      <Sheet open={history} onClose={() => setHistory(false)} title="往期日报">
+        {editions.isLoading ? (
+          <ActivityIndicator />
+        ) : editions.data?.items.length ? (
+          editions.data.items.map((e) => (
+            <Pressable
+              key={e.date}
+              style={s.card}
+              onPress={() => {
+                setEdition(e.date);
+                setHistory(false);
+              }}
+            >
+              <T style={[s.label, { color: C.accent, marginBottom: 10 }]}>
+                {e.date}
+              </T>
+              <T style={s.h2}>{e.title}</T>
+              <T style={s.muted}>
+                {e.stories.length} 条精选 · {e.source_count} 个来源
+              </T>
+            </Pressable>
+          ))
+        ) : (
+          <Empty
+            title="日报会在这里积累"
+            detail="每日生成的简报都会保留，方便回顾。"
+          />
+        )}
+        {editions.error && <ErrorBox message={humanError(editions.error)} />}
+      </Sheet>
+      <Sheet
+        open={addWatch}
+        onClose={() => setAddWatch(false)}
+        title="添加重点关注"
+      >
+        <T style={s.muted}>输入 X 账号名称与 handle，无需包含 @。</T>
+        <TextInput
+          accessibilityLabel="账号名称"
+          value={newName}
+          onChangeText={setNewName}
+          placeholder="名称，例如 Anthropic"
+          style={[s.input, { marginTop: 20 }]}
+        />
+        <TextInput
+          accessibilityLabel="X 账号 handle"
+          value={newHandle}
+          onChangeText={setNewHandle}
+          placeholder="账号，例如 AnthropicAI"
+          autoCapitalize="none"
+          autoCorrect={false}
+          style={[s.input, { marginTop: 12 }]}
+        />
+        <Pressable
+          disabled={pending}
+          style={[s.button, { marginTop: 24 }]}
+          onPress={() =>
+            action(async () => {
+              if (demo)
+                throw new Error("设计示例不保存新账号，请先连接服务器。");
+              if (!newName.trim() || !newHandle.trim())
+                throw new Error("请填写名称与账号。");
+              await api(connection, "/v1/watches", {
+                method: "POST",
+                body: JSON.stringify({
+                  name: newName.trim(),
+                  handle: newHandle.trim().replace(/^@/, ""),
+                }),
+              });
+              setAddWatch(false);
+              setNewName("");
+              setNewHandle("");
+            })
+          }
+        >
+          <T style={s.buttonText}>添加关注</T>
+        </Pressable>
+        {!!error && (
+          <View style={{ marginTop: 20 }}>
+            <ErrorBox message={error} />
+          </View>
+        )}
+      </Sheet>
+      <Sheet
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        title="你的雷达"
+      >
+        <View style={[s.note, { marginBottom: 25 }]}>
+          <T style={s.label}>连接状态</T>
+          <T style={[s.body, { marginTop: 7 }]}>
+            {demo ? "设计示例模式" : connection.url}
+          </T>
+          <T style={s.muted}>
+            {demo
+              ? "尚未接通任何实时来源"
+              : `${state?.article_count || 0} 条已收录 · ${state?.provider || "尚未获取"} 摘要引擎`}
+          </T>
+        </View>
+        <T style={s.sectionTitle}>信息源</T>
+        <T style={[s.muted, { marginTop: 7 }]}>
+          授权、采集异常与最近成功时间会在这里显示。
+        </T>
+        {state?.sources.map((source) => (
+          <View key={source.id} style={s.card}>
+            <View style={s.spread}>
+              <T style={{ fontWeight: "600" }}>{source.name}</T>
+              <View style={[s.row, { gap: 6 }]}>
+                <View
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: 3,
+                    backgroundColor:
+                      source.status === "healthy" ? C.green : C.accent,
+                  }}
+                />
+                <T
+                  style={[
+                    s.muted,
+                    { color: source.status === "healthy" ? C.green : C.accent },
+                  ]}
+                >
+                  {(
+                    {
+                      healthy: "已连接",
+                      auth_required: "待授权",
+                      rate_limited: "额度受限",
+                      error: "采集异常",
+                      pending: "等待采集",
+                      preview: "示例",
+                    } as Record<string, string>
+                  )[source.status] || source.status}
+                </T>
+              </View>
+            </View>
+            <T style={[s.muted, { marginTop: 7 }]}>{source.message}</T>
+            {source.last_success_at && (
+              <T style={[s.muted, { fontSize: 10, marginTop: 5 }]}>
+                最近成功：
+                {new Date(source.last_success_at).toLocaleString("zh-CN")}
+              </T>
+            )}
+          </View>
+        ))}
+        <View style={s.section}>
+          <T style={s.sectionTitle}>每日汇报</T>
+          <T style={[s.muted, { marginTop: 9 }]}>
+            {state?.daily_time || "08:00"} ·{" "}
+            {state?.timezone || "Asia/Shanghai"}
+            {`\n`}
+            {state?.scheduler_enabled
+              ? "自动采集和日报已开启"
+              : "自动任务未开启，需在服务器配置中启用"}
+          </T>
+        </View>
+        {state?.jobs.slice(0, 3).map((j) => (
+          <View key={j.id} style={[s.note, { marginBottom: 9 }]}>
+            <T style={s.muted}>
+              {j.kind} · {j.status}
+            </T>
+            <T style={{ fontSize: 12 }}>{j.message || "处理中…"}</T>
+          </View>
+        ))}
+        <Pressable
+          disabled={pending || demo}
+          onPress={() =>
+            action(async () => {
+              await api(connection, "/v1/admin/jobs?kind=daily", {
+                method: "POST",
+              });
+              setError("任务已提交，完成后下拉刷新。");
+            })
+          }
+          style={[
+            s.smallButton,
+            { alignItems: "center", marginTop: 20, opacity: demo ? 0.4 : 1 },
+          ]}
+        >
+          <T style={s.muted}>立即采集并汇报（需管理令牌）</T>
+        </Pressable>
+        {!!error && (
+          <View style={{ marginTop: 15 }}>
+            <ErrorBox message={error} />
+          </View>
+        )}
+        <Pressable
+          onPress={() => {
+            setSettingsOpen(false);
+            onDisconnect();
+          }}
+          style={[s.button, { marginTop: 30 }]}
+        >
+          <T style={s.buttonText}>
+            {demo ? "连接我的服务器" : "退出并更换连接"}
+          </T>
+        </Pressable>
+        <T
+          style={[s.label, { textAlign: "center", marginTop: 28, fontSize: 9 }]}
+        >
+          AI RADAR / 前沿 · 0.1.0
+        </T>
+      </Sheet>
+    </SafeAreaView>
+  );
+}
+function humanErrorOrEmpty(error: unknown) {
+  return error ? humanError(error) : "";
+}
+function Sheet({
+  open,
+  onClose,
+  title,
+  children,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Modal
+      visible={open}
+      animationType="slide"
+      onRequestClose={onClose}
+      presentationStyle="pageSheet"
+    >
+      <SafeAreaView style={s.screen}>
+        <View style={s.container}>
+          <View style={[s.spread, { padding: 24 }]}>
+            <T style={s.sectionTitle}>{title}</T>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="关闭"
+              onPress={onClose}
+              style={s.iconButton}
+            >
+              <Icon name="x" />
+            </Pressable>
+          </View>
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{ paddingHorizontal: 26, paddingBottom: 50 }}
+          >
+            {children}
+          </ScrollView>
+        </View>
+      </SafeAreaView>
+    </Modal>
+  );
+}
+export default function App() {
+  const [connection, setConnection] = useState<Connection | null>(null);
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    storage
+      .load()
+      .then(setConnection)
+      .catch(() => {})
+      .finally(() => setReady(true));
+  }, []);
+  return (
+    <SafeAreaProvider>
+      <QueryClientProvider client={queryClient}>
+        <StatusBar style="dark" />
+        {!ready ? (
+          <View style={[s.screen, { justifyContent: "center" }]}>
+            <ActivityIndicator color={C.accent} />
+          </View>
+        ) : connection ? (
+          <Reader
+            connection={connection}
+            onDisconnect={() => {
+              void storage.clear();
+              queryClient.clear();
+              setConnection(null);
+            }}
+          />
+        ) : (
+          <Connect onConnect={setConnection} />
+        )}
+      </QueryClientProvider>
+    </SafeAreaProvider>
+  );
+}

@@ -1,0 +1,14 @@
+# Merge ONLY after verifying existing Caddy/Nginx and DNS ownership.
+# Do not replace a pre-existing reverse proxy configuration.
+radar.yswdra.cn {
+    encode zstd gzip
+    request_body {
+        max_size 2MB
+    }
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+        -Server
+    }
+    reverse_proxy 127.0.0.1:18473
+}

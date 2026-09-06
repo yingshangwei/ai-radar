@@ -21,6 +21,7 @@
 - 8 条帖子来自 OpenAI、Anthropic、Google DeepMind、Sam Altman 和 Tibo；云端总计 33 条信息。Tibo 暂按 `tibo_maker` 关注，具体身份仍可由用户确认后调整。
 - 9 月 5 日日报：Codex 约 22 秒完成，4 条 X 原文合并为 2 条中文报道。OpenAI 与 Sam Altman 的开放范围更新合并；Anthropic 的形式化证明描述与已有数学证明明确区分。
 - 9 月 6 日日报：Codex 约 10 秒完成，1 条 X 消息。模型明确将 Tibo 的产品说法标为尚未证实，并保留来源。
+- 9 月 4 日历史日报也已补齐：11 条输入形成 6 条报道、10 个引用；同一发布事件合并使用更完整的官方正文。结果保存在 `verified-digest-2026-09-04-with-x.json`。
 - 日期窗口仍为当天北京时间 08:00 结束的前 24 小时。9 月 6 日白天采到的内容不会提前加入尚未结束的 9 月 7 日窗口。
 - 原始导入批次、操作来源记录和回读日报保存在本机 Git 忽略的 `dist/cloud/x-browser-20260907*.json` 和 `verified-digest-2026-09-05.json` / `verified-digest-2026-09-06.json`。
 

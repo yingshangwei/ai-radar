@@ -91,5 +91,5 @@ if [[ "$RADAR_HEALTHY" != true ]]; then
     echo 'Health check failed. Review ai-radar service logs.' >&2; exit 1
 fi
 trap - EXIT
-echo 'AI Radar is running on localhost:18473. Automatic jobs remain disabled until source/model authorization.'
+echo 'AI Radar is running on localhost:18473. Scheduler settings were preserved from /etc/ai-radar/server.env.'
 echo 'Existing services, public ports and DNS were not modified.'

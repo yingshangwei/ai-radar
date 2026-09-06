@@ -1,5 +1,17 @@
 # 验证记录 · 2026-09-07
 
+## 0.2.0 中英阅读验收
+
+- Python 全套测试 **55 passed**，Ruff 与 TypeScript 通过。新增持久化缓存、跨记录去重、互动更新不重译、原文变化失效、并发租约、失败草稿续传、错误输出拒绝、数值单位校验、引用元信息保护、辅助翻译故障回退、旧数据库与中文 API 搜索/引用测试。
+- DeepSeek 密钥先经官方 `/models` 验证，再以一次性 RSA OAEP/SHA-256 加密通过 TAT 安装，0600 环境文件与实际服务进程加载均验证。密钥未写入移动应用、Git 或命令日志。
+- 当前服务器 release `20260907-ccd71d0`。两次隔离升级分别先备份 SQLite，保留旧 release；40 条原文、互动指标、收藏、X 参数 10/1、调度器、Codex 授权、Caddy 和原有 8080 服务均保留。
+- 真实 DeepSeek Flash 翻译 + Pro 单独校对已完成 **40/40**；首次拦下 7 条，后续修订校对通过。编辑复核另修正一处主客体错误，保留前译文与修正理由，并准确记录额外复核来源。不能据此声称自动翻译零错误。
+- 真实 Codex 重建 9 月 6 日日报（任务 `0cad0cbb-4dab-4e67-abea-c03a785011c7`，约 24 秒）：5 条输入合并 1 条报道、4 个中英引用。数据库逐行比较确认 **40 份翻译的 attempts 和 updated_at 完全不变**，日报复用已有译文。
+- 公网 API 核验所有 40 条 `title_zh/text_zh`、中文搜索命中、全部原文/URL/时间/互动/收藏不变，日报引用 ID 与时间窗口正确，未授权仍为 401。结果保存在 `dist/cloud/translation-final-verification.json`。
+- Android 0.2.0 / code 2，同一私有 RSA 3072 签名，v2 签名和秘密扫描通过；API 36 ARM64 模拟器覆盖安装后保持登录。中文列表、中文日期、原文切换、离线冷启动后的中文与原文阅读通过；测试后恢复网络，AndroidRuntime / ReactNativeJS 错误日志为空。
+- Android 交付文件 `dist/ai-radar-0.2.0-android.apk`，68,518,141 字节，SHA-256 `92cae5e51a0758ab20672461f0ea9cd6eea0d64c1e80b286d7bf8b8bb39ffdb4`。截图与离线 XML 在本机 `dist/android-v0.2-*`。
+- iOS 0.2.0 / 2 云端模拟器构建 `bc0c6444-eeea-42e7-95c1-ccce0b6e358e` 成功，源码 `d9004ec`。真机签名与实际 iOS 运行的限制仍见下文。
+
 ## 已验证
 
 | 验证 | 结果 |

@@ -62,4 +62,4 @@ adb install -r app/android/app/build/outputs/apk/release/app-release.apk
 adb shell am start -n cn.yswdra.airadar/.MainActivity
 ```
 
-2026-09-07 已在 Android 16/API 36 ARM64 模拟器完成安装、云端读取、历史日报、文章详情、收藏和取消、覆盖更新保留登录，以及断网冷启动缓存阅读。Release 包位于 `dist/ai-radar-0.1.0-android.apk`，详细校验记录见 [VALIDATION.md](VALIDATION.md)。尚未在用户手机上安装，也没有提交应用商店。
+2026-09-07 已在 Android 16/API 36 ARM64 模拟器完成安装、云端读取、历史日报、文章详情、收藏和取消、覆盖更新保留登录，以及断网冷启动缓存阅读。最新 0.2.0 / code 2 包位于 `dist/ai-radar-0.2.0-android.apk`，继续使用相同私有签名；已验证中文正文、原文切换、中文日期、旧版覆盖安装和离线中英阅读，测试后网络已恢复。详细校验记录见 [VALIDATION.md](VALIDATION.md)。尚未在用户手机上安装，也没有提交应用商店。

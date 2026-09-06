@@ -42,6 +42,7 @@ POLICY = """你是 AI 科技内容的严谨中英翻译编辑。任务是完整�
 所有阿拉伯数字、版本号、日期、百分号、货币符号、URL、@账号必须保持原样，不换算单位和金额。
 英文单词表示的数字也用中文汉字表达，例如 one 译为一、June 译为六月，不额外引入阿拉伯数字。
 保留公司、产品、模型和代码标识原名（如 OpenAI、Claude、GPT、AIRA₃、API），普通英文句子必须翻译。
+在神经网络架构语境中，Transformer 保留英文，不得误译为电气设备“变压器”。
 来源本来为中文的内容保留原文。术语表是参考，须结合上下文，不能把开放权重擅自译成开源。
 正文可能在分段边界处断句；忠实保留该边界即可，不补写，不仅因原文本身不完整而拒绝校对。
 形如 ⟪引用元信息-0⟫、⟪原文链接-0⟫ 的占位符必须逐字原样保留，不得改写或遗漏。
@@ -147,6 +148,9 @@ def quality_issues(source: str, chinese: str) -> list[str]:
         issues.append("英文正文未译成中文")
     if len(prose) > 200 and len(URL.sub("", chinese)) < len(prose) * 0.12:
         issues.append("译文疑似遗漏大量内容")
+    if (re.search(r"(?:mesh|neural|generative|attention)\b.{0,80}\btransformer\b", source, re.I)
+            and "变压器" in chinese):
+        issues.append("Transformer 架构术语误译")
     return issues
 
 

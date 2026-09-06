@@ -198,6 +198,8 @@ def test_parts_preserve_long_content_and_policy_invalidation():
     assert quality_issues("AI investment: $1 billion.", "AI 投资：10 亿美元。") == []
     assert quality_issues("AI investment: $1 billion.", "AI 投资：1 亿美元。")
     assert quality_issues("AI ranked 8th.", "AI 排名第八。") == []
+    assert quality_issues("A mesh transformer model.", "一种网格变压器模型。") == ["Transformer 架构术语误译"]
+    assert quality_issues("An electric transformer.", "一种电力变压器。") == []
     assert quality_issues("AI source [paper](https://example.org/v3). Results: 3%.",
                           "人工智能来源[论文](https://example.org/v3)，结果为 3%。") == []
     assert quality_issues("See https://example.org/x?cost=5 for 3 models.",

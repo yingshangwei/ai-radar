@@ -8,7 +8,7 @@
 
 [X 官方搜索接入文档](https://docs.x.com/x-api/posts/search/integrate/overview)
 
-2026-09-07 接入状态：用户已登录 X，AI Radar 开发者账号与应用已创建；余额为 0，最低充值选项为 5 美元。未付款，等待用户决定是否使用付费 API；尚未提取或配置 Bearer Token，定时任务不会因此产生 X API 费用。
+2026-09-07 接入状态：用户已登录 X，AI Radar 开发者账号与应用已创建；余额为 0，最低充值选项为 5 美元。未付款，等待用户决定是否使用付费 API；尚未提取或配置 Bearer Token，定时任务不会因此产生 X API 费用。随后通过用户已登录的浏览器读取并导入了 8 条真实公开帖，完成模型日报验证；这不是定时 X 采集已开通。
 
 ## Facebook
 
@@ -54,7 +54,7 @@ cd server
 .venv/bin/radar import --file /private/path/collected.json
 ```
 
-HTTP：`POST /v1/admin/import`，以管理令牌作 Bearer。不要把 Cookie 或访问 Token 填到文章字段。缺少可靠日期、作者、原文链接的内容不要作为最新新闻导入。导入协议已实现；实际浏览器采集流程需在用户授权后针对页面完成联调。
+HTTP：`POST /v1/admin/import`，以管理令牌作 Bearer。不要把 Cookie 或访问 Token 填到文章字段。缺少可靠日期、作者、原文链接的内容不要作为最新新闻导入。已完成一批 X 浏览器真实采集与云端导入、日报联调；操作边界与结果见 [浏览器采集说明](BROWSER-COLLECTION.md)。持续运行环境仍待接通。
 
 ## 模型与 Agent 可替换
 

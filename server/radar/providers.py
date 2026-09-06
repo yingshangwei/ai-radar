@@ -18,6 +18,8 @@ published_precision=date 表示仅知道日期，不代表准确发布时刻。s
 每条必须提供输入中真实存在的 source_ids，概括发生了什么与为什么值得关注，区分事实与推断。
 没有证据的内容不要补齐。中文标题简洁具体，概述最多 250 字，挑选最多 8 条。
 只返回符合给定 JSON Schema 的 JSON，不要 Markdown 围栏或额外文字。"""
+INSTRUCTIONS += """\n如材料含 title_zh/text_zh，它们是服务端已保存并校对的中文版本，直接用于归并和总结，
+不要再执行逐篇翻译。原文仍作为最终事实依据；若与译文冲突以原文为准。"""
 
 
 class Provider(Protocol):

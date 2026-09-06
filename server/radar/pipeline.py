@@ -13,6 +13,7 @@ from .providers import make_provider
 from .ranking import article_id, canonicalize, classify, engagement, rank
 from .schemas import IncomingArticle
 from .sources import SourceUnavailable, fetch_anthropic, fetch_facebook, fetch_rss, fetch_x
+from .translation import TranslationService, queue_article
 
 logger = logging.getLogger(__name__)
 
@@ -54,9 +55,11 @@ def ingest(session, items: list[IncomingArticle], config: RadarConfig, authority
             for key, value in values.items():
                 setattr(existing, key, value)
         else:
-            session.add(Article(**values))
+            existing = Article(**values)
+            session.add(existing)
             accepted += 1
         session.flush()
+        queue_article(session, existing, config.translation)
     return accepted
 
 
@@ -71,6 +74,7 @@ class Pipeline:
     def __init__(self, sessions, config: RadarConfig):
         self.sessions, self.config = sessions, config
         self.lock = asyncio.Lock()
+        self.translations = TranslationService(sessions, config.translation)
         with sessions.begin() as session:
             sources = [("x", "X / Twitter", "x"), ("facebook", "Facebook", "facebook")]
             sources += [(f.id, f.name, "rss") for f in config.feeds]
@@ -86,6 +90,8 @@ class Pipeline:
                     "服务重启中断任务，可以重新运行。",
                     now_iso(),
                 )
+            for article in session.scalars(select(Article)):
+                queue_article(session, article, config.translation)
 
     async def collect(self):
         with self.sessions() as session:
@@ -176,7 +182,6 @@ class Pipeline:
                         }
                     }
                 )
-                selected[-1]["text"] = selected[-1]["text"][:5000]
                 if len(selected) == self.config.provider.max_items:
                     break
             coverage = [as_dict(s) for s in session.scalars(select(SourceState))]
@@ -209,6 +214,7 @@ class Pipeline:
             return day.isoformat()
         if self.config.enrich_official_articles:
             selected = await enrich(selected)
+        selected = await self.translations.evidence(selected)
         result = await make_provider(self.config.provider).generate(selected, day.isoformat())
         with self.sessions.begin() as session:
             session.merge(
@@ -247,6 +253,12 @@ class Pipeline:
                 message = ""
                 if kind in ("collect", "daily"):
                     message = f"新增 {await self.collect()} 条有效信息。"
+                if self.config.translation.enabled:
+                    translated = await self.translations.pending(force=force if kind == "translate" else False)
+                    counts = translated.get("counts", {})
+                    message += f"中文版本 {counts.get('ready', 0)} 条"
+                    waiting = sum(n for status, n in counts.items() if status != "ready")
+                    message += f"，{waiting} 条仍在等待翻译或校对。" if waiting else "。"
                 if kind in ("digest", "daily"):
                     message += f"已生成 {await self.digest(day or self.latest_day(), force)} 日报。"
                 with self.sessions.begin() as session:

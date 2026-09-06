@@ -4,6 +4,18 @@ export interface Article {
   source_id: string;
   title: string;
   text: string;
+  title_zh?: string | null;
+  text_zh?: string | null;
+  translation?: {
+    status:
+      | "disabled"
+      | "pending"
+      | "running"
+      | "ready"
+      | "review_required"
+      | "error";
+    updated_at?: string;
+  };
   author: string;
   handle: string;
   url: string;
@@ -59,6 +71,11 @@ export interface Status {
   model?: string;
   scheduler_enabled: boolean;
   article_count: number;
+  translation?: {
+    enabled: boolean;
+    configured: boolean;
+    counts: Record<string, number>;
+  };
   sources: Source[];
   jobs: {
     id: string;

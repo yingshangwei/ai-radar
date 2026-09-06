@@ -29,6 +29,27 @@ class FeedConfig(BaseModel):
     authority: float = Field(default=1.0, ge=0, le=3)
 
 
+class TranslationConfig(BaseModel):
+    enabled: bool = False
+    base_url: str = "https://api.deepseek.com"
+    api_key_env: str = "DEEPSEEK_API_KEY"
+    model: str = "deepseek-v4-flash"
+    review_model: str = "deepseek-v4-pro"
+    revision: str = "zh-v1"
+    timeout_seconds: int = Field(default=120, ge=10, le=600)
+    concurrency: int = Field(default=2, ge=1, le=4)
+    max_documents: int = Field(default=100, ge=1, le=500)
+    max_attempts: int = Field(default=3, ge=1, le=10)
+    request_options: dict = Field(default_factory=lambda: {"thinking": {"type": "disabled"}})
+    auxiliary_url: str | None = None
+    auxiliary_key_env: str = "LIBRETRANSLATE_API_KEY"
+    glossary: dict[str, str] = Field(default_factory=lambda: {
+        "agent": "智能体；网络代理语境除外", "open-weight": "开放权重（不等于开源）",
+        "formalization": "形式化；不能改成首次证明", "benchmark": "基准测试",
+        "post-hoc": "事后评估", "inference": "推理", "fine-tuning": "微调",
+    })
+
+
 class RadarConfig(BaseModel):
     timezone: str = "Asia/Shanghai"
     daily_hour: int = Field(default=8, ge=0, le=23)
@@ -45,6 +66,7 @@ class RadarConfig(BaseModel):
     facebook_page_ids: list[str] = Field(default_factory=list)
     feeds: list[FeedConfig] = Field(default_factory=list)
     provider: ProviderConfig = Field(default_factory=ProviderConfig)
+    translation: TranslationConfig = Field(default_factory=TranslationConfig)
 
     @field_validator("timezone")
     @classmethod

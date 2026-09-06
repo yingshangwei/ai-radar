@@ -72,6 +72,28 @@ const platformName = (p: string) =>
   })[p] || p;
 const humanError = (error: unknown) =>
   error instanceof Error ? error.message : "操作未完成，请稍后重试。";
+const chineseReady = (a: Article) =>
+  a.translation?.status === "ready" && !!a.title_zh;
+const articleTitle = (a: Article) => (chineseReady(a) ? a.title_zh! : a.title);
+const articleText = (a: Article) =>
+  chineseReady(a) ? a.text_zh || a.title_zh! : a.text;
+const translationNote = (a: Article) => {
+  switch (a.translation?.status) {
+    case "ready":
+      return "中文译文 · 已经模型校对，可切换原文核对";
+    case "pending":
+    case "running":
+      return "中文版本生成中 · 当前显示原文";
+    case "review_required":
+      return "译文仍有疑点，待复核 · 当前显示原文";
+    case "error":
+      return "翻译暂未完成 · 当前显示原文";
+    case "disabled":
+      return "翻译尚未启用 · 当前显示原文";
+    default:
+      return "";
+  }
+};
 
 function Orbit({ size = 230 }: { size?: number }) {
   return (
@@ -314,6 +336,8 @@ function Reader({
     story?: Story;
     article?: Article;
   } | null>(null);
+  const [original, setOriginal] = useState(false);
+  useEffect(() => setOriginal(false), [detail?.article?.id]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
@@ -481,7 +505,7 @@ function Reader({
     return (
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`阅读：${a.title}`}
+        accessibilityLabel={`阅读：${articleTitle(a)}`}
         onPress={() => setDetail({ article: a })}
         style={s.card}
       >
@@ -498,14 +522,17 @@ function Reader({
           </View>
           <T style={s.muted}>{shortDate(a.published_at)}</T>
         </View>
-        <T style={s.cardTitle}>{a.title}</T>
+        <T style={s.cardTitle}>{articleTitle(a)}</T>
         {a.text.trim() !== a.title.trim() && (
           <T
             numberOfLines={2}
             style={[s.muted, { fontSize: 13, lineHeight: 23, marginTop: 9 }]}
           >
-            {a.text}
+            {articleText(a)}
           </T>
+        )}
+        {!chineseReady(a) && !!translationNote(a) && (
+          <T style={[s.muted, { fontSize: 11, marginTop: 10 }]}>{translationNote(a)}</T>
         )}
         <View style={[s.spread, { marginTop: 16 }]}>
           <T numberOfLines={1} style={[s.muted, { maxWidth: "65%" }]}>
@@ -1080,12 +1107,12 @@ function Reader({
                         {platformName(a.platform)} · {a.author}
                       </T>
                       <T style={[s.cardTitle, { fontSize: 16, marginTop: 6 }]}>
-                        {a.title}
+                        {articleTitle(a)}
                       </T>
                       <View style={[s.spread, { marginTop: 12 }]}>
                         <Pressable onPress={() => setDetail({ article: a })}>
                           <T style={{ color: C.accent, fontSize: 12 }}>
-                            阅读原文摘录 →
+                            阅读中英对照 →
                           </T>
                         </Pressable>
                         <Pressable
@@ -1108,7 +1135,38 @@ function Reader({
                 <T style={[s.label, { color: C.accent, marginBottom: 14 }]}>
                   {platformName(detail.article.platform)}
                 </T>
-                <T style={s.h1}>{detail.article.title}</T>
+                {chineseReady(detail.article) && (
+                  <View style={[s.row, { gap: 8, marginBottom: 20 }]}>
+                    {([false, true] as const).map((value) => (
+                      <Pressable
+                        key={String(value)}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: original === value }}
+                        onPress={() => setOriginal(value)}
+                        style={{
+                          paddingVertical: 9,
+                          paddingHorizontal: 18,
+                          borderRadius: 18,
+                          backgroundColor: original === value ? C.ink : C.pale,
+                        }}
+                      >
+                        <T
+                          style={{
+                            fontSize: 13,
+                            color: original === value ? C.paper : C.ink,
+                          }}
+                        >
+                          {value ? "原文" : "中文"}
+                        </T>
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
+                <T style={s.h1}>
+                  {original
+                    ? detail.article.title
+                    : articleTitle(detail.article)}
+                </T>
                 <T style={[s.muted, { marginVertical: 18 }]}>
                   {detail.article.author} ·{" "}
                   {detail.article.published_precision === "date"
@@ -1117,13 +1175,22 @@ function Reader({
                         "zh-CN",
                       )}
                 </T>
+                {!!translationNote(detail.article) && (
+                  <T style={[s.muted, { marginBottom: 16, fontSize: 11 }]}>
+                    {translationNote(detail.article)}
+                  </T>
+                )}
                 <T
                   selectable
                   style={[s.body, { fontSize: 16, lineHeight: 30 }]}
                 >
-                  {detail.article.text.trim() === detail.article.title.trim()
+                  {detail.article.text.trim() === detail.article.title.trim() &&
+                  detail.article.platform !== "x" &&
+                  detail.article.platform !== "facebook"
                     ? "此来源仅提供标题，可打开原始链接阅读全文。"
-                    : detail.article.text}
+                    : original
+                      ? detail.article.text
+                      : articleText(detail.article)}
                 </T>
                 <View style={[s.row, { gap: 12, marginTop: 28 }]}>
                   <Pressable
@@ -1266,6 +1333,21 @@ function Reader({
               : `${state?.article_count || 0} 条已收录 · ${state?.provider || "尚未获取"} 摘要引擎`}
           </T>
         </View>
+        {state?.translation?.enabled && (
+          <View style={[s.note, { marginBottom: 25 }]}>
+            <T style={s.label}>中文阅读</T>
+            <T style={[s.body, { marginTop: 7 }]}>
+              {state.translation.counts.ready || 0} 条已有中文版本
+            </T>
+            <T style={s.muted}>
+              {Object.entries(state.translation.counts).reduce(
+                (n, [key, value]) => n + (key === "ready" ? 0 : value),
+                0,
+              )}{" "}
+              条等待翻译或复核 · 原文随时可查
+            </T>
+          </View>
+        )}
         <T style={s.sectionTitle}>信息源</T>
         <T style={[s.muted, { marginTop: 7 }]}>
           授权、采集异常与最近成功时间会在这里显示。

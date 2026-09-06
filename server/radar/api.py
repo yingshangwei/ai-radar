@@ -12,9 +12,10 @@ from sqlalchemy import func, or_, select
 
 from .config import Settings
 from .db import database
-from .models import Article, Digest, Job, SourceState, Watch
+from .models import Article, ArticleTranslation, Digest, Job, SourceState, Translation, Watch
 from .pipeline import Pipeline, as_dict, ingest
 from .schemas import Bookmark, ImportBatch, Toggle, WatchInput
+from .translation import present_articles, translation_status
 
 
 def create_app(settings: Settings | None = None):
@@ -97,6 +98,7 @@ def create_app(settings: Settings | None = None):
             "model": config.provider.model,
             "scheduler_enabled": settings.scheduler_enabled,
             "article_count": session.scalar(select(func.count()).select_from(Article)),
+            "translation": translation_status(session, config.translation),
             "sources": [as_dict(s) for s in session.scalars(select(SourceState))],
             "jobs": [
                 as_dict(j) for j in session.scalars(select(Job).order_by(Job.started_at.desc()).limit(10))
@@ -119,11 +121,18 @@ def create_app(settings: Settings | None = None):
         if not saved and not q:
             query = query.where(Article.published_at >= (datetime.now(UTC) - timedelta(days=7)).isoformat())
         if q:
+            chinese_matches = select(ArticleTranslation.article_id).join(
+                Translation, ArticleTranslation.translation_id == Translation.id
+            ).where(Translation.status == "ready", or_(
+                Translation.title_zh.contains(q, autoescape=True),
+                Translation.text_zh.contains(q, autoescape=True),
+            ))
             query = query.where(
                 or_(
                     Article.title.contains(q, autoescape=True),
                     Article.text.contains(q, autoescape=True),
                     Article.author.contains(q, autoescape=True),
+                    Article.id.in_(chinese_matches),
                 )
             )
         if platform:
@@ -141,7 +150,8 @@ def create_app(settings: Settings | None = None):
             else query.order_by(Article.published_at.desc(), Article.id)
         )
         return {
-            "items": [as_dict(a) for a in session.scalars(query.limit(limit).offset(offset))],
+            "items": present_articles(session, session.scalars(query.limit(limit).offset(offset)),
+                                      config.translation),
             "total": total,
         }
 
@@ -150,7 +160,7 @@ def create_app(settings: Settings | None = None):
         row = session.get(Article, uid)
         if not row:
             raise HTTPException(404, "文章不存在")
-        return as_dict(row)
+        return present_articles(session, [row], config.translation)[0]
 
     @app.put("/v1/articles/{uid}/bookmark", dependencies=[Depends(authenticated)])
     def bookmark(uid: str, body: Bookmark, session=Depends(session_dep)):
@@ -180,7 +190,8 @@ def create_app(settings: Settings | None = None):
             raise HTTPException(404, "日报尚未生成")
         data = as_dict(row)
         ids = {uid for story in row.stories for uid in story["source_ids"]}
-        data["sources"] = [as_dict(a) for a in session.scalars(select(Article).where(Article.id.in_(ids)))]
+        data["sources"] = present_articles(session, session.scalars(select(Article).where(Article.id.in_(ids))),
+                                          config.translation)
         return data
 
     @app.get("/v1/watches", dependencies=[Depends(authenticated)])
@@ -209,14 +220,21 @@ def create_app(settings: Settings | None = None):
         return as_dict(row)
 
     @app.post("/v1/admin/import", dependencies=[Depends(admin)])
-    def import_articles(body: ImportBatch, session=Depends(session_dep)):
+    async def import_articles(body: ImportBatch, session=Depends(session_dep)):
         count = ingest(session, body.articles, config)
         session.commit()
+        if config.translation.enabled and not pipeline.lock.locked() and not tasks:
+            job = Job(kind="translate")
+            session.add(job)
+            session.commit()
+            task = asyncio.create_task(pipeline.run(kind="translate", job_id=job.id))
+            tasks.add(task)
+            task.add_done_callback(tasks.discard)
         return {"accepted": count, "received": len(body.articles)}
 
     @app.post("/v1/admin/jobs", status_code=202, dependencies=[Depends(admin)])
     async def start_job(
-        kind: Literal["collect", "digest", "daily"] = "daily",
+        kind: Literal["collect", "digest", "daily", "translate"] = "daily",
         day: date | None = None,
         force: bool = False,
         session=Depends(session_dep),

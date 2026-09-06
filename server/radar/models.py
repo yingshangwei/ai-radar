@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from sqlalchemy import JSON, Boolean, Float, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -45,6 +45,33 @@ class Watch(Base):
     organization: Mapped[str] = mapped_column(String(120), default="")
     role: Mapped[str] = mapped_column(String(120), default="")
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class Translation(Base):
+    """Content-addressed, durable translations; independent of mutable social metrics."""
+    __tablename__ = "translations"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    original_title: Mapped[str] = mapped_column(Text)
+    original_text: Mapped[str] = mapped_column(Text)
+    title_zh: Mapped[str] = mapped_column(Text, default="")
+    text_zh: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(30), default="pending", index=True)
+    parts: Mapped[list] = mapped_column(JSON, default=list)
+    issues: Mapped[list] = mapped_column(JSON, default=list)
+    model: Mapped[str] = mapped_column(String(100), default="")
+    review_model: Mapped[str] = mapped_column(String(100), default="")
+    revision: Mapped[str] = mapped_column(String(100))
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    retry_at: Mapped[str] = mapped_column(String(40), default="")
+    lease_until: Mapped[str] = mapped_column(String(40), default="")
+    owner: Mapped[str] = mapped_column(String(36), default="")
+    updated_at: Mapped[str] = mapped_column(String(40), default=now_iso)
+
+
+class ArticleTranslation(Base):
+    __tablename__ = "article_translations"
+    article_id: Mapped[str] = mapped_column(ForeignKey("articles.id"), primary_key=True)
+    translation_id: Mapped[str] = mapped_column(ForeignKey("translations.id"), index=True)
 
 
 class SourceState(Base):

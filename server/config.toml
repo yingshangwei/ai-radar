@@ -21,6 +21,19 @@ max_items = 35
 # base_url = "https://api.openai.com/v1"
 # api_key_env = "OPENAI_API_KEY"
 
+[translation]
+enabled = false
+base_url = "https://api.deepseek.com"
+api_key_env = "DEEPSEEK_API_KEY"
+model = "deepseek-v4-flash"
+review_model = "deepseek-v4-pro"
+# Increase revision to explicitly regenerate cached translations after a policy change.
+revision = "zh-v1"
+concurrency = 2
+max_documents = 100
+# Optional self-hosted LibreTranslate draft aid, always reviewed by DeepSeek:
+# auxiliary_url = "http://127.0.0.1:5000"
+
 [[feeds]]
 id = "openai"
 name = "OpenAI News"

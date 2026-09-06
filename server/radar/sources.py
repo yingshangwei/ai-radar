@@ -12,8 +12,9 @@ from .schemas import IncomingArticle
 
 
 class SourceUnavailable(Exception):
-    def __init__(self, status: str, message: str):
+    def __init__(self, status: str, message: str, *, partial_items: list[IncomingArticle] | None = None):
         self.status, self.message = status, message
+        self.partial_items = partial_items or []
         super().__init__(message)
 
 
@@ -128,13 +129,23 @@ async def fetch_x(
             "user.fields": "name,username",
         }
         for _ in range(config.x_max_pages):
-            body = await get_json(
-                client,
-                "https://api.x.com/2/tweets/search/recent",
-                params=params,
-                headers={"Authorization": f"Bearer {token}"},
-                allow_partial=True,
-            )
+            try:
+                body = await get_json(
+                    client,
+                    "https://api.x.com/2/tweets/search/recent",
+                    params=params,
+                    headers={"Authorization": f"Bearer {token}"},
+                    allow_partial=True,
+                )
+            except SourceUnavailable as exc:
+                exc.partial_items = list(items.values())
+                raise
+            except httpx.HTTPError as exc:
+                raise SourceUnavailable(
+                    "error",
+                    "X 请求中断，下轮重试；已取得的内容单独保留。",
+                    partial_items=list(items.values()),
+                ) from exc
             users = {u["id"]: u for u in body.get("includes", {}).get("users", [])}
             referenced = {p["id"]: p for p in body.get("includes", {}).get("tweets", [])}
             for post in body.get("data", []):

@@ -4,6 +4,9 @@ import httpx
 import pytest
 
 from radar.config import RadarConfig
+from radar.db import database
+from radar.models import Article, SourceState
+from radar.pipeline import Pipeline
 from radar.ranking import classify
 from radar.sources import SourceUnavailable, fetch_x
 
@@ -105,7 +108,9 @@ async def test_reply_context_cannot_turn_unrelated_text_into_ai_news(monkeypatch
         return_value=httpx.Response(
             200,
             json={
-                "data": [post(text="Happy birthday!", referenced_tweets=[{"type": "replied_to", "id": "ai"}])],
+                "data": [
+                    post(text="Happy birthday!", referenced_tweets=[{"type": "replied_to", "id": "ai"}])
+                ],
                 "includes": {"tweets": [post("ai", text="New AI model release")]},
             },
         )
@@ -114,3 +119,38 @@ async def test_reply_context_cannot_turn_unrelated_text_into_ai_news(monkeypatch
         items = await fetch_x(client, RadarConfig(), [])
     assert items[0].text == "Happy birthday!"
     assert classify(items[0]) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "http_status,source_status", [(402, "rate_limited"), (429, "rate_limited"), (503, "error")]
+)
+async def test_quota_error_keeps_already_fetched_posts_and_marks_partial_state(
+    monkeypatch, respx_mock, tmp_path, http_status, source_status
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("X_BEARER_TOKEN", "test-only")
+    monkeypatch.delenv("FACEBOOK_ACCESS_TOKEN", raising=False)
+    route = respx_mock.get("https://api.x.com/2/tweets/search/recent")
+    route.side_effect = [
+        httpx.Response(
+            200,
+            json={
+                "data": [post("kept", text="New AI model", created_at=datetime.now(UTC).isoformat())],
+                "meta": {"next_token": "page-two"},
+            },
+        ),
+        httpx.Response(http_status),
+    ]
+    engine, sessions = database(f"sqlite:///{tmp_path}/quota.db")
+    pipeline = Pipeline(sessions, RadarConfig(anthropic_news_enabled=False))
+    assert await pipeline.collect() == 1
+    with sessions() as session:
+        from sqlalchemy import select
+
+        assert session.scalar(select(Article)).external_id == "kept"
+        source = session.get(SourceState, "x")
+        assert source.status == source_status and source.item_count == 1
+        assert "已保留" in source.message and source.last_success_at
+    assert route.call_count == 2
+    engine.dispose()

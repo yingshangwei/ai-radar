@@ -10,6 +10,8 @@
 
 字段实现依据 [X 数据字典](https://docs.x.com/x-api/fundamentals/data-dictionary) 与 [扩展对象说明](https://docs.x.com/x-api/fundamentals/expansions)，已通过接口契约测试，真实付费 API 调用仍待凭据接入。
 
+如果后续分页发生额度耗尽、限流或网络/HTTP 错误，已经取得的有效帖子仍会入库；来源保持“额度受限”或“采集异常”，并明确本轮未完成。不会把中断当成完整采集成功，也不会立即反复重试消耗请求。
+
 [X 官方搜索接入文档](https://docs.x.com/x-api/posts/search/integrate/overview)
 
 2026-09-07 接入状态：用户已登录 X，AI Radar 开发者账号与应用已创建；余额为 0，最低充值选项为 5 美元。未付款，等待用户决定是否使用付费 API；尚未提取或配置 Bearer Token，定时任务不会因此产生 X API 费用。随后通过用户已登录的浏览器读取并导入了 8 条真实公开帖，完成模型日报验证；这不是定时 X 采集已开通。

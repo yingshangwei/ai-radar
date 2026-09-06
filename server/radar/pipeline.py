@@ -118,8 +118,17 @@ class Pipeline:
                 except Exception as exc:
                     with self.sessions.begin() as session:
                         state = session.get(SourceState, key)
+                        partial_message = ""
+                        if isinstance(exc, SourceUnavailable) and exc.partial_items:
+                            count = ingest(session, exc.partial_items, self.config, authority)
+                            total += count
+                            state.last_success_at, state.item_count = now_iso(), len(exc.partial_items)
+                            partial_message = (
+                                f"本轮已读取 {len(exc.partial_items)} 条，已保留其中符合筛选条件的内容"
+                                f"（新增 {count} 条）；采集尚未完成。"
+                            )
                         state.status = exc.status if isinstance(exc, SourceUnavailable) else "error"
-                        state.message = (
+                        state.message = partial_message + (
                             exc.message
                             if isinstance(exc, SourceUnavailable)
                             else f"采集失败（{type(exc).__name__}），下轮自动重试。"

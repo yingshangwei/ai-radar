@@ -4,6 +4,10 @@
 
 ## 当前部署状态 · 2026-09-07
 
+最新接入：03:20 用户提供 X Token 并确认充值，凭据已通过一次性 RSA 4096 OAEP/SHA-256 加密传到服务器，仅写入私有 `server.env`（0600）。进程加载校验通过，其他环境变量和服务均保留，临时传输私钥已删除。备份位于 root 私有 `/opt/ai-radar/incoming/x-token-20260907`。服务器配置每查询 10 条、1 页，每两小时采集。
+
+首轮官方 API 任务 `c700474d-e3a8-4b38-967a-6f6a2c65c3de` 完成，读取 30 条、新增 6 条、更新 1 条旧帖，总计 40 条，X 为 healthy。Codex 任务 `b5d910c6-6ecc-4575-bfbc-117ae6cef67f` 已更新 9 月 6 日日报，5 条输入形成 1 条报道、4 个引用，原文和日期窗口校验通过。下面的部署记录保留各阶段的历史计数。
+
 - 已通过用户配置的腾讯云官方 CLI + TAT 部署，当前 API release 为 `/opt/ai-radar/releases/20260907-d600c7e`；前一版本 `/opt/ai-radar/releases/20260906-c8f7568` 已保留。
 - HTTPS 地址：`https://radar.yswdra.cn`；`/healthz` 已从本机及服务器验证为 200。无令牌读取返回 401，reader 读取返回 200，reader 调用管理任务返回 403。
 - 官方 Caddy 2.11.4 已安装并运行，使用独立 `radar` 主机规则；DNSPod 新增 `radar` A 记录，防火墙只追加 TCP 443。原有根域名、`www`、22/80/8080 规则未更改。

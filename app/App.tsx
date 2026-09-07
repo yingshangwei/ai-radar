@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   AppState,
@@ -21,14 +21,28 @@ import Svg, { Circle, Ellipse, Line, Path } from "react-native-svg";
 import {
   QueryClient,
   QueryClientProvider,
+  focusManager,
   useQuery,
   useInfiniteQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { api, APIError, cached, normalizeURL, storage } from "./src/api";
+import {
+  api,
+  APIError,
+  cached,
+  normalizeURL,
+  saveCached,
+  storage,
+} from "./src/api";
 import { C, s } from "./src/theme";
 import AuthorizationCenter from "./src/AuthorizationCenter";
 import DeviceReading from "./src/DeviceReading";
+import {
+  contentRefreshTracker,
+  subscribeNativeFocus,
+  syncArticleBookmark,
+} from "./src/contentSync";
+import { sourceConnected, sourceStatusLabel } from "./src/sourceState";
 import appManifest from "./app.json";
 import { demoArticles, demoDigest, demoStatus, demoWatches } from "./src/demo";
 import type {
@@ -387,6 +401,13 @@ function Reader({
         ? { data: demoStatus, offline: false }
         : cached<Status>(connection, "/v1/status"),
   });
+  const refreshContent = useMemo(
+    () => contentRefreshTracker(qc, [connection.url, demo ? "demo" : "live"]),
+    [qc, connection.url, connection.token, demo],
+  );
+  useEffect(() => {
+    if (appActive && !demo) void refreshContent(status.data);
+  }, [appActive, demo, refreshContent, status.data]);
   const digest = useQuery({
     queryKey: [...prefix, "digest", edition],
     queryFn: async () => {
@@ -457,10 +478,14 @@ function Reader({
   const articleDetails = useQuery({
     queryKey: [...prefix, "article", detail?.article?.id],
     enabled: !!detail?.article && !demo,
-    queryFn: () =>
-      cached<Article>(connection, `/v1/articles/${detail!.article!.id}`),
+    queryFn: ({ signal }) =>
+      cached<Article>(
+        connection,
+        `/v1/articles/${detail!.article!.id}`,
+        signal,
+      ),
   });
-  const resourceArticle =
+  const currentArticle =
     articleDetails.data?.data?.id === detail?.article?.id
       ? articleDetails.data?.data
       : detail?.article;
@@ -484,19 +509,25 @@ function Reader({
   };
   const bookmark = (article: Article) =>
     action(async () => {
+      let saved = !article.saved;
       if (demo) {
         setDemoSaved((x) =>
           x.includes(article.id)
             ? x.filter((id) => id !== article.id)
             : [...x, article.id],
         );
-      } else
-        await api(connection, `/v1/articles/${article.id}/bookmark`, {
-          method: "PUT",
-          body: JSON.stringify({ saved: !article.saved }),
-        });
+      } else {
+        const result = await api<{ saved: boolean }>(
+          connection,
+          `/v1/articles/${article.id}/bookmark`,
+          { method: "PUT", body: JSON.stringify({ saved: !article.saved }) },
+        );
+        saved = result.saved;
+        const updated = await syncArticleBookmark(qc, prefix, article, saved);
+        await saveCached(connection, `/v1/articles/${article.id}`, updated);
+      }
       if (detail?.article?.id === article.id)
-        setDetail({ article: { ...article, saved: !article.saved } });
+        setDetail({ article: { ...article, saved } });
     });
   const follow = (watch: Watch) =>
     action(async () => {
@@ -516,7 +547,7 @@ function Reader({
   const state = status.data?.data;
   const list = articles.data?.pages.flatMap((p) => p.data.items) || [];
   const connectedSources =
-    state?.sources.filter((x) => x.status === "healthy").length || 0;
+    state?.sources.filter((x) => sourceConnected(x.status)).length || 0;
   const offline =
     status.data?.offline ||
     digest.data?.offline ||
@@ -835,7 +866,7 @@ function Reader({
                   style={{ paddingVertical: 14 }}
                 >
                   <T style={{ fontSize: 12, color: C.accent }}>
-                    部分来源尚未接通 · 查看覆盖范围 →
+                    部分来源尚未完整覆盖 · 查看覆盖范围 →
                   </T>
                 </Pressable>
               )}
@@ -1200,12 +1231,12 @@ function Reader({
                   );
                 })}
               </>
-            ) : detail.article ? (
+            ) : currentArticle ? (
               <>
                 <T style={[s.label, { color: C.accent, marginBottom: 14 }]}>
-                  {platformName(detail.article.platform)}
+                  {platformName(currentArticle.platform)}
                 </T>
-                {chineseReady(detail.article) && (
+                {chineseReady(currentArticle) && (
                   <View style={[s.row, { gap: 8, marginBottom: 20 }]}>
                     {([false, true] as const).map((value) => (
                       <Pressable
@@ -1233,37 +1264,37 @@ function Reader({
                   </View>
                 )}
                 <T style={s.h1}>
-                  {detail.article.platform === "x" ||
-                  detail.article.platform === "facebook"
-                    ? `${detail.article.author} 的动态`
+                  {currentArticle.platform === "x" ||
+                  currentArticle.platform === "facebook"
+                    ? `${currentArticle.author} 的动态`
                     : original
-                      ? detail.article.title
-                      : articleTitle(detail.article)}
+                      ? currentArticle.title
+                      : articleTitle(currentArticle)}
                 </T>
                 <T style={[s.muted, { marginVertical: 18 }]}>
-                  {detail.article.author} ·{" "}
-                  {detail.article.published_precision === "date"
-                    ? `${shortDate(detail.article.published_at)}（来源仅公布日期）`
-                    : dateTime(detail.article.published_at)}
+                  {currentArticle.author} ·{" "}
+                  {currentArticle.published_precision === "date"
+                    ? `${shortDate(currentArticle.published_at)}（来源仅公布日期）`
+                    : dateTime(currentArticle.published_at)}
                 </T>
-                {!!translationNote(detail.article) && (
+                {!!translationNote(currentArticle) && (
                   <T style={[s.muted, { marginBottom: 16, fontSize: 11 }]}>
-                    {translationNote(detail.article)}
+                    {translationNote(currentArticle)}
                   </T>
                 )}
                 <T
                   selectable
                   style={[s.body, { fontSize: 16, lineHeight: 30 }]}
                 >
-                  {detail.article.text.trim() === detail.article.title.trim() &&
-                  detail.article.platform !== "x" &&
-                  detail.article.platform !== "facebook"
+                  {currentArticle.text.trim() === currentArticle.title.trim() &&
+                  currentArticle.platform !== "x" &&
+                  currentArticle.platform !== "facebook"
                     ? "此来源仅提供标题，可打开原始链接阅读全文。"
                     : original
-                      ? detail.article.text
-                      : articleText(detail.article)}
+                      ? currentArticle.text
+                      : articleText(currentArticle)}
                 </T>
-                {!!resourceArticle?.resources?.length && (
+                {!!currentArticle?.resources?.length && (
                   <View style={{ marginTop: 28, marginBottom: 8 }}>
                     <T style={s.sectionTitle}>网页与文章解读</T>
                     <T
@@ -1279,7 +1310,7 @@ function Reader({
                         当前显示已保存的离线内容。
                       </T>
                     )}
-                    {resourceArticle.resources.map((resource) => (
+                    {currentArticle.resources.map((resource) => (
                       <ResourceCard
                         key={resource.id}
                         resource={resource}
@@ -1291,16 +1322,16 @@ function Reader({
                 <View style={[s.row, { gap: 12, marginTop: 28 }]}>
                   <Pressable
                     disabled={pending}
-                    onPress={() => bookmark(detail.article!)}
+                    onPress={() => bookmark(currentArticle!)}
                     style={[s.button, { flex: 1 }]}
                   >
                     <Icon name="bookmark" color={C.paper} size={17} />
                     <T style={s.buttonText}>
-                      {detail.article.saved ? "取消收藏" : "收藏文章"}
+                      {currentArticle.saved ? "取消收藏" : "收藏文章"}
                     </T>
                   </Pressable>
                   <Pressable
-                    onPress={() => openSource(detail.article!.url)}
+                    onPress={() => openSource(currentArticle!.url)}
                     style={[
                       s.button,
                       {
@@ -1319,7 +1350,7 @@ function Reader({
                   selectable
                   style={[s.muted, { fontSize: 10, marginTop: 18 }]}
                 >
-                  {detail.article.url}
+                  {currentArticle.url}
                 </T>
               </>
             ) : null}
@@ -1480,16 +1511,7 @@ function Reader({
                     { color: source.status === "healthy" ? C.green : C.accent },
                   ]}
                 >
-                  {(
-                    {
-                      healthy: "已连接",
-                      auth_required: "待授权",
-                      rate_limited: "额度受限",
-                      error: "采集异常",
-                      pending: "等待采集",
-                      preview: "示例",
-                    } as Record<string, string>
-                  )[source.status] || source.status}
+                  {sourceStatusLabel(source.status)}
                 </T>
               </View>
             </View>
@@ -1783,6 +1805,10 @@ function Sheet({
 export default function App() {
   const [connection, setConnection] = useState<Connection | null>(null);
   const [ready, setReady] = useState(false);
+  useEffect(
+    () => subscribeNativeFocus(AppState, Platform.OS, focusManager),
+    [],
+  );
   useEffect(() => {
     storage
       .load()

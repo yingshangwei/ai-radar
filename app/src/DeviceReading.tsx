@@ -17,7 +17,9 @@ import {
   deferDeviceDocument,
   deviceAdminConnection,
   loadDeviceDeferrals,
+  loadDeviceRotation,
   loadDeviceSites,
+  saveDeviceRotation,
   subscribeDeviceReading,
   updateDeviceSite,
 } from "./deviceReadingStorage";
@@ -88,7 +90,10 @@ export default function DeviceReading(props: DeviceReadingProps) {
       const verification = new Set<string>();
       try {
         const permissions = await loadDeviceSites(props.connection.url);
-        const domains = automaticDomains(permissions);
+        const domains = automaticDomains(
+          permissions,
+          await loadDeviceRotation(props.connection.url),
+        );
         Object.entries(permissions).forEach(([domain, value]) => {
           if (value.allowed && value.needsVerification)
             verification.add(domain);
@@ -102,6 +107,13 @@ export default function DeviceReading(props: DeviceReadingProps) {
           `/v1/browser/mobile-queue?domains=${encodeURIComponent(domains.join(","))}&limit=3&exclude_document_ids=${encodeURIComponent(excluded.join(","))}`,
         );
         if (!Array.isArray(response) || cancelled) return;
+        // Advance only after a successful queue read. Persist per server so short
+        // foreground sessions also reach sites beyond the first thirty grants.
+        await saveDeviceRotation(
+          props.connection.url,
+          domains[domains.length - 1]!,
+        );
+        if (cancelled) return;
         const queue = response
           .filter(
             (doc) =>

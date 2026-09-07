@@ -97,6 +97,7 @@ export interface Status {
     enabled: boolean;
     configured: boolean;
     counts: Record<string, number>;
+    resource_counts?: Record<string, number>;
     alert?: {
       code: "insufficient_balance";
       title: string;
@@ -111,6 +112,7 @@ export interface Status {
     status: string;
     message: string;
     started_at: string;
+    finished_at?: string | null;
   }[];
 }
 export interface Connection {

@@ -71,6 +71,17 @@ export async function loadDeviceDeferrals(
     return {};
   }
 }
+export async function loadDeviceRotation(server: string): Promise<string> {
+  return siteHost((await AsyncStorage.getItem(key(server, "rotation"))) || "");
+}
+export async function saveDeviceRotation(
+  server: string,
+  domain: string,
+): Promise<void> {
+  const normalized = siteHost(domain);
+  if (normalized)
+    await AsyncStorage.setItem(key(server, "rotation"), normalized);
+}
 export async function deferDeviceDocument(
   server: string,
   id: string,

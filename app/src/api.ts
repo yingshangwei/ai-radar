@@ -101,21 +101,34 @@ export async function api<T>(
   }
 }
 
+export async function saveCached(
+  connection: Connection,
+  path: string,
+  data: unknown,
+) {
+  try {
+    await AsyncStorage.setItem(
+      `airadar.cache.${connection.url}${path}`,
+      JSON.stringify(data),
+    );
+  } catch {
+    // A full device cache must not discard a successful request or mutation.
+  }
+}
+
 export async function cached<T>(
   connection: Connection,
   path: string,
+  signal?: AbortSignal,
 ): Promise<{ data: T; offline: boolean }> {
   const key = `airadar.cache.${connection.url}${path}`;
   try {
-    const data = await api<T>(connection, path);
-    try {
-      await AsyncStorage.setItem(key, JSON.stringify(data));
-    } catch {
-      // A full device cache must not discard a successfully fetched document.
-      // Offline access remains available for entries that were actually saved.
-    }
+    const data = await api<T>(connection, path, { signal });
+    if (signal?.aborted) throw new Error("请求已取消。");
+    await saveCached(connection, path, data);
     return { data, offline: false };
   } catch (error) {
+    if (signal?.aborted) throw error;
     // Never hide expired credentials behind cached private data.
     if (error instanceof APIError) throw error;
     const data = await AsyncStorage.getItem(key);

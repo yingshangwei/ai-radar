@@ -50,14 +50,24 @@ export function targetPage(url: string, target: string): boolean {
   return identity(url) === identity(target);
 }
 
-export function automaticDomains(permissions: DeviceSitePermissions): string[] {
-  return Object.entries(permissions)
-    .filter(
-      ([domain, value]) =>
-        !!siteHost(domain) && value.allowed && !value.needsVerification,
-    )
-    .map(([domain]) => siteHost(domain))
-    .slice(0, 30);
+export function automaticDomains(
+  permissions: DeviceSitePermissions,
+  afterDomain = "",
+): string[] {
+  const domains = Array.from(
+    new Set(
+      Object.entries(permissions)
+        .filter(
+          ([domain, value]) =>
+            !!siteHost(domain) && value.allowed && !value.needsVerification,
+        )
+        .map(([domain]) => siteHost(domain)),
+    ),
+  ).sort();
+  const cursor = siteHost(afterDomain);
+  const next = cursor ? domains.findIndex((domain) => domain > cursor) : 0;
+  const start = next < 0 ? 0 : next;
+  return [...domains.slice(start), ...domains.slice(0, start)].slice(0, 30);
 }
 
 export function eligibleDeviceDocument(

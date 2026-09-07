@@ -30,4 +30,12 @@ App 0.4.0：进入「你的雷达 → 网页授权中心」，按网站查看直
 
 使用 Ubuntu 官方包中的 Openbox 管理远程按键焦点，关闭桌面菜单和启动快捷键。使用官方 [Playwright](https://playwright.dev/python/docs/auth) 1.62.0 和 [noVNC](https://github.com/novnc/noVNC) 1.7.0，移动容器使用 Expo 55 对应的 [React Native WebView](https://github.com/react-native-webview/react-native-webview) 13.16.0。Python 依赖使用含哈希的 requirements.lock，noVNC npm 发行包验证固定 SHA-512 integrity 并保留许可证，浏览器二进制由 Playwright 官方安装命令下载。更新这些依赖后应重新验证沙箱、远程交互和网站兼容性。
 
+### 一直连接、画面灰色
+
+2026-09-07 已修复 noVNC 1.7.0 在部分 Android Chromium 上的初始化阻塞：可选 H.264 能力检测可能一直不返回，原版顶层 `await` 会阻塞整个模块加载。`scripts/patch-novnc.py` 校验原文件 SHA-256 后，应用已合并的[上游修复 7834e66](https://github.com/novnc/noVNC/commit/7834e66)，并处理检测 API 缺失或拒绝的情况。检测失败只关闭可选编解码器，不阻止远程画面连接。补丁记录和原许可证保留在资源目录中。
+
+安装脚本生成独立的 `android-compat-v1` 资源目录，所有子模块也使用新路径，避免旧 WebView 缓存继续加载有问题的代码。页面先启动状态与关闭按钮、兑换单次票据，再动态加载画面组件；普通请求 15 秒、组件加载 45 秒、画面连接 25 秒超时后显示具体错误，验证正文请求单独允许 60 秒。实际连接前禁用「验证并补采」。
+
+本次只更新服务器资源，已有 App 0.4.0 无需重装。若窗口仍显示旧的「正在连接」，点击 App 右上角「关闭」，回到授权中心重新打开；新窗口会依次显示验证窗口、加载组件、连接画面及已连接状态。网站自身的登录、验证码或访问限制仍需在画面中处理。
+
 以上浏览器服务面向当前单用户部署。多用户隔离、独立网站账号管理和本机补采节点不在本次实现范围内。

@@ -89,7 +89,7 @@ async def test_valid_batch_keeps_one_audit_call_and_original_provenance(setup):
     service, calls = TranslationService(sessions, config), []
     before = row_snapshot(sessions, key)
 
-    async def completion(payload, *, system, model):
+    async def completion(payload, *, system, model, stage):
         parts = audit_inputs(payload, system, model)
         calls.append(deepcopy(parts))
         return audit_response(parts)
@@ -113,7 +113,7 @@ async def test_batch_id_mismatch_reaudits_exact_single_parts_without_relabeling(
     sessions, config, key = setup
     service, calls = TranslationService(sessions, config), []
 
-    async def completion(payload, *, system, model):
+    async def completion(payload, *, system, model, stage):
         parts = audit_inputs(payload, system, model)
         calls.append(deepcopy(parts))
         if len(parts) > 1:
@@ -142,7 +142,7 @@ async def test_fallback_saves_each_passing_part_and_resumes_only_remaining_part(
     service, calls = TranslationService(sessions, config), []
     saved_title = None
 
-    async def completion(payload, *, system, model):
+    async def completion(payload, *, system, model, stage):
         nonlocal saved_title
         parts = audit_inputs(payload, system, model)
         calls.append([part["id"] for part in parts])
@@ -180,7 +180,7 @@ async def test_fallback_saves_each_passing_part_and_resumes_only_remaining_part(
         assert "audit_part_mismatch" in row["issues"][0]
     resumed = TranslationService(sessions, config)
 
-    async def recovered(payload, *, system, model):
+    async def recovered(payload, *, system, model, stage):
         parts = audit_inputs(payload, system, model)
         assert [part["id"] for part in parts] == ["body-0"]
         calls.append([part["id"] for part in parts])
@@ -199,7 +199,7 @@ async def test_non_id_batch_failures_never_trigger_single_fallback(setup, failur
     sessions, config, key = setup
     service, calls = TranslationService(sessions, config), []
 
-    async def completion(payload, *, system, model):
+    async def completion(payload, *, system, model, stage):
         parts = audit_inputs(payload, system, model)
         calls.append([part["id"] for part in parts])
         if failure == "schema":
@@ -234,7 +234,7 @@ async def test_individual_strategy_survives_restart_with_multiple_unfinished_par
         ]
     service, calls = TranslationService(sessions, config), []
 
-    async def completion(payload, *, system, model):
+    async def completion(payload, *, system, model, stage):
         assert system == AUDIT and model == "separate-auditor"
         parts = payload["untrusted_parts"]
         assert all(set(part) == {"id", "source", "candidate"} for part in parts)
@@ -253,7 +253,7 @@ async def test_individual_strategy_survives_restart_with_multiple_unfinished_par
     assert calls == [["title", "body-0", "body-1"], ["title"], ["body-0"]]
     resumed = TranslationService(sessions, config)
 
-    async def recovered(payload, *, system, model):
+    async def recovered(payload, *, system, model, stage):
         assert system == AUDIT and model == "separate-auditor"
         parts = payload["untrusted_parts"]
         assert all(set(part) == {"id", "source", "candidate"} for part in parts)
@@ -287,7 +287,7 @@ async def test_single_fallback_retains_all_quality_gates_and_bounded_repairs(set
     service = TranslationService(sessions, config)
     audits, corrections = [], []
 
-    async def completion(payload, *, system, model):
+    async def completion(payload, *, system, model, stage):
         parts = payload["untrusted_parts"]
         if "candidate" in parts[0]:
             audit_inputs(payload, system, model)

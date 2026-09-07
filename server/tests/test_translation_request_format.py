@@ -76,7 +76,7 @@ async def test_request_retries_invalid_format_once_with_safe_feedback_and_unchan
         inputs[0].update(draft=CHINESE, checks=["逐项核对原文"])
     before = deepcopy(inputs)
 
-    async def completion(payload, *, system, model):
+    async def completion(payload, *, system, model, stage):
         assert_request_payload(payload, system, model, config, review=review)
         calls.append(deepcopy(payload))
         if len(calls) == 1:
@@ -111,7 +111,7 @@ async def test_recovered_draft_still_requires_correction_and_independent_audit_b
     sessions, config, key = setup
     service, calls = TranslationService(sessions, config), []
 
-    async def completion(payload, *, system, model):
+    async def completion(payload, *, system, model, stage):
         if system == AUDIT:
             calls.append("audit")
             assert model == "separate-auditor"
@@ -146,7 +146,7 @@ async def test_second_invalid_request_stays_failed_without_guessing_approval(set
     sessions, config, key = setup
     service, invalid_calls = TranslationService(sessions, config), []
 
-    async def completion(payload, *, system, model):
+    async def completion(payload, *, system, model, stage):
         is_review = system == POLICY + REVIEW
         assert_request_payload(payload, system, model, config, review=is_review)
         if review and not is_review:
@@ -177,7 +177,7 @@ async def test_valid_review_rejection_is_not_format_retried_and_cannot_publish(s
     sessions, config, key = setup
     service, calls = TranslationService(sessions, config), []
 
-    async def completion(payload, *, system, model):
+    async def completion(payload, *, system, model, stage):
         assert "format_feedback" not in payload
         if system == AUDIT:
             calls.append("audit")
@@ -204,7 +204,7 @@ async def test_ids_fail_immediately_and_literal_failures_exhaust_one_shared_retr
     sessions, config, _ = setup
     service, calls = TranslationService(sessions, config), []
 
-    async def completion(payload, *, system, model):
+    async def completion(payload, *, system, model, stage):
         assert_request_payload(payload, system, model, config, review=False)
         calls.append(deepcopy(payload))
         if len(calls) == 1:
@@ -239,7 +239,7 @@ async def test_http_errors_preserve_auth_or_balance_behavior_without_protocol_re
     sessions, config, key = setup
     service, calls = TranslationService(sessions, config), []
 
-    async def completion(payload, *, system, model):
+    async def completion(payload, *, system, model, stage):
         assert_request_payload(payload, system, model, config, review=False)
         calls.append(deepcopy(payload))
         if after_format_error and len(calls) == 1:

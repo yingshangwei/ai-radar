@@ -1,10 +1,10 @@
 import os
 import tomllib
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -29,7 +29,17 @@ class FeedConfig(BaseModel):
     authority: float = Field(default=1.0, ge=0, le=3)
 
 
+TranslationStage = Literal["draft", "correction", "audit"]
+TranslationTokenLimit = Annotated[int, Field(strict=True, ge=256, le=65536)]
+TRANSLATION_RESERVED_OPTIONS = frozenset({
+    "messages", "model", "response_format", "tools", "tool_choice", "functions", "function_call",
+    "stream", "stream_options", "max_tokens", "max_completion_tokens", "extra_body",
+})
+
+
 class TranslationConfig(BaseModel):
+    model_config = ConfigDict(hide_input_in_errors=True)
+
     enabled: bool = False
     base_url: str = "https://api.deepseek.com"
     api_key_env: str = "DEEPSEEK_API_KEY"
@@ -43,6 +53,9 @@ class TranslationConfig(BaseModel):
     max_documents: int = Field(default=100, ge=1, le=500)
     max_attempts: int = Field(default=3, ge=1, le=10)
     request_options: dict = Field(default_factory=lambda: {"thinking": {"type": "disabled"}})
+    stage_request_options: dict[TranslationStage, dict] = Field(default_factory=dict)
+    max_tokens: TranslationTokenLimit = 12000
+    stage_max_tokens: dict[TranslationStage, TranslationTokenLimit] = Field(default_factory=dict)
     auxiliary_url: str | None = None
     auxiliary_key_env: str = "LIBRETRANSLATE_API_KEY"
     glossary: dict[str, str] = Field(default_factory=lambda: {
@@ -50,6 +63,25 @@ class TranslationConfig(BaseModel):
         "formalization": "形式化；不能改成首次证明", "benchmark": "基准测试",
         "post-hoc": "事后评估", "inference": "推理", "fine-tuning": "微调",
     })
+
+    @field_validator("stage_request_options", "stage_max_tokens", mode="before")
+    @classmethod
+    def valid_translation_stages(cls, value):
+        # Reject unknown keys before Pydantic includes them in an error location.
+        if isinstance(value, dict) and any(key not in {"draft", "correction", "audit"} for key in value):
+            raise ValueError("Translation stage must be draft, correction or audit")
+        return value
+
+    @field_validator("request_options", "stage_request_options")
+    @classmethod
+    def valid_request_options(cls, value: dict, info):
+        options = [value] if info.field_name == "request_options" else value.values()
+        for item in options:
+            if any(not isinstance(key, str) for key in item):
+                raise ValueError("Translation request option keys must be strings")
+            if TRANSLATION_RESERVED_OPTIONS.intersection(item):
+                raise ValueError("Translation request options contain a reserved workflow field")
+        return value
 
 
 class ReadingConfig(BaseModel):
@@ -69,6 +101,9 @@ class ReadingConfig(BaseModel):
 
 
 class RadarConfig(BaseModel):
+    # Nested translation validation must not echo options or configured secrets.
+    model_config = ConfigDict(hide_input_in_errors=True)
+
     timezone: str = "Asia/Shanghai"
     daily_hour: int = Field(default=8, ge=0, le=23)
     daily_minute: int = Field(default=0, ge=0, le=59)

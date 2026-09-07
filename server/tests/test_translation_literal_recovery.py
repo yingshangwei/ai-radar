@@ -48,7 +48,7 @@ async def test_literal_retry_uses_same_protected_evidence_and_only_safe_count_fe
         inputs[0].update(draft=CHINESE, checks=["需要核对链接完整性"])
     before = deepcopy(inputs)
 
-    async def completion(payload, *, system, model):
+    async def completion(payload, *, system, model, stage):
         assert_request_payload(payload, system, model, config, review=review)
         calls.append(deepcopy(payload))
         if len(calls) == 1:
@@ -84,7 +84,7 @@ async def test_schema_and_literal_failures_share_two_completions_total(setup, re
     inputs = [{"id": "body-0", "source": SOURCE, "draft": CHINESE}]
     before = deepcopy(inputs)
 
-    async def completion(payload, *, system, model):
+    async def completion(payload, *, system, model, stage):
         calls.append(deepcopy(payload))
         assert len(calls) <= 2, "Nested retry budget allowed an extra model invocation"
         assert payload["untrusted_parts"] == calls[0]["untrusted_parts"]
@@ -122,7 +122,7 @@ async def test_all_part_counts_checked_before_restoration_and_markers_remain_par
 
     monkeypatch.setattr(TranslationOutput, "model_validate_json", classmethod(capture))
 
-    async def completion(payload, *, system, model):
+    async def completion(payload, *, system, model, stage):
         calls.append(deepcopy(payload))
         if len(calls) == 2:
             assert payload["format_feedback"]["errors"] == [
@@ -154,7 +154,7 @@ async def test_id_errors_take_priority_over_missing_markers_and_never_retry(setu
     service, calls = TranslationService(sessions, config), []
     inputs = [{"id": "body-0", "source": SOURCE}, {"id": "body-1", "source": SOURCE}]
 
-    async def completion(payload, *, system, model):
+    async def completion(payload, *, system, model, stage):
         calls.append(payload)
         ids = {"unknown": ["unknown", "body-1"], "missing": ["body-0"], "duplicate": ["body-0", "body-0"]}[fault]
         return json.dumps({"translations": [
@@ -173,7 +173,7 @@ async def test_literal_recovery_does_not_bypass_review_audit_or_machine_gates(se
     sessions, config, key = setup
     service, calls = TranslationService(sessions, config), []
 
-    async def completion(payload, *, system, model):
+    async def completion(payload, *, system, model, stage):
         if system == AUDIT:
             calls.append("audit")
             assert "format_feedback" not in payload
@@ -217,7 +217,7 @@ async def test_http_402_after_literal_error_stops_and_preserves_balance_and_save
     sessions, config, key = setup
     service, target_calls = TranslationService(sessions, config), []
 
-    async def completion(payload, *, system, model):
+    async def completion(payload, *, system, model, stage):
         is_review = system == POLICY + REVIEW
         if review and not is_review:
             return translated()
@@ -259,7 +259,7 @@ async def test_exhausted_literal_recovery_preserves_prior_candidate_and_passing_
         key = row.id
     service, calls = TranslationService(sessions, config), []
 
-    async def completion(payload, *, system, model):
+    async def completion(payload, *, system, model, stage):
         calls.append(payload)
         assert system == POLICY + REVIEW
         assert [part["id"] for part in payload["untrusted_parts"]] == ["body-0"]

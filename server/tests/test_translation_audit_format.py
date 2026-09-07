@@ -87,7 +87,7 @@ async def test_one_format_retry_uses_unchanged_evidence_safe_feedback_and_real_a
     with sessions() as session:
         before = deepcopy(session.get(Translation, key).parts[0])
 
-    async def completion(payload, *, system, model):
+    async def completion(payload, *, system, model, stage):
         assert_clean_payload(payload, system, model)
         calls.append(deepcopy(payload))
         if len(calls) == 1:
@@ -125,7 +125,7 @@ async def test_valid_semantic_rejection_returns_immediately_without_format_resam
     sessions, config, _ = setup
     service, calls = TranslationService(sessions, config), []
 
-    async def completion(payload, *, system, model):
+    async def completion(payload, *, system, model, stage):
         assert_clean_payload(payload, system, model)
         calls.append(deepcopy(payload))
         if after_format_error and len(calls) == 1:
@@ -146,7 +146,7 @@ async def test_second_invalid_output_stays_unpublished_and_keeps_draft(setup, fa
     sessions, config, key = setup
     service, calls = TranslationService(sessions, config), []
 
-    async def completion(payload, *, system, model):
+    async def completion(payload, *, system, model, stage):
         assert_clean_payload(payload, system, model)
         calls.append(deepcopy(payload))
         return malformed(fault)
@@ -171,7 +171,7 @@ async def test_id_mismatch_never_triggers_format_retry_or_relabels_output(setup,
     sessions, config, _ = setup
     service, calls = TranslationService(sessions, config), []
 
-    async def completion(payload, *, system, model):
+    async def completion(payload, *, system, model, stage):
         assert_clean_payload(payload, system, model)
         calls.append(deepcopy(payload))
         return json.dumps({"audits": [{"id": uid, "approved": True, "issues": []} for uid in bad_ids]})
@@ -188,7 +188,7 @@ async def test_balance_error_during_format_retry_preserves_standard_stop_behavio
     sessions, config, key = setup
     service, calls = TranslationService(sessions, config), []
 
-    async def completion(payload, *, system, model):
+    async def completion(payload, *, system, model, stage):
         assert_clean_payload(payload, system, model)
         calls.append(deepcopy(payload))
         if len(calls) == 1:

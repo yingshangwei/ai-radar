@@ -25,6 +25,35 @@ max_attempts = 3
 
 摘要的 `[provider]` 独立配置，仍可使用 Codex CLI、Claude CLI 或模型 API。翻译使用现有 OpenAI SDK 的兼容接口，可通过 endpoint、密钥环境变量、模型和 `request_options` 替换。其他服务不支持 DeepSeek 的 `thinking` 参数时，配置 `request_options = {}`。
 
+`stage_request_options` 可分别配置 `draft`（初稿）、`correction`（修订）、`audit`（独立审计）。没有配置该阶段时使用公共 `request_options`；阶段键存在时，其对象**完整替换**公共对象，不做合并，显式 `{}` 表示不发送额外参数。其他服务的参数仍可透传，供应商自己的嵌套对象（如 `thinking`）可以使用；不要再包一层 `extra_body`。空对象不等于关闭供应商默认推理模式，关闭时须按该供应商的接口显式配置。
+
+公共及阶段 options 均不能覆盖 `messages`、`model`、`response_format`、`tools`、`tool_choice`、`functions`、`function_call`、`stream`、`stream_options`、`max_tokens`、`max_completion_tokens` 或 `extra_body` 等正式流程字段。模型使用上述专用字段；输出预算使用 `max_tokens` 和 `stage_max_tokens`，均为 256–65536 的整数。公共预算默认 12000，阶段未指定时继承公共预算。配置校验报错不回显输入值。
+
+下面是可选的推理配置示例，不表示服务器已经启用或真实译文已经通过。初稿继承默认的非推理模式与 12000 token；修订和审计分别完整配置推理参数，并使用 32768 token 预算：
+
+```toml
+[translation]
+request_options = { thinking = { type = "disabled" } }
+max_tokens = 12000
+timeout_seconds = 300
+
+[translation.stage_request_options.correction]
+thinking = { type = "enabled" }
+reasoning_effort = "high"
+
+[translation.stage_request_options.audit]
+thinking = { type = "enabled" }
+reasoning_effort = "high"
+
+[translation.stage_max_tokens]
+correction = 32768
+audit = 32768
+```
+
+官方 [DeepSeek 思考模式](https://api-docs.deepseek.com/zh-cn/guides/thinking_mode/)说明 V4 支持 `thinking` 和 `reasoning_effort`。OpenAI SDK 将 `thinking` 放入 `extra_body`；本项目的 options 会作为该对象发送，最终位于 HTTP 请求体顶层。当前翻译流程不携带工具，无需回传 `reasoning_content`；只解析最终 `content`，不保存或记录思考内容。推理模式不改变现有 JSON、段落对应、保护标记、机器检查和独立审核门槛。
+
+`timeout_seconds` 默认为 120 秒，限制每次 SDK 调用的整体时长，包含该调用内部重试；格式恢复仍最多一次，两次调用各受时限约束。不能只依靠连接读超时判断总时长，因为供应商可能发送[保活空行](https://api-docs.deepseek.com/quick_start/rate_limit/)。输出预算需为推理和最终 JSON 留出空间；即使使用 [JSON 模式](https://api-docs.deepseek.com/guides/json_mode/)，空响应、截断或非 `stop` 结束仍会拒绝。推理参数和预算不会使已通过缓存失效，也不增加语义修订轮次或结构恢复次数；调整后应先进行有范围的正式验证，不能据此宣称模型保证准确或反复运行未变化的失败流程。
+
 ## 缓存与恢复
 
 - 缓存键包含原始标题、正文、目标语言、术语表和 `revision`。互动数字、收藏、来源记录 ID 不参与；同内容跨记录共享译文。更改模型不会使全部缓存失效，明确更改 `revision` 才重新生成。
@@ -93,3 +122,9 @@ App 在前台每 30 秒更新服务状态，重新进入前台也会刷新；离
 ## 网页全文补读
 
 0.3.0 起，网页原文和直接关联资料的全文也进入同一翻译 / 校对缓存，见 [READING.md](READING.md)。Markdown 链接先用可还原占位符保护；中文标点不参与 URL 比对。分段优先在段落或句末切开，避免破坏语义。Transformer 架构语境中的明确术语误译会被拦截。发现问题时完善统一检查和自动纠错流程，不直接编辑样本文字；自动校对仍可能漏错。
+
+## 可选调用诊断
+
+正式翻译命令可加 `--translation-diagnostics`，例如 `radar translate --limit 1 --force --translation-diagnostics`。该开关仅适用于 `translate`，默认关闭。启用时，`radar.translation` 的 INFO 日志通过独立 handler 写入 stderr；stdout 仍只输出原有任务 JSON。不会提升 root、HTTPX 或 OpenAI SDK 的日志级别，命令结束或失败后恢复原有日志状态，重复调用不会累积 handler。
+
+`translation_completion` 行只包含阶段、安全模型标识、耗时、固定结束原因，以及供应商报告的输入、输出和推理 token 数；缺失的 token 数为 `null`，不能据此推断是否实际进行了推理。已知 DeepSeek 模型别名直接记录，其他模型使用短哈希标识。日志不包含原文、候选、思考内容、URL 或密钥；这项诊断不会改变队列范围、翻译内容、审核门槛或重试次数。

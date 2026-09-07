@@ -11,8 +11,10 @@ import logging
 import re
 import unicodedata
 from collections import Counter
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from time import monotonic
 from urllib.parse import urlsplit
 from uuid import uuid4
 
@@ -21,7 +23,7 @@ from openai import APIConnectionError, APIStatusError, APITimeoutError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import func, select, update
 
-from .config import TranslationConfig, secret
+from .config import TranslationConfig, TranslationStage, secret
 from .models import (
     Article,
     ArticleDocument,
@@ -606,27 +608,53 @@ class TranslationService:
         self.semaphore = asyncio.Semaphore(config.concurrency)
         self.balance_blocked = False
 
-    async def _completion(self, payload: dict, *, system: str, model: str) -> str:
+    async def _completion(self, payload: dict, *, system: str, model: str, stage: TranslationStage) -> str:
         from openai import AsyncOpenAI
 
         config = self.config
         started = now_iso()
-        async with AsyncOpenAI(
-            api_key=secret(config.api_key_env),
-            base_url=config.base_url,
-            timeout=config.timeout_seconds,
-            max_retries=1,
-        ) as client:
-            response = await client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
-                ],
-                response_format={"type": "json_object"},
-                max_tokens=12000,
-                extra_body=config.request_options,
-            )
+        started_clock = monotonic()
+        options = deepcopy(config.stage_request_options.get(stage, config.request_options))
+        max_tokens = config.stage_max_tokens.get(stage, config.max_tokens)
+        # Bound creation, SDK retries and connection cleanup by one deadline.
+        async with asyncio.timeout(config.timeout_seconds):
+            async with AsyncOpenAI(
+                api_key=secret(config.api_key_env),
+                base_url=config.base_url,
+                timeout=config.timeout_seconds,
+                max_retries=1,
+            ) as client:
+                response = await client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+                    ],
+                    response_format={"type": "json_object"},
+                    max_tokens=max_tokens,
+                    extra_body=options,
+                )
+
+        def token_count(value):
+            return value if type(value) is int and 0 <= value <= 1_000_000_000 else None
+
+        usage = getattr(response, "usage", None)
+        details = getattr(usage, "completion_tokens_details", None)
+        finish = response.choices[0].finish_reason if response.choices else None
+        safe_models = {"deepseek-chat", "deepseek-reasoner", "deepseek-v4-flash", "deepseek-v4-pro",
+                       "deepseek-v4-flash-0731", "deepseek-v4-pro-0813"}
+        model_id = model if model in safe_models else "sha256:" + hashlib.sha256(model.encode()).hexdigest()[:12]
+        logger.info("translation_completion %s", json.dumps({
+            "stage": stage if stage in {"draft", "correction", "audit"} else "unknown",
+            "model": model_id,
+            "elapsed_ms": max(0, round((monotonic() - started_clock) * 1000)),
+            "finish_reason": finish if isinstance(finish, str) and
+            finish in {"stop", "length", "content_filter", "tool_calls", "function_call"}
+            else (None if finish is None else "unknown"),
+            "input_tokens": token_count(getattr(usage, "prompt_tokens", None)),
+            "output_tokens": token_count(getattr(usage, "completion_tokens", None)),
+            "reasoning_tokens": token_count(getattr(details, "reasoning_tokens", None)),
+        }, sort_keys=True))
         with self.sessions.begin() as session:
             account = session.get(TranslationAccountState, account_scope(config))
             # An older in-flight success must not clear a more recent 402.
@@ -640,10 +668,11 @@ class TranslationService:
         return content
 
     async def _structured_completion(
-        self, payload: dict, *, system: str, model: str, output: type[BaseModel], validate_literals=None,
+        self, payload: dict, *, system: str, model: str, stage: TranslationStage,
+        output: type[BaseModel], validate_literals=None,
     ):
         for attempt in range(2):
-            content = await self._completion(payload, system=system, model=model)
+            content = await self._completion(payload, system=system, model=model, stage=stage)
             try:
                 result = output.model_validate_json(content)
             except ValidationError as exc:
@@ -714,7 +743,7 @@ class TranslationService:
         result = await self._structured_completion(
             payload, system=POLICY + (REVIEW if review else ""),
             model=config.review_model if review else config.model, output=TranslationOutput,
-            validate_literals=validate_literals,
+            validate_literals=validate_literals, stage="correction" if review else "draft",
         )
         byid = {p.id: p for p in result.translations}
         if len(byid) != len(result.translations) or set(byid) != {p["id"] for p in parts}:
@@ -734,6 +763,7 @@ class TranslationService:
         ]}
         result = await self._structured_completion(
             payload, system=AUDIT, model=self.config.audit_model or self.config.review_model, output=AuditOutput,
+            stage="audit",
         )
         byid = {part.id: part for part in result.audits}
         if len(byid) != len(result.audits) or set(byid) != {part["id"] for part in parts}:

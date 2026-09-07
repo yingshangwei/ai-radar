@@ -1,8 +1,10 @@
 import argparse
 import asyncio
 import json
+import logging
 import os
 import secrets
+from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
 
@@ -13,6 +15,28 @@ from .pipeline import Pipeline, as_dict, ingest
 from .schemas import ImportBatch
 
 
+@contextmanager
+def _translation_diagnostic_logging(enabled):
+    if not enabled:
+        yield
+        return
+    logger = logging.getLogger("radar.translation")
+    previous = logger.level, logger.propagate, logger.disabled, logger.handlers
+    handler = logging.StreamHandler()
+    handler.setLevel(logging.INFO)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    logger.handlers = [handler]
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    logger.disabled = False
+    try:
+        yield
+    finally:
+        logger.setLevel(previous[0])
+        logger.propagate, logger.disabled, logger.handlers = previous[1:]
+        handler.close()
+
+
 def main():
     parser = argparse.ArgumentParser(description="AI Radar server operations")
     parser.add_argument("action", choices=["init", "collect", "digest", "daily", "import", "translate", "read"])
@@ -21,10 +45,14 @@ def main():
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--limit", type=int, metavar="N", help="Limit a translate batch to 1..500 caches")
     parser.add_argument("--errors-only", action="store_true", help="Resume only existing error caches with --limit")
+    parser.add_argument("--translation-diagnostics", action="store_true",
+                        help="Write safe translation completion diagnostics to stderr")
     recheck = parser.add_mutually_exclusive_group()
     recheck.add_argument("--recheck-article", action="append", default=[], metavar="ARTICLE_ID")
     recheck.add_argument("--recheck-editorial", action="store_true")
     args = parser.parse_args()
+    if args.translation_diagnostics and args.action != "translate":
+        parser.error("--translation-diagnostics 只能用于 translate")
     rechecking = bool(args.recheck_article or args.recheck_editorial)
     if rechecking and args.action != "translate":
         parser.error("翻译复核选项只能用于 translate")
@@ -46,6 +74,11 @@ def main():
             )
         print("Created .env with owner-only permissions; tokens are not printed.")
         return
+    with _translation_diagnostic_logging(args.translation_diagnostics):
+        _run(args, parser, rechecking)
+
+
+def _run(args, parser, rechecking):
     settings = Settings()
     config = settings.load()
     engine, sessions = database(settings.database_url)

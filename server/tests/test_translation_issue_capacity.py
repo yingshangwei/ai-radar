@@ -45,7 +45,7 @@ async def test_all_audit_issues_reach_correction_without_format_retry_and_remain
     sessions, config, key = setup
     service, calls = TranslationService(sessions, config), []
 
-    async def completion(payload, *, system, model):
+    async def completion(payload, *, system, model, stage):
         assert "format_feedback" not in payload
         part = payload["untrusted_parts"][0]
         assert part["id"] == "body-0" and part["source"] == SOURCE
@@ -83,7 +83,7 @@ async def test_large_issue_lists_remain_rejected_and_all_repairs_are_bounded(set
     service, calls = TranslationService(sessions, config), []
     correction_checks = []
 
-    async def completion(payload, *, system, model):
+    async def completion(payload, *, system, model, stage):
         assert "format_feedback" not in payload
         part = payload["untrusted_parts"][0]
         assert part["source"] == SOURCE

@@ -155,6 +155,17 @@ class ReadingService:
                     row.status, row.message, row.fetched_at = "fetched", "", now_iso()
                     row.retry_at = (datetime.now(UTC) + timedelta(hours=self.config.reading.refresh_hours)).isoformat()
             except (PageUnavailable, httpx.HTTPError, OSError, ValueError, TimeoutError) as exc:
+                from .browser_access import browser_fallback, save_capture
+                if not isinstance(exc, PageUnavailable) or exc.status not in {"blocked", "restricted", "too_large", "rate_limited"}:
+                    try:
+                        result = await browser_fallback(self.sessions, url)
+                        if result:
+                            with self.sessions.begin() as session:
+                                save_capture(session, session.get(WebDocument, key), result,
+                                             self.config.reading.refresh_hours)
+                            return
+                    except (PageUnavailable, ValueError) as browser_error:
+                        exc = browser_error
                 with self.sessions.begin() as session:
                     row = session.get(WebDocument, key)
                     row.status = exc.status if isinstance(exc, PageUnavailable) else "unavailable"

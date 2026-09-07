@@ -16,6 +16,7 @@ dist/
 *.log
 local.properties
 .gradle/
+.kotlin/
 .cxx/
 .idea/
 build/

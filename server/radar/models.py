@@ -164,3 +164,13 @@ class Job(Base):
     started_at: Mapped[str] = mapped_column(String(40), default=now_iso)
     finished_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
     message: Mapped[str] = mapped_column(Text, default="")
+
+
+class WebsiteAccess(Base):
+    __tablename__ = "website_access"
+    domain: Mapped[str] = mapped_column(String(253), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    status: Mapped[str] = mapped_column(String(40), default="pending")
+    message: Mapped[str] = mapped_column(Text, default="")
+    verified_at: Mapped[str] = mapped_column(String(40), default="")
+    updated_at: Mapped[str] = mapped_column(String(40), default=now_iso)

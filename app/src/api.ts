@@ -25,6 +25,8 @@ export const storage = {
   async clear() {
     if (Platform.OS === "web") sessionStorage.removeItem(KEY);
     else await SecureStore.deleteItemAsync(KEY);
+    if (Platform.OS === "web") sessionStorage.removeItem("airadar.admin.v1");
+    else await SecureStore.deleteItemAsync("airadar.admin.v1");
     const keys = (await AsyncStorage.getAllKeys()).filter((k) =>
       k.startsWith("airadar.cache."),
     );
@@ -62,9 +64,10 @@ export async function api<T>(
   connection: Connection,
   path: string,
   options: RequestInit = {},
+  timeoutMs = 18000,
 ): Promise<T> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 18000);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(`${connection.url}${path}`, {
       ...options,

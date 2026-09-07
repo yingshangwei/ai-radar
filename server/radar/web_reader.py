@@ -81,8 +81,10 @@ class PageFetcher:
                             continue
                         if response.status_code == 304:
                             return url, response.status_code, dict(response.headers), b""
-                        if response.status_code in {401, 403}:
-                            raise PageUnavailable("auth_required", "页面要求登录授权或限制自动读取，尚未取得正文。")
+                        if response.status_code == 401:
+                            raise PageUnavailable("auth_required", "网站要求身份验证，可在授权中心打开浏览器处理。")
+                        if response.status_code == 403:
+                            raise PageUnavailable("access_restricted", "网站拒绝自动访问，可能需要浏览器验证；不一定需要账号登录。")
                         if response.status_code == 429:
                             raise PageUnavailable("rate_limited", "页面访问频率受限，稍后重试。")
                         response.raise_for_status()

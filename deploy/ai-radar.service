@@ -9,6 +9,7 @@ User=ai-radar
 Group=ai-radar
 WorkingDirectory=/opt/ai-radar/current/server
 EnvironmentFile=/etc/ai-radar/server.env
+EnvironmentFile=-/etc/ai-radar/browser.env
 Environment=HOME=/var/lib/ai-radar
 Environment=CODEX_HOME=/var/lib/ai-radar/codex
 Environment=PATH=/opt/ai-radar/tools/bin:/opt/ai-radar/current/.venv/bin:/usr/local/bin:/usr/bin:/bin

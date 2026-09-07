@@ -99,6 +99,10 @@ class Settings(BaseSettings):
     reader_token: str = ""
     admin_token: str = ""
     scheduler_enabled: bool = False
+    browser_worker_url: str = "http://127.0.0.1:18475"
+    browser_worker_token: str = ""
+    browser_public_origin: str = ""
+    browser_assets_path: str = "/opt/ai-radar/browser-assets"
     cors_origins: list[str] = Field(
         default_factory=lambda: ["http://localhost:8081", "http://localhost:8082"]
     )

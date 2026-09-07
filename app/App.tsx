@@ -27,6 +27,7 @@ import {
 } from "@tanstack/react-query";
 import { api, APIError, cached, normalizeURL, storage } from "./src/api";
 import { C, s } from "./src/theme";
+import AuthorizationCenter from "./src/AuthorizationCenter";
 import { demoArticles, demoDigest, demoStatus, demoWatches } from "./src/demo";
 import type {
   Article,
@@ -349,6 +350,7 @@ function Reader({
   const [original, setOriginal] = useState(false);
   useEffect(() => setOriginal(false), [detail?.article?.id]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [authorizationOpen, setAuthorizationOpen] = useState(false);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   const [addWatch, setAddWatch] = useState(false);
@@ -1421,6 +1423,17 @@ function Reader({
           </View>
         )}
         <T style={s.sectionTitle}>信息源</T>
+        {!demo && (
+          <Pressable
+            style={[s.button, { marginTop: 16, marginBottom: 18 }]}
+            onPress={() => {
+              setSettingsOpen(false);
+              setAuthorizationOpen(true);
+            }}
+          >
+            <T style={s.buttonText}>网页授权中心</T>
+          </Pressable>
+        )}
         <T style={[s.muted, { marginTop: 7 }]}>
           授权、采集异常与最近成功时间会在这里显示。
         </T>
@@ -1521,9 +1534,15 @@ function Reader({
         <T
           style={[s.label, { textAlign: "center", marginTop: 28, fontSize: 9 }]}
         >
-          AI RADAR / 前沿 · 0.3.0
+          AI RADAR / 前沿 · 0.4.0
         </T>
       </Sheet>
+      <AuthorizationCenter
+        connection={connection}
+        open={authorizationOpen}
+        onClose={() => setAuthorizationOpen(false)}
+        onRefresh={refresh}
+      />
     </SafeAreaView>
   );
 }
@@ -1551,7 +1570,8 @@ function ResourceCard({
       {
         pending: "正在等待正文读取或内容解读。",
         analysis_error: "正文已保存，解读暂未完成，后续任务会重试。",
-        auth_required: "页面需要授权或限制读取，尚未取得正文。",
+        auth_required: "页面可能需要登录，请到“你的雷达 → 网页授权中心”处理。",
+        access_restricted: "网站限制自动访问，可到网页授权中心打开浏览器检查。",
         restricted: "网站限制自动读取，尚未取得正文。",
         blocked: "该链接不是可读取的公开网页。",
         unavailable: "正文暂时无法读取。",

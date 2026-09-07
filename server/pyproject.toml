@@ -23,6 +23,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+browser = ["playwright==1.62.0"]
 dev = ["pytest>=8", "pytest-asyncio>=0.25", "respx>=0.22", "ruff>=0.11"]
 
 [project.scripts]
@@ -30,6 +31,9 @@ radar = "radar.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["radar*"]
+
+[tool.setuptools.package-data]
+radar = ["browser_ui/*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

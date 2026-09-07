@@ -84,6 +84,22 @@ def create_app(settings: Settings | None = None):
         with sessions() as session:
             yield session
 
+    def enqueue_reading():
+        # Pipeline's lock queues this behind an existing collection. A successful
+        # browser verification must not silently skip follow-up work when busy.
+        with sessions.begin() as session:
+            job = Job(kind="read")
+            session.add(job)
+            session.flush()
+            uid = job.id
+        task = asyncio.create_task(pipeline.run(kind="read", job_id=uid))
+        tasks.add(task)
+        task.add_done_callback(tasks.discard)
+        return uid
+
+    from .browser_api import mount_browser
+    mount_browser(app, settings, sessions, authenticated, admin, enqueue_reading)
+
     @app.get("/healthz")
     def health(session=Depends(session_dep)):
         session.execute(select(1))

@@ -207,12 +207,22 @@ async def fetch_facebook(client: httpx.AsyncClient, config: RadarConfig) -> list
             "since": since,
         }
         for _ in range(config.x_max_pages):
-            body = await get_json(
-                client,
-                f"https://graph.facebook.com/{config.facebook_version}/{page}/posts",
-                params=params,
-                headers={"Authorization": f"Bearer {token}"},
-            )
+            try:
+                body = await get_json(
+                    client,
+                    f"https://graph.facebook.com/{config.facebook_version}/{page}/posts",
+                    params=params,
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+            except SourceUnavailable as exc:
+                exc.partial_items = items
+                raise
+            except httpx.HTTPError as exc:
+                raise SourceUnavailable(
+                    "error",
+                    "Facebook 请求中断，下轮重试；已取得的内容单独保留。",
+                    partial_items=items,
+                ) from exc
             for post in body.get("data", []):
                 if not post.get("message"):
                     continue

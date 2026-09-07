@@ -15,6 +15,7 @@ from .models import (
     ArticleDocument,
     ArticleReading,
     DocumentAnalysis,
+    DocumentCapture,
     Translation,
     WebDocument,
     now_iso,
@@ -93,6 +94,8 @@ def resource_views(session, article_ids: list[str], config, *, full=False) -> di
         DocumentAnalysis.id.in_({doc.analysis_id for _, doc in bindings})))}
     translation_ids = {cache_key(doc.title, doc.text, config) for _, doc in bindings if doc.text}
     translated = {t.id: t for t in session.scalars(select(Translation).where(Translation.id.in_(translation_ids)))}
+    captures = {c.document_id: c for c in session.scalars(select(DocumentCapture).where(
+        DocumentCapture.document_id.in_({doc.id for _, doc in bindings})))}
     result = {uid: [] for uid in article_ids}
     seen = {uid: set() for uid in article_ids}
     for binding, doc in sorted(bindings, key=lambda row: (row[0].relation != "source", row[1].url)):
@@ -117,6 +120,8 @@ def resource_views(session, article_ids: list[str], config, *, full=False) -> di
             "why_it_matters_zh": analysis.why_it_matters_zh if ready else None,
             "translation_status": zh.status if zh else ("pending" if config.enabled else "disabled"),
         }
+        capture = captures.get(doc.id)
+        view["capture_method"] = (capture.method if capture and capture.content_hash == doc.content_hash else "server")
         if full:
             view.update(text=doc.text, text_zh=zh.text_zh if zh_ready else None)
         result[binding.article_id].append(view)
@@ -133,6 +138,10 @@ class ReadingService:
             with self.sessions() as session:
                 doc = session.get(WebDocument, key)
                 url, etag, modified = doc.url, doc.etag, doc.modified
+                version = (doc.content_hash, doc.fetched_at)
+            def outdated(row):
+                # A user may submit a newer phone capture while this network request waits.
+                return row is None or (row.content_hash, row.fetched_at) != version
             headers = {}
             if etag:
                 headers["If-None-Match"] = etag
@@ -144,10 +153,15 @@ class ReadingService:
                     body, response_headers.get("content-type", "").lower(), final)
                 with self.sessions.begin() as session:
                     row = session.get(WebDocument, key)
+                    if outdated(row):
+                        return
                     if parsed is not None:
                         row.title = parsed["title"] or urlsplit(final).hostname or "网页正文"
                         row.text, row.links, row.partial = parsed["text"], parsed["links"], parsed["partial"]
-                        row.content_hash = fingerprint(row.title, row.text, row.partial)
+                        content_hash = fingerprint(row.title, row.text, row.partial)
+                        if content_hash != row.content_hash:
+                            row.analysis_id = ""
+                        row.content_hash = content_hash
                         row.final_url, row.content_type = final, response_headers.get("content-type", "")
                         row.etag, row.modified = response_headers.get("etag", ""), response_headers.get("last-modified", "")
                     if not row.text:
@@ -156,18 +170,26 @@ class ReadingService:
                     row.retry_at = (datetime.now(UTC) + timedelta(hours=self.config.reading.refresh_hours)).isoformat()
             except (PageUnavailable, httpx.HTTPError, OSError, ValueError, TimeoutError) as exc:
                 from .browser_access import browser_fallback, save_capture
+                with self.sessions() as session:
+                    if outdated(session.get(WebDocument, key)):
+                        return
                 if not isinstance(exc, PageUnavailable) or exc.status not in {"blocked", "restricted", "too_large", "rate_limited"}:
                     try:
+                        # A failed robots lookup is not permission to switch fetching methods.
+                        await fetcher.check_robots(url)
                         result = await browser_fallback(self.sessions, url)
                         if result:
                             with self.sessions.begin() as session:
-                                save_capture(session, session.get(WebDocument, key), result,
-                                             self.config.reading.refresh_hours)
+                                row = session.get(WebDocument, key)
+                                if not outdated(row):
+                                    save_capture(session, row, result, self.config.reading.refresh_hours)
                             return
                     except (PageUnavailable, ValueError) as browser_error:
                         exc = browser_error
                 with self.sessions.begin() as session:
                     row = session.get(WebDocument, key)
+                    if outdated(row):
+                        return
                     row.status = exc.status if isinstance(exc, PageUnavailable) else "unavailable"
                     row.message = exc.message if isinstance(exc, PageUnavailable) else "暂未取得可阅读正文，可能为失效链接、扫描件或动态页面。"
                     row.retry_at = (datetime.now(UTC) + timedelta(hours=6)).isoformat()

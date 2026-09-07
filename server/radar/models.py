@@ -115,6 +115,17 @@ class ArticleDocument(Base):
     label: Mapped[str] = mapped_column(String(300), default="")
 
 
+class DocumentCapture(Base):
+    """Provenance for explicitly submitted article text, never website credentials."""
+    __tablename__ = "document_captures"
+    document_id: Mapped[str] = mapped_column(ForeignKey("web_documents.id"), primary_key=True)
+    method: Mapped[str] = mapped_column(String(30))
+    source_url: Mapped[str] = mapped_column(Text)
+    content_hash: Mapped[str] = mapped_column(String(64))
+    captured_at: Mapped[str] = mapped_column(String(40), default=now_iso)
+    job_id: Mapped[str] = mapped_column(String(36), default="")
+
+
 class DocumentAnalysis(Base):
     __tablename__ = "document_analyses"
     id: Mapped[str] = mapped_column(String(64), primary_key=True)

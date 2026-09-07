@@ -7,7 +7,7 @@ from sqlalchemy import select
 from test_radar import item
 
 from radar.api import create_app
-from radar.browser_access import browser_fallback
+from radar.browser_access import browser_fallback, save_capture, sites
 from radar.browser_worker import public_proxy
 from radar.config import Settings
 from radar.models import ArticleDocument, WebDocument, WebsiteAccess
@@ -112,21 +112,118 @@ def test_finish_verifies_article_before_enabling_and_queues_work(app, monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_fallback_only_explicitly_enabled_domains_and_pauses_expired_auth(app):
+async def test_public_fallback_is_automatic_and_challenge_pauses_domain(app):
     class Worker:
         calls = 0
         async def request(self, *args):
             self.calls += 1
+            await asyncio.sleep(0)
             return {"status": "auth_required", "message": "需要重新登录"}
     client = Worker()
-    assert await browser_fallback(app.state.sessions, "https://example.org/ai", client) is None
-    assert client.calls == 0
-    with app.state.sessions.begin() as s:
-        s.add(WebsiteAccess(domain="example.org", enabled=True, status="ready"))
-    with pytest.raises(PageUnavailable):
-        await browser_fallback(app.state.sessions, "https://example.org/ai", client)
+    attempts = await asyncio.gather(
+        browser_fallback(app.state.sessions, "https://example.org/ai", client),
+        browser_fallback(app.state.sessions, "https://example.org/other", client), return_exceptions=True)
+    assert isinstance(attempts[0], PageUnavailable) and attempts[0].status == "auth_required"
+    assert attempts[1] is None
     assert await browser_fallback(app.state.sessions, "https://example.org/other", client) is None
     assert client.calls == 1
+    with app.state.sessions() as s:
+        assert s.get(WebsiteAccess, "example.org").status == "auth_required"
+
+
+@pytest.mark.asyncio
+async def test_public_browser_success_does_not_require_manual_verification(app):
+    class Worker:
+        async def request(self, method, path, data):
+            assert (method, path, data) == ("POST", "/fetch", {"url": "https://example.org/ai"})
+            return {"status": "fetched", "url": data["url"], "document": {"text": "source " * 30}}
+    result = await browser_fallback(app.state.sessions, "https://example.org/ai", Worker())
+    assert result["status"] == "fetched"
+    with app.state.sessions() as s:
+        access = s.get(WebsiteAccess, "example.org")
+        assert access.enabled and access.status == "ready"
+        assert not access.verified_at  # Public reading is not a claim of user authorization.
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status,enabled", [("ready", False), ("paused", False), ("access_restricted", True)])
+async def test_user_pause_and_known_access_restriction_do_not_open_browser(app, status, enabled):
+    class Worker:
+        async def request(self, *args):
+            pytest.fail("A paused or challenged domain must not be opened automatically")
+    with app.state.sessions.begin() as s:
+        s.add(WebsiteAccess(domain="example.org", status=status, enabled=enabled))
+    assert await browser_fallback(app.state.sessions, "https://example.org/ai", Worker()) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["restricted", "blocked", "too_large", "rate_limited"])
+async def test_one_document_limit_does_not_disable_other_public_pages(app, status):
+    class Worker:
+        calls = 0
+        async def request(self, *_args):
+            self.calls += 1
+            return {"status": status if self.calls == 1 else "fetched", "message": "Document restriction"}
+    client = Worker()
+    with pytest.raises(PageUnavailable) as error:
+        await browser_fallback(app.state.sessions, "https://example.org/ai", client)
+    assert error.value.status == status
+    assert (await browser_fallback(app.state.sessions, "https://example.org/other", client))["status"] == "fetched"
+    assert client.calls == 2
+
+
+def test_site_with_complete_text_needs_no_authorization(app):
+    with app.state.sessions.begin() as s:
+        doc = s.scalar(select(WebDocument))
+        doc.text, doc.status = "Public AI article. " * 20, "fetched"
+        # An old authorization warning cannot negate a successful public HTTP read.
+        s.add(WebsiteAccess(domain="example.org", status="access_restricted", enabled=False))
+    with app.state.sessions() as s:
+        site = sites(s)[0]
+    assert site["status"] == "fetched" and site["action"] == "none"
+    assert site["fetched"] == 1 and site["pending"] == 0
+    assert site["access_status"] == "access_restricted" and not site["enabled"]
+    assert "无需授权" in site["message"]
+
+
+@pytest.mark.parametrize("changed", [True, False])
+def test_new_browser_text_never_uses_old_ready_analysis(app, changed):
+    text = "A grounded AI article with primary evidence. " * 8
+    result = {"status": "fetched", "url": "https://example.org/ai", "document": {
+        "title": "Source", "text": text, "links": [], "partial": False}}
+    with app.state.sessions.begin() as s:
+        doc = s.scalar(select(WebDocument))
+        doc.title, doc.text, doc.partial = "Source", "Previous version" if changed else text, False
+        doc.content_hash = fingerprint(doc.title, doc.text, doc.partial)
+        doc.analysis_id = "previous-ready-summary"
+        save_capture(s, doc, result)
+        assert doc.analysis_id == ("" if changed else "previous-ready-summary")
+
+
+@pytest.mark.parametrize("status,action", [
+    ("pending", "automatic"), ("unavailable", "retry"), ("unsupported", "retry"),
+    ("rate_limited", "retry"), ("auth_required", "login"), ("access_restricted", "restricted"),
+    ("restricted", "restricted"), ("blocked", "restricted"), ("too_large", "restricted"),
+])
+def test_sites_distinguish_auto_reading_and_real_intervention(app, status, action):
+    with app.state.sessions.begin() as s:
+        doc = s.scalar(select(WebDocument))
+        doc.status, doc.retry_at = status, "2026-09-08T00:00:00+00:00"
+    with app.state.sessions() as s:
+        site = sites(s)[0]
+    assert site["status"] == status and site["action"] == action
+    assert site["counts"][action] == 1 and site["fetched"] == 0
+    assert site["automatic"] == (action in {"automatic", "retry"})
+    assert site["retry_at"] == "2026-09-08T00:00:00+00:00"
+
+
+def test_site_user_browser_pause_is_explicit(app):
+    with app.state.sessions.begin() as s:
+        s.add(WebsiteAccess(domain="example.org", enabled=False, status="ready"))
+    with app.state.sessions() as s:
+        site = sites(s)[0]
+    assert site["status"] == "paused" and site["action"] == "none"
+    assert not site["browser_enabled"]
 
 
 @pytest.mark.asyncio
@@ -187,11 +284,105 @@ async def test_completed_challenge_not_reloaded_and_login_page_not_captured(monk
             return "<article>real source</article>"
     async def extract(*_):
         return {"title": "AI article", "text": "source " * 30, "links": [], "partial": False}
+    class Rules:
+        async def check_robots(self, url):
+            pass
     monkeypatch.setattr("radar.browser_worker.extract_page", extract)
     browser = Browser()
-    browser.page, browser.last_status = Page(), 200
+    browser.page, browser.last_status, browser.robots = Page(), 200, Rules()
     assert (await browser.capture("https://example.org/article"))["status"] == "fetched"
     assert browser.page.navigation_count == 0
     browser.page.url = "https://example.org/dashboard"
     assert (await browser.capture("https://example.org/article"))["status"] == "auth_required"
     assert browser.page.navigation_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("final,redirect", [
+    ("https://www.example.org/article/", False),
+    ("https://example.org/news/canonical-article", True),
+    ("https://publisher.example.net/news/canonical-article", True),
+])
+async def test_public_www_and_observed_http_canonical_redirects_are_readable(monkeypatch, final, redirect):
+    from radar.browser_worker import Browser
+    class Page:
+        url = final
+        async def goto(self, *_args, **_kwargs):
+            pytest.fail("A verified canonical article must not be unnecessarily reloaded")
+        async def wait_for_timeout(self, _ms):
+            pass
+        def locator(self, _selector):
+            return self
+        async def count(self):
+            return 0
+        async def title(self):
+            return "Sign in with ChatGPT: Developer guide"
+        async def content(self):
+            return "<article>Public AI source.</article>"
+    checked = []
+    class Rules:
+        async def check_robots(self, url):
+            checked.append(url)
+    async def extract(*_):
+        return {"title": "Article", "text": "Public AI source. " * 20, "links": [], "partial": False}
+    monkeypatch.setattr("radar.browser_worker.extract_page", extract)
+    browser = Browser()
+    browser.page, browser.last_status, browser.robots = Page(), 200, Rules()
+    if redirect:
+        browser.navigation_target, browser.navigation_final = "https://example.org/article", final
+    result = await browser.capture("https://example.org/article")
+    assert result["status"] == "fetched" and result["url"] == final
+    assert checked == [final]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("title,status", [("Just a moment...", "access_restricted"), ("Sign in", "auth_required")])
+async def test_challenges_and_login_are_never_article_evidence(monkeypatch, title, status):
+    from radar.browser_worker import Browser
+    class Page:
+        url = "https://example.org/article"
+        async def wait_for_timeout(self, _ms):
+            pass
+        def locator(self, _selector):
+            return self
+        async def count(self):
+            return 0
+        async def title(self):
+            return title
+        async def content(self):
+            pytest.fail("A challenge or login page must not be parsed as article text")
+    browser = Browser()
+    browser.page, browser.last_status = Page(), 200
+    result = await browser.capture("https://example.org/article")
+    assert result["status"] == status
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("redirect,robots_status,expected", [
+    (False, "", "unavailable"), (True, "restricted", "restricted"), (True, "blocked", "blocked"),
+])
+async def test_unrelated_navigation_and_redirect_rules_cannot_be_saved(monkeypatch, redirect, robots_status, expected):
+    from radar.browser_worker import Browser
+    class Page:
+        url = "https://example.org/other"
+        async def goto(self, *_args, **_kwargs):
+            pass
+        async def wait_for_timeout(self, _ms):
+            pass
+        def locator(self, _selector):
+            return self
+        async def count(self):
+            return 0
+        async def title(self):
+            return "An unrelated public page"
+        async def content(self):
+            pytest.fail("Unrelated or prohibited content must not be saved")
+    class Rules:
+        async def check_robots(self, _url):
+            raise PageUnavailable(robots_status, "Public-page rule prohibits this document")
+    browser = Browser()
+    browser.page, browser.last_status, browser.robots = Page(), 200, Rules()
+    if redirect:
+        browser.navigation_target, browser.navigation_final = "https://example.org/article", browser.page.url
+    result = await browser.capture("https://example.org/article")
+    assert result["status"] == expected

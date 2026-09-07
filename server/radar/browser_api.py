@@ -33,6 +33,10 @@ class SiteMode(BaseModel):
 
 def mount_browser(app, settings, sessions, authenticated, admin, enqueue):
     router = APIRouter(prefix="/v1/browser")
+    from .mobile_capture import mount_mobile_capture
+    from .mobile_queue import mount_mobile_queue
+    mount_mobile_capture(router, sessions, admin, enqueue)
+    mount_mobile_queue(router, sessions, admin)
     client = BrowserClient(settings)
     active = {}
     mutex = asyncio.Lock()

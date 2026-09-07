@@ -236,13 +236,13 @@ async def test_failed_page_is_visible_without_fabricated_analysis(tmp_path, monk
     service = ReadingService(sessions, config, TranslationService(sessions, config.translation))
     await service.pending()
     await service.pending()
-    assert len(calls) == 1
+    assert calls == ['https://example.org/root', 'https://example.org/robots.txt']
     with sessions() as s:
         result = resource_views(s, [uid], config.translation)[uid][0]
         assert result['status'] == 'auth_required' and result['summary_zh'] is None
         assert service.evidence([as_dict(s.get(Article, uid))])[0]['resources'] == []
     await service.pending(force=True)
-    assert len(calls) == 2
+    assert calls == ['https://example.org/root', 'https://example.org/robots.txt'] * 2
     engine.dispose()
 
 

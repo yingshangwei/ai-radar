@@ -8,6 +8,7 @@ import asyncio
 import contextlib
 import hashlib
 import os
+import re
 import secrets
 import time
 from contextlib import asynccontextmanager
@@ -19,7 +20,20 @@ from pydantic import BaseModel, Field
 
 from .links import normalize_link
 from .page_parser import extract_page
-from .web_reader import PageUnavailable, public_addresses
+from .web_reader import PageFetcher, PageUnavailable, public_addresses
+
+
+def same_article(left, right):
+    """Permit normal scheme/www/slash canonicalization without broadening the path."""
+    a, b = urlsplit(normalize_link(left) or ""), urlsplit(normalize_link(right) or "")
+    return bool(a.hostname and b.hostname and (
+        a.hostname.removeprefix("www."), a.path.rstrip("/"), a.query
+    ) == (b.hostname.removeprefix("www."), b.path.rstrip("/"), b.query))
+
+
+def login_target(url):
+    return bool(re.search(r"/(?:log-?in|sign-?in|auth|oauth|sso|dashboard|accounts?)(?:/|$)",
+                          urlsplit(url).path, re.I))
 
 
 async def relay(reader, writer):
@@ -85,6 +99,8 @@ class Browser:
         self.processes = []
         self.playwright = None
         self.proxy = None
+        self.navigation_target = self.navigation_final = ""
+        self.navigation_failure = None
 
     async def start(self):
         from playwright.async_api import async_playwright
@@ -114,6 +130,9 @@ class Browser:
         url = normalize_link(url)
         if not url:
             raise HTTPException(400, "链接格式不受支持")
+        self.navigation_target = self.navigation_final = ""
+        self.navigation_failure = None
+        self.robots = PageFetcher()
         await public_addresses(urlsplit(url).hostname, 443 if url.startswith("https:") else 80)
         profile = self.root / "profiles" / hashlib.sha256(urlsplit(url).hostname.encode()).hexdigest()
         profile.mkdir(parents=True, mode=0o700, exist_ok=True)
@@ -149,16 +168,28 @@ class Browser:
                 return
             try:
                 await public_addresses(u.hostname, u.port or (443 if u.scheme == "https" else 80))
-            except PageUnavailable:
+                # Background rendering must obey the same page rules as HTTP
+                # reading, including new origins reached by a redirect.
+                if not interactive and route.request.is_navigation_request() and (
+                        route.request.frame == self.page.main_frame):
+                    await self.robots.check_robots(route.request.url)
+            except PageUnavailable as exc:
+                if route.request.is_navigation_request() and route.request.frame == self.page.main_frame:
+                    self.navigation_failure = exc
                 await route.abort()
                 return
             await route.continue_()
-        await self.context.route("**/*", guard)
         self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
+        await self.context.route("**/*", guard)
         self.last_status = 0
         def observe(response):
             if response.request.is_navigation_request() and response.frame == self.page.main_frame:
                 self.last_status = response.status
+                first = response.request
+                while first.redirected_from:
+                    first = first.redirected_from
+                self.navigation_target = first.url
+                self.navigation_final = response.url
         self.page.on("response", observe)
         for page in self.context.pages[1:]:
             await page.close()
@@ -166,6 +197,8 @@ class Browser:
             await self.page.goto(url, wait_until="domcontentloaded", timeout=25000)
         except Exception:
             if not interactive:
+                if self.navigation_failure:
+                    raise self.navigation_failure from None
                 raise HTTPException(502, "浏览器暂时无法打开目标文章") from None
         return url
 
@@ -173,30 +206,52 @@ class Browser:
         # Stay on a verified article: reloading can trigger another site challenge.
         # Return from login/dashboard screens only when the target URL differs.
         try:
-            a = urlsplit(url)
-            current = urlsplit(normalize_link(self.page.url) or "")
-            if (a.hostname, a.path.rstrip("/"), a.query) != (current.hostname, current.path.rstrip("/"), current.query):
+            def target_page(current):
+                # A server-provided HTTP redirect chain from this exact target
+                # is evidence of a canonical URL, unlike an arbitrary user
+                # navigation to another same-domain page.
+                return same_article(url, current) or (
+                    same_article(url, self.navigation_target) and same_article(current, self.navigation_final))
+
+            if not target_page(self.page.url):
                 await self.page.goto(url, wait_until="domcontentloaded", timeout=25000)
             await self.page.wait_for_timeout(1800)
+            if self.navigation_failure:
+                raise self.navigation_failure
             final = normalize_link(self.page.url)
-            a, b = urlsplit(url), urlsplit(final or "")
-            if (a.hostname, a.path.rstrip("/"), a.query) != (b.hostname, b.path.rstrip("/"), b.query):
-                return {"status": "auth_required", "message": "尚未回到目标文章，请完成登录或验证后重试。"}
+            if not final:
+                return {"status": "blocked", "message": "目标不是可读取的公开网页。"}
             if self.last_status in {401, 403, 429}:
                 status = {401: "auth_required", 403: "access_restricted", 429: "rate_limited"}[self.last_status]
-                return {"status": status, "message": "网站仍限制目标文章的读取，可继续在浏览器中处理。"}
-            if await self.page.locator('input[type="password"]:visible').count():
+                return {"status": status, "message": {
+                    "auth_required": "目标文章要求登录或访问验证，已停止自动浏览器重试。",
+                    "access_restricted": "网站限制服务器访问，已停止自动浏览器重试，可改用手机读取。",
+                    "rate_limited": "网站限制访问频率，将在冷却后重试。",
+                }[status]}
+            if login_target(final) or await self.page.locator('input[type="password"]:visible').count():
                 return {"status": "auth_required", "message": "页面仍在要求登录，未保存登录页面内容。"}
             title = (await self.page.title()).lower()
-            if any(marker in title for marker in ["just a moment", "access denied", "verify you", "sign in", "log in"]):
-                return {"status": "access_restricted", "message": "页面仍在进行访问验证，尚未取得正文。"}
+            if title.strip() in {"sign in", "log in", "login", "登录", "登入"} or title.startswith(("sign in -", "log in -")):
+                return {"status": "auth_required", "message": "页面仍在要求登录，未保存登录页面内容。"}
+            if any(marker in title for marker in ["just a moment", "access denied", "verify you", "security verification"]):
+                return {"status": "access_restricted", "message": "网站正在进行人机验证，已停止自动重试，可改用手机读取。"}
+            if await self.page.locator('iframe[src*="challenges.cloudflare.com"]:visible, '
+                                       'iframe[title*="challenge"]:visible').count():
+                return {"status": "access_restricted", "message": "网站正在进行人机验证，已停止自动重试，可改用手机读取。"}
+            if not target_page(final):
+                return {"status": "unavailable", "message": "网页跳转后尚无法确认目标文章，未将其他页面保存为正文。"}
+            # An interactive session may navigate through a login provider, but
+            # saving the eventual target article still honors its robots rules.
+            await self.robots.check_robots(final)
             body = (await self.page.content()).encode()
             if len(body) > 8_000_000:
                 return {"status": "too_large", "message": "页面超过单次读取大小限制。"}
             parsed = await extract_page(body, "text/html", final)
             return {"status": "fetched", "url": final, "document": parsed}
+        except PageUnavailable as exc:
+            return {"status": exc.status, "message": exc.message}
         except Exception:
-            return {"status": "unavailable", "message": "暂未取得目标文章正文，登录状态已保留，可以稍后重试。"}
+            return {"status": "unavailable", "message": "暂未取得目标文章正文，稍后将自动重试。"}
 
 
 def create_worker():
@@ -272,8 +327,11 @@ def create_worker():
             if browser.active:
                 raise HTTPException(409, "浏览器正在由用户操作，稍后自动补采")
             try:
-                url = await browser.launch(body.url, False)
-                return await browser.capture(url)
+                async with asyncio.timeout(70):
+                    url = await browser.launch(body.url, False)
+                    return await browser.capture(url)
+            except PageUnavailable as exc:
+                return {"status": exc.status, "message": exc.message}
             except Exception:
                 return {"status": "unavailable", "message": "浏览器读取暂时失败，下轮继续重试。"}
             finally:

@@ -11,6 +11,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import func, or_, select
 
 from .config import Settings
+from .daily_schedule import DAILY_CHECK_MINUTES, DailySchedule
 from .db import database
 from .models import Article, ArticleTranslation, Digest, Job, SourceState, Translation, Watch
 from .pipeline import Pipeline, as_dict, ingest
@@ -23,6 +24,7 @@ def create_app(settings: Settings | None = None):
     config = settings.load()
     engine, sessions = database(settings.database_url)
     pipeline = Pipeline(sessions, config)
+    daily = DailySchedule(pipeline)
     tasks = set()
 
     @asynccontextmanager
@@ -39,15 +41,23 @@ def create_app(settings: Settings | None = None):
                 coalesce=True,
             )
             scheduler.add_job(
-                pipeline.run,
+                daily.run,
                 "cron",
                 hour=config.daily_hour,
                 minute=config.daily_minute,
-                kwargs={"kind": "daily"},
                 id="daily",
                 max_instances=1,
                 coalesce=True,
                 misfire_grace_time=3600,
+            )
+            scheduler.add_job(
+                daily.run,
+                "interval",
+                minutes=DAILY_CHECK_MINUTES,
+                next_run_time=datetime.now(UTC),
+                id="daily_recovery",
+                max_instances=1,
+                coalesce=True,
             )
             scheduler.start()
         yield

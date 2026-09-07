@@ -145,6 +145,9 @@ POLICY = """你是 AI 科技内容的严谨中英翻译编辑。任务是完整�
 金额占位符包含原始数值与单位，不能另加数值、金额或单位解释。普通英文金额词组仍须翻译。
 MRR 等财务缩写保留并译出其含义；收入与利润、规模与质量、自己的设备与私有云架构不能混同。
 Markdown 链接保留结构，只翻译链接的显示文字。校对时草稿漏掉的链接占位符须按原文补回。
+每项必须明确给出 approved，使用 JSON 布尔值 true 或 false；issues 使用字符串数组，保留全部尚存疑点。
+若收到 format_feedback，它仅指出上次输出结构无效；请基于同一原文和输入草稿按给定结构完成当前任务。
+格式恢复不代表译文已获批准，不能为满足结构而默认批准或忽略真实疑点；仍须保留全部原文保护占位符。
 每个输入项对应一个输出项，id 原样返回，不得合并或遗漏。只返回 JSON 对象：
 {"translations":[{"id":"title","zh":"中文译文","approved":true,"issues":[]}]}
 """
@@ -536,6 +539,21 @@ class TranslationService:
             raise TranslationValidationError("output_empty_or_oversized")
         return content
 
+    async def _structured_completion(self, payload: dict, *, system: str, model: str, output: type[BaseModel]):
+        for attempt in range(2):
+            content = await self._completion(payload, system=system, model=model)
+            try:
+                return output.model_validate_json(content)
+            except ValidationError as exc:
+                if attempt:
+                    raise
+                # Retry only an unusable JSON/schema response, with the same
+                # evidence. Never include the invalid output or invent approval.
+                payload = {**payload, "format_feedback": {
+                    "reason": "output_schema_invalid", "errors": validation_diagnostics(exc),
+                    "required_schema": output.model_json_schema(),
+                }}
+
     async def request(self, parts: list[dict], *, review: bool) -> dict[str, TranslatedPart]:
         config = self.config
         protected, literals = [], {}
@@ -563,11 +581,10 @@ class TranslationService:
                         copy[field] = pattern.sub(protect, copy[field])
             protected.append(copy)
         payload = {"glossary": config.glossary, "untrusted_parts": protected}
-        content = await self._completion(
+        result = await self._structured_completion(
             payload, system=POLICY + (REVIEW if review else ""),
-            model=config.review_model if review else config.model,
+            model=config.review_model if review else config.model, output=TranslationOutput,
         )
-        result = TranslationOutput.model_validate_json(content)
         byid = {p.id: p for p in result.translations}
         if len(byid) != len(result.translations) or set(byid) != {p["id"] for p in parts}:
             raise TranslationValidationError("translation_part_mismatch")
@@ -584,23 +601,9 @@ class TranslationService:
         payload = {"glossary": self.config.glossary, "untrusted_parts": [
             {key: part[key] for key in ("id", "source", "candidate")} for part in parts
         ]}
-        for attempt in range(2):
-            content = await self._completion(
-                payload, system=AUDIT, model=self.config.audit_model or self.config.review_model,
-            )
-            try:
-                result = AuditOutput.model_validate_json(content)
-            except ValidationError as exc:
-                if attempt:
-                    raise
-                # Only an unusable output format is retried, once. No raw model
-                # response, editor approval or replacement candidate is included.
-                payload = {**payload, "format_feedback": {
-                    "reason": "output_schema_invalid", "errors": validation_diagnostics(exc),
-                    "required_schema": AuditOutput.model_json_schema(),
-                }}
-            else:
-                break
+        result = await self._structured_completion(
+            payload, system=AUDIT, model=self.config.audit_model or self.config.review_model, output=AuditOutput,
+        )
         byid = {part.id: part for part in result.audits}
         if len(byid) != len(result.audits) or set(byid) != {part["id"] for part in parts}:
             raise TranslationValidationError("audit_part_mismatch")
@@ -764,7 +767,9 @@ class TranslationService:
                     part.setdefault("quality_history", []).append({"kind": "audit", **part["audit"]})
                 self.save_parts(key, owner, parts)
 
-    async def translate_one(self, key: str, force=False, *, recheck=False):
+    async def translate_one(self, key: str, force=False, *, recheck=False, errors_only=False):
+        if errors_only and recheck:
+            raise ValueError("错误恢复不能与翻译复核合用。")
         async with self.semaphore:
             if self.balance_blocked:
                 return
@@ -780,7 +785,11 @@ class TranslationService:
                     Translation.id == key,
                     Translation.lease_until < now,
                 )
-                if not recheck:
+                if errors_only:
+                    # Recheck eligibility atomically: a semantic rejection that
+                    # appeared after queue selection must not be forced again.
+                    claim = claim.where(Translation.status == "error")
+                elif not recheck:
                     claim = claim.where(Translation.status != "ready")
                 if not force and not recheck:
                     claim = claim.where(
@@ -878,28 +887,42 @@ class TranslationService:
                 if isinstance(exc, (asyncio.CancelledError, KeyboardInterrupt, SystemExit)):
                     raise
 
-    async def pending(self, force=False) -> dict:
+    async def pending(self, force=False, *, errors_only=False) -> dict:
         if not self.config.enabled:
             return {"enabled": False}
         self.balance_blocked = False
         with self.sessions.begin() as session:
-            for article in session.scalars(select(Article).order_by(Article.published_at.desc(), Article.id)):
-                queue_article(session, article, self.config)
-            session.flush()
-            keys = list(
-                session.scalars(
-                    select(ArticleTranslation.translation_id)
-                    .join(Article)
+            if errors_only:
+                # Read only existing current bindings/caches. This scoped
+                # operation must not repair bindings or create pending work.
+                articles = session.execute(
+                    select(Article, Translation)
+                    .join(ArticleTranslation, ArticleTranslation.article_id == Article.id)
                     .join(Translation, Translation.id == ArticleTranslation.translation_id)
-                    .where(Translation.status != "ready")
+                    .where(Translation.status == "error")
                     .order_by(Article.published_at.desc(), Article.id)
                 )
-            )
+                keys = [row.id for article, row in articles
+                        if row.id == cache_key(article.title, article.text, self.config)]
+            else:
+                for article in session.scalars(select(Article).order_by(Article.published_at.desc(), Article.id)):
+                    queue_article(session, article, self.config)
+                session.flush()
+                keys = list(
+                    session.scalars(
+                        select(ArticleTranslation.translation_id)
+                        .join(Article)
+                        .join(Translation, Translation.id == ArticleTranslation.translation_id)
+                        .where(Translation.status != "ready")
+                        .order_by(Article.published_at.desc(), Article.id)
+                    )
+                )
             # Use saved body text only. No fetch or summary is needed to finish a
             # page's translation, and a stale/orphan cache must not enter this queue.
             for doc in bound_resource_texts(session):
-                row = ensure_translation(session, doc.title, doc.text, self.config)
-                if row.status != "ready":
+                row = (session.get(Translation, cache_key(doc.title, doc.text, self.config)) if errors_only
+                       else ensure_translation(session, doc.title, doc.text, self.config))
+                if row is not None and (row.status == "error" if errors_only else row.status != "ready"):
                     keys.append(row.id)
             keys = list(dict.fromkeys(keys))  # Main messages keep priority over shared page caches.
         if secret(self.config.api_key_env):
@@ -907,7 +930,7 @@ class TranslationService:
             with self.sessions() as session:
                 query = select(Translation.id).where(
                     Translation.id.in_(keys),
-                    Translation.status != "ready",
+                    Translation.status == "error" if errors_only else Translation.status != "ready",
                     Translation.lease_until < now_iso(),
                 )
                 if not force:
@@ -916,7 +939,10 @@ class TranslationService:
                     )
                 eligible = set(session.scalars(query))
             keys = list(dict.fromkeys(k for k in keys if k in eligible))[: self.config.max_documents]
-            await asyncio.gather(*(self.translate_one(key, force) for key in keys))
+            if errors_only:
+                await asyncio.gather(*(self.translate_one(key, force, errors_only=True) for key in keys))
+            else:
+                await asyncio.gather(*(self.translate_one(key, force) for key in keys))
         with self.sessions() as session:
             return translation_status(session, self.config)
 

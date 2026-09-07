@@ -20,6 +20,7 @@ def main():
     parser.add_argument("--file", type=Path)
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--limit", type=int, metavar="N", help="Limit a translate batch to 1..500 caches")
+    parser.add_argument("--errors-only", action="store_true", help="Resume only existing error caches with --limit")
     recheck = parser.add_mutually_exclusive_group()
     recheck.add_argument("--recheck-article", action="append", default=[], metavar="ARTICLE_ID")
     recheck.add_argument("--recheck-editorial", action="store_true")
@@ -34,6 +35,8 @@ def main():
             parser.error("--limit 必须是 1 到 500 之间的整数")
         if args.action != "translate" or rechecking or args.file or args.date:
             parser.error("--limit 只能用于普通 translate，不能与复核、--file 或 --date 合用")
+    if args.errors_only and (args.action != "translate" or args.limit is None or rechecking or args.file or args.date):
+        parser.error("--errors-only 必须与普通 translate --limit 合用，不能使用复核、--file 或 --date")
     if args.action == "init":
         target = Path(".env")
         fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -51,7 +54,7 @@ def main():
             from .translation_recheck import translate_limited
 
             result = asyncio.run(translate_limited(
-                sessions, config.translation, limit=args.limit, force=args.force,
+                sessions, config.translation, limit=args.limit, force=args.force, errors_only=args.errors_only,
             ))
             print(json.dumps(result, ensure_ascii=False))
             if result["status"] != "completed":

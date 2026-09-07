@@ -19,7 +19,15 @@ def main():
     parser.add_argument("--date", type=date.fromisoformat)
     parser.add_argument("--file", type=Path)
     parser.add_argument("--force", action="store_true")
+    recheck = parser.add_mutually_exclusive_group()
+    recheck.add_argument("--recheck-article", action="append", default=[], metavar="ARTICLE_ID")
+    recheck.add_argument("--recheck-editorial", action="store_true")
     args = parser.parse_args()
+    rechecking = bool(args.recheck_article or args.recheck_editorial)
+    if rechecking and args.action != "translate":
+        parser.error("翻译复核选项只能用于 translate")
+    if rechecking and (args.file or args.date):
+        parser.error("翻译复核只接受已有文章 ID 或历史范围，不能使用 --file 或 --date")
     if args.action == "init":
         target = Path(".env")
         fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -33,7 +41,17 @@ def main():
     config = settings.load()
     engine, sessions = database(settings.database_url)
     try:
-        if args.action == "import":
+        if rechecking:
+            from .translation_recheck import recheck_translations
+
+            result = asyncio.run(recheck_translations(
+                sessions, config.translation, article_ids=args.recheck_article,
+                editorial=args.recheck_editorial, force=args.force,
+            ))
+            print(json.dumps(result, ensure_ascii=False))
+            if result["status"] != "completed":
+                raise SystemExit(1)
+        elif args.action == "import":
             if not args.file:
                 parser.error("--file is required")
             batch = ImportBatch.model_validate_json(args.file.read_text())

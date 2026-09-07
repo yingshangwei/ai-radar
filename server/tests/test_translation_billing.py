@@ -46,6 +46,7 @@ def setup(tmp_path, monkeypatch):
 
 def success_response(request):
     payload = json.loads(json.loads(request.content)["messages"][1]["content"])
+    is_audit = all("candidate" in p for p in payload["untrusted_parts"])
     translations = [
         {
             "id": p["id"],
@@ -55,6 +56,8 @@ def success_response(request):
         }
         for p in payload["untrusted_parts"]
     ]
+    result = {"audits": [{"id": p["id"], "approved": True, "issues": []}
+                         for p in payload["untrusted_parts"]]} if is_audit else {"translations": translations}
     return httpx.Response(
         200,
         json={
@@ -66,7 +69,7 @@ def success_response(request):
                 {
                     "index": 0,
                     "finish_reason": "stop",
-                    "message": {"role": "assistant", "content": json.dumps({"translations": translations})},
+                    "message": {"role": "assistant", "content": json.dumps(result)},
                 }
             ],
         },
@@ -94,9 +97,9 @@ async def test_402_persists_alert_stops_batch_and_recovers_without_exhausting_re
     route.mock(side_effect=success_response)
     recovered = await restarted.pending(force=True)
     assert recovered["alert"] is None and recovered["counts"] == {"ready": 3}
-    assert route.call_count == 8  # draft and review for each previously unfinished document
+    assert route.call_count == 11  # draft, correction and independent audit for each document
     await restarted.pending(force=True)
-    assert route.call_count == 8  # ready translations are not regenerated
+    assert route.call_count == 11  # ready translations are not regenerated
 
 
 @pytest.mark.asyncio
@@ -119,7 +122,7 @@ async def test_review_402_keeps_draft_and_resume_calls_review_only(setup, respx_
     route.mock(side_effect=success_response)
     restarted = TranslationService(sessions, config.translation)
     await restarted.translate_one(key, force=True)
-    assert route.call_count == 3
+    assert route.call_count == 4  # reuse draft, then correction plus audit
     assert json.loads(route.calls[-1].request.content)["model"] == config.translation.review_model
     with sessions() as s:
         assert s.get(Translation, key).status == "ready"

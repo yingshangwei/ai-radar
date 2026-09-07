@@ -14,6 +14,7 @@ from radar.models import Article, Digest, Translation
 from radar.pipeline import ingest
 from radar.schemas import IncomingArticle
 from radar.translation import (
+    AuditedPart,
     TranslatedPart,
     TranslationService,
     cache_key,
@@ -65,6 +66,12 @@ def fake_service(store, config):
         }
 
     service.request = request
+
+    async def audit(parts):
+        calls.append(("audit", parts))
+        return {p["id"]: AuditedPart(id=p["id"], approved=True) for p in parts}
+
+    service.audit = audit
     return service, calls
 
 
@@ -78,7 +85,7 @@ async def test_cache_survives_metrics_bookmarks_duplicates_and_readers(store):
         uid = first.id
     service, calls = fake_service(store, config.translation)
     await service.pending()
-    assert len(calls) == 2  # one shared draft and one review, not per article
+    assert len(calls) == 3  # shared draft, correction, and independent audit; not per article
     with store.begin() as s:
         ingest(s, [article(metrics={"like_count": 999})], config)
         assert s.get(Article, uid).saved
@@ -88,7 +95,7 @@ async def test_cache_survives_metrics_bookmarks_duplicates_and_readers(store):
             assert all(a["text"] == "AI agents are not human." for a in rendered)
     await service.pending(force=True)
     await service.evidence([{"title": article().title, "text": article().text}])
-    assert len(calls) == 2
+    assert len(calls) == 3
     with store.begin() as s:
         ingest(s, [article(text="AI agents can use tools.")], config)
         changed = next(
@@ -98,7 +105,7 @@ async def test_cache_survives_metrics_bookmarks_duplicates_and_readers(store):
         )
         assert changed["text_zh"] is None  # never serve a translation of old source content
     await service.pending()
-    assert len(calls) == 4
+    assert len(calls) == 6
 
 
 @pytest.mark.asyncio
@@ -137,7 +144,7 @@ async def test_failed_review_resumes_draft_and_concurrent_workers_deduplicate(st
     await other.translate_one(key, force=True)
     release.set()
     await first
-    assert not other_calls and [r for r, _ in calls] == [False, True]
+    assert not other_calls and [r for r, _ in calls] == [False, True, "audit"]
     with store() as s:
         assert s.get(Translation, key).status == "ready"
 
@@ -149,6 +156,11 @@ async def test_suspect_numbers_and_semantics_are_withheld(store):
     with store.begin() as s:
         key = ensure_translation(s, source, source, config).id
     service = TranslationService(store, config)
+
+    async def audit(parts):
+        return {p["id"]: AuditedPart(id=p["id"], approved=True) for p in parts}
+
+    service.audit = audit
 
     async def wrong(parts, *, review):
         return {p["id"]: TranslatedPart(id=p["id"], zh="智能体降低延迟 50%。", approved=True) for p in parts}

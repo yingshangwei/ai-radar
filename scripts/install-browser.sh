@@ -44,6 +44,7 @@ if not env.exists():
   f.write('RADAR_BROWSER_PUBLIC_ORIGIN=https://radar.yswdra.cn\n')
 print('Browser dependencies, private credentials and integrity-checked noVNC assets prepared.')
 PY
+"$RADAR_RELEASE/.venv/bin/python" "$RADAR_RELEASE/scripts/patch-novnc.py" /opt/ai-radar/browser-assets
 # Ubuntu 24.04 restricts unprivileged user namespaces by executable. Permit
 # Chromium's own sandbox only for this dedicated installation, never globally.
 if command -v apparmor_parser >/dev/null; then

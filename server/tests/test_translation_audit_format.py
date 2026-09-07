@@ -61,8 +61,6 @@ def malformed(kind):
         part["issues"] = PRIVATE
     elif kind == "issues_object":
         part["issues"] = [{"candidate": PRIVATE}]
-    elif kind == "too_many_issues":
-        part["issues"] = [PRIVATE] * 13
     elif kind == "extra_field":
         part[PRIVATE] = SOURCE + CANDIDATE
     elif kind == "missing_approval":
@@ -81,7 +79,7 @@ def assert_clean_payload(payload, system, model):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("fault", [
     "json", "bool_string", "bool_integer", "issues_string", "issues_object",
-    "too_many_issues", "extra_field", "missing_approval",
+    "extra_field", "missing_approval",
 ])
 async def test_one_format_retry_uses_unchanged_evidence_safe_feedback_and_real_audit(setup, fault):
     sessions, config, key = setup
@@ -143,7 +141,7 @@ async def test_valid_semantic_rejection_returns_immediately_without_format_resam
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("fault", ["json", "bool_string", "too_many_issues"])
+@pytest.mark.parametrize("fault", ["json", "bool_string"])
 async def test_second_invalid_output_stays_unpublished_and_keeps_draft(setup, fault, caplog):
     sessions, config, key = setup
     service, calls = TranslationService(sessions, config), []

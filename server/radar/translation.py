@@ -166,8 +166,8 @@ AUDIT = """你是独立的中英翻译质量审计员，只审核，不改写任
 通过时 approved=true 且 issues=[]；存在问题则 approved=false，issues 精确指出原文与译文的差异。
 不得输出替换译文，不得因措辞不够华丽而拒绝；不提供无依据准确率。
 audits 必须完整覆盖每个输入 id，返回项数必须与输入一致；不得合并、遗漏、重复或另造 id。
-approved 只能是 JSON 布尔值 true 或 false，不得使用字符串。issues 必须是字符串数组，最多 12 条；
-疑点较多时归纳主要问题，仍须设 approved=false。通过时 issues=[]。每项只能含 id、approved、issues，
+approved 只能是 JSON 布尔值 true 或 false，不得使用字符串。issues 必须是字符串数组，保留全部尚存疑点；
+存在疑点时 approved=false，通过时 issues=[]。每项只能含 id、approved、issues，
 顶层只能含 audits。若收到 format_feedback，它仅指出上次输出结构无效；请按给定结构重新独立审计，
 不能把结构错误或恢复请求理解为候选已获批准。
 逐项保留 id，只返回 JSON：{"audits":[{"id":"body-0","approved":true,"issues":[]}]}。
@@ -179,7 +179,9 @@ class TranslatedPart(BaseModel):
     id: str
     zh: str = Field(min_length=1, max_length=30000)
     approved: bool
-    issues: list[str] = Field(default_factory=list, max_length=12)
+    # Response size is bounded in _completion; do not discard valid criticism
+    # just because a long source has more than an arbitrary number of issues.
+    issues: list[str] = Field(default_factory=list)
 
 
 class TranslationOutput(BaseModel):
@@ -191,7 +193,7 @@ class AuditedPart(BaseModel):
     model_config = ConfigDict(extra="forbid")
     id: str
     approved: bool = Field(strict=True)
-    issues: list[str] = Field(default_factory=list, max_length=12)
+    issues: list[str] = Field(default_factory=list)
 
 
 class AuditOutput(BaseModel):

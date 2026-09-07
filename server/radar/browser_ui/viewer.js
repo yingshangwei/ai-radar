@@ -1,10 +1,6 @@
 import RFB from '/v1/browser/novnc/core/rfb.js';
 const $ = id => document.getElementById(id);
-// Mobile keyboards can shrink only the visual viewport inside an embedded WebView.
-// Keep the remote screen and controls above that keyboard on both platforms.
-const resize = () => {document.body.style.height = `${window.visualViewport?.height || window.innerHeight}px`;};
-window.visualViewport?.addEventListener('resize', resize);
-resize();
+// The native container handles keyboard resizing; CSS follows its actual height.
 const base = location.pathname;
 const ticket = new URLSearchParams(location.hash.slice(1)).get('ticket');
 history.replaceState(null, '', base);

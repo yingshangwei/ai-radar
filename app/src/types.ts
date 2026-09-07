@@ -38,6 +38,7 @@ export interface ReadResource {
   title_zh?: string | null;
   status: string;
   fetch_status: string;
+  capture_method?: string;
   message: string;
   partial: boolean;
   fetched_at?: string | null;

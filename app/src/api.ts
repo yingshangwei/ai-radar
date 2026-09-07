@@ -27,8 +27,10 @@ export const storage = {
     else await SecureStore.deleteItemAsync(KEY);
     if (Platform.OS === "web") sessionStorage.removeItem("airadar.admin.v1");
     else await SecureStore.deleteItemAsync("airadar.admin.v1");
-    const keys = (await AsyncStorage.getAllKeys()).filter((k) =>
-      k.startsWith("airadar.cache."),
+    const keys = (await AsyncStorage.getAllKeys()).filter(
+      (k) =>
+        k.startsWith("airadar.cache.") ||
+        k.startsWith("airadar.deviceReading."),
     );
     await AsyncStorage.multiRemove(keys);
   },
@@ -67,6 +69,9 @@ export async function api<T>(
   timeoutMs = 18000,
 ): Promise<T> {
   const controller = new AbortController();
+  const externalAbort = () => controller.abort();
+  if (options.signal?.aborted) controller.abort();
+  else options.signal?.addEventListener("abort", externalAbort, { once: true });
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(`${connection.url}${path}`, {
@@ -92,6 +97,7 @@ export async function api<T>(
     throw new Error("暂时无法连接服务，请检查网络与服务地址。");
   } finally {
     clearTimeout(timer);
+    options.signal?.removeEventListener("abort", externalAbort);
   }
 }
 

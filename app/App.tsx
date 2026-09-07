@@ -28,6 +28,7 @@ import {
 import { api, APIError, cached, normalizeURL, storage } from "./src/api";
 import { C, s } from "./src/theme";
 import AuthorizationCenter from "./src/AuthorizationCenter";
+import DeviceReading from "./src/DeviceReading";
 import { demoArticles, demoDigest, demoStatus, demoWatches } from "./src/demo";
 import type {
   Article,
@@ -351,6 +352,7 @@ function Reader({
   useEffect(() => setOriginal(false), [detail?.article?.id]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [authorizationOpen, setAuthorizationOpen] = useState(false);
+  const [deviceReadingStatus, setDeviceReadingStatus] = useState("");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   const [addWatch, setAddWatch] = useState(false);
@@ -625,6 +627,26 @@ function Reader({
             设计示例 · 内容非实时新闻 · 尚未连接服务器
           </T>
         </View>
+      )}
+      {!!deviceReadingStatus && !demo && (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => setAuthorizationOpen(true)}
+          style={{ paddingHorizontal: 24, paddingVertical: 8 }}
+        >
+          <T
+            style={[
+              s.muted,
+              {
+                color: deviceReadingStatus.includes("重新验证")
+                  ? C.accent
+                  : C.green,
+              },
+            ]}
+          >
+            {deviceReadingStatus}
+          </T>
+        </Pressable>
       )}
       {offline && (
         <View style={{ paddingHorizontal: 24, paddingVertical: 8 }}>
@@ -1431,7 +1453,7 @@ function Reader({
               setAuthorizationOpen(true);
             }}
           >
-            <T style={s.buttonText}>网页授权中心</T>
+            <T style={s.buttonText}>网页采集中心</T>
           </Pressable>
         )}
         <T style={[s.muted, { marginTop: 7 }]}>
@@ -1537,6 +1559,12 @@ function Reader({
           AI RADAR / 前沿 · 0.4.0
         </T>
       </Sheet>
+      <DeviceReading
+        connection={connection}
+        paused={authorizationOpen}
+        onStatus={setDeviceReadingStatus}
+        onComplete={refresh}
+      />
       <AuthorizationCenter
         connection={connection}
         open={authorizationOpen}
@@ -1570,8 +1598,9 @@ function ResourceCard({
       {
         pending: "正在等待正文读取或内容解读。",
         analysis_error: "正文已保存，解读暂未完成，后续任务会重试。",
-        auth_required: "页面可能需要登录，请到“你的雷达 → 网页授权中心”处理。",
-        access_restricted: "网站限制自动访问，可到网页授权中心打开浏览器检查。",
+        auth_required:
+          "目标网页要求登录，可到“你的雷达 → 网页采集中心”用手机读取。",
+        access_restricted: "网站限制服务器访问，可到网页采集中心用手机读取。",
         restricted: "网站限制自动读取，尚未取得正文。",
         blocked: "该链接不是可读取的公开网页。",
         unavailable: "正文暂时无法读取。",
@@ -1587,6 +1616,11 @@ function ResourceCard({
             ? "文中提及"
             : "直接关联"}{" "}
         · {domain}
+        {r.capture_method === "mobile_browser"
+          ? " · 手机读取"
+          : r.capture_method === "manual"
+            ? " · 手动选取"
+            : ""}
       </T>
       <T style={[s.cardTitle, { fontSize: 19 }]}>{r.title_zh || r.title}</T>
       {r.status === "ready" ? (

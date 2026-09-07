@@ -16,34 +16,21 @@ import { api, APIError } from "./api";
 import { C, s } from "./theme";
 import type { Connection } from "./types";
 import RemoteBrowser from "./RemoteBrowser";
+import LocalBrowser from "./LocalBrowser";
+import { sitePresentation, type Site } from "./siteState";
+import { siteHost, type DeviceSitePermissions } from "./deviceReadingPolicy";
+import {
+  loadDeviceSites,
+  subscribeDeviceReading,
+  updateDeviceSite,
+} from "./deviceReadingStorage";
 
-type Site = {
-  domain: string;
-  total: number;
-  pending: number;
-  document_id: string;
-  url: string;
-  enabled: boolean;
-  status: string;
-  message: string;
-  verified_at: string;
-  statuses: Record<string, number>;
-};
 type Sites = {
   enabled: boolean;
   items: Site[];
   active: { id: string; domain: string; expires_at: number }[];
 };
 type Session = { id: string; path: string; domain: string };
-const LABEL: Record<string, string> = {
-  ready: "已验证可读取",
-  unverified: "尚未验证",
-  auth_required: "需要登录",
-  access_restricted: "访问受限",
-  rate_limited: "访问频率受限",
-  unavailable: "暂时无法读取",
-  pending: "等待验证",
-};
 const errorText = (e: unknown) =>
   e instanceof Error ? e.message : "操作未完成，请稍后重试。";
 const KEY = "airadar.admin.v1";
@@ -66,6 +53,9 @@ export default function AuthorizationCenter({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [remote, setRemote] = useState<Session>();
+  const [local, setLocal] = useState<Site>();
+  const [consent, setConsent] = useState<Site>();
+  const [deviceSites, setDeviceSites] = useState<DeviceSitePermissions>({});
   const [notice, setNotice] = useState("");
   const adminConnection = { ...connection, token: admin || connection.token };
   const refresh = async () => {
@@ -77,7 +67,12 @@ export default function AuthorizationCenter({
   };
   useEffect(() => {
     if (!open) return;
+    setAdmin("");
     void refresh();
+    void loadDeviceSites(connection.url).then(setDeviceSites);
+    const unsubscribe = subscribeDeviceReading(() => {
+      void loadDeviceSites(connection.url).then(setDeviceSites);
+    });
     let cancelled = false;
     void (async () => {
       const saved =
@@ -93,6 +88,7 @@ export default function AuthorizationCenter({
     const timer = setInterval(() => void refresh(), 15000);
     return () => {
       cancelled = true;
+      unsubscribe();
       clearInterval(timer);
     };
   }, [open, connection.url]);
@@ -120,7 +116,7 @@ export default function AuthorizationCenter({
       setAdmin(token);
       setDraft("");
       setNeedsAdmin(false);
-      setNotice("管理授权已保存在此设备，可以打开网站了。");
+      setNotice("管理权限已保存在此设备，可以读取并提交正文了。");
     });
   const closeRemote = async () => {
     if (remote)
@@ -139,6 +135,8 @@ export default function AuthorizationCenter({
       animationType="slide"
       onRequestClose={() => {
         if (remote) void closeRemote();
+        else if (local) setLocal(undefined);
+        else if (consent) setConsent(undefined);
         else onClose();
       }}
     >
@@ -159,31 +157,94 @@ export default function AuthorizationCenter({
             ]}
           >
             <View>
-              <Text style={s.label}>{remote ? "远程浏览器" : "你的雷达"}</Text>
+              <Text style={s.label}>
+                {remote ? "服务器浏览器" : local ? "手机浏览器" : "你的雷达"}
+              </Text>
               <Text style={[s.sectionTitle, { marginTop: 5 }]}>
-                {remote ? remote.domain : "网页授权中心"}
+                {remote ? remote.domain : local ? local.domain : "网页采集中心"}
               </Text>
             </View>
             <Pressable
               accessibilityRole="button"
               onPress={() => {
                 if (remote) void closeRemote();
+                else if (local) setLocal(undefined);
+                else if (consent) setConsent(undefined);
                 else onClose();
               }}
               style={s.smallButton}
             >
-              <Text style={s.body}>{remote ? "关闭" : "返回"}</Text>
+              <Text style={s.body}>{remote || local ? "关闭" : "返回"}</Text>
             </Pressable>
           </View>
-          {remote ? (
-            <RemoteBrowser
-              url={connection.url + remote.path}
-              onDone={() => {
-                setRemote(undefined);
+          {consent ? (
+            <ScrollView contentContainerStyle={{ padding: 24, gap: 18 }}>
+              <Text style={s.h2}>让手机自动读取 {consent.domain}</Text>
+              <Text style={s.body}>
+                授权手机自动读取此网站，仅上传文章正文。
+              </Text>
+              <Text style={s.muted}>
+                你只需完成一次网站登录或人机验证。此后在 App
+                前台，手机会自动读取这个网站的待处理文章，并交给服务器翻译和总结，无需逐篇确认。
+              </Text>
+              <Text style={s.muted}>
+                许可仅适用于此网站及 www 别名；不读取密码、不上传 Cookie
+                或登录状态。你可以随时暂停手机补采。App
+                关闭或进入后台时停止运行。
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                disabled={busy}
+                style={s.button}
+                onPress={() =>
+                  action(async () => {
+                    await updateDeviceSite(connection.url, consent.domain, {
+                      allowed: true,
+                      needsVerification: false,
+                    });
+                    setLocal(consent);
+                    setConsent(undefined);
+                  })
+                }
+              >
+                <Text style={s.buttonText}>允许并打开网站</Text>
+              </Pressable>
+            </ScrollView>
+          ) : local ? (
+            <LocalBrowser
+              connection={adminConnection}
+              document={local}
+              onDone={(message) => {
+                setLocal(undefined);
+                setNotice(message);
                 void refresh();
                 onRefresh();
+                onClose();
               }}
             />
+          ) : remote ? (
+            <View style={{ flex: 1 }}>
+              <Text
+                style={[
+                  s.muted,
+                  {
+                    paddingHorizontal: 18,
+                    paddingVertical: 10,
+                    backgroundColor: "#EEEFE6",
+                  },
+                ]}
+              >
+                使用腾讯云服务器网络。若人机验证反复失败，请返回改用“手机读取”。
+              </Text>
+              <RemoteBrowser
+                url={connection.url + remote.path}
+                onDone={() => {
+                  setRemote(undefined);
+                  void refresh();
+                  onRefresh();
+                }}
+              />
+            </View>
           ) : (
             <ScrollView
               contentContainerStyle={{ padding: 22, paddingBottom: 50 }}
@@ -191,11 +252,11 @@ export default function AuthorizationCenter({
             >
               <View style={[s.note, { marginBottom: 20 }]}>
                 <Text style={s.body}>
-                  在这里完成登录或网页验证，后续采集自动复用。
+                  公开网页自动采集，你只需关注需要处理的来源。
                 </Text>
                 <Text style={[s.muted, { marginTop: 8 }]}>
-                  打开的是采集服务的专用浏览器。操作完成后点击“验证并补采”，我们会检查目标文章能否读取。每次可操作一个网站，窗口有效期为
-                  20 分钟。
+                  正文已采集的网页无需处理。受限网站只需在手机授权一次，之后 App
+                  在前台时会自动补采、翻译和解读，不用逐篇点采集。
                 </Text>
               </View>
               {(needsAdmin || !admin) && (
@@ -247,7 +308,7 @@ export default function AuthorizationCenter({
               )}
               {data && !data.enabled && (
                 <Text style={[s.body, { marginBottom: 20 }]}>
-                  网页授权服务尚未启用，请稍后刷新。
+                  服务器浏览器暂不可用，仍可使用手机读取和提交正文。
                 </Text>
               )}
               {data?.active.map((active) => (
@@ -270,94 +331,176 @@ export default function AuthorizationCenter({
                   </Pressable>
                 </View>
               ))}
-              {data?.items.map((site) => (
-                <View key={site.domain} style={s.card}>
-                  <View style={s.spread}>
-                    <Text style={[s.cardTitle, { fontSize: 19, flex: 1 }]}>
-                      {site.domain}
+              {data?.items.map((site) => {
+                const display = sitePresentation(site);
+                const grant = deviceSites[siteHost(site.domain)];
+                const needsReading =
+                  site.status !== "blocked" &&
+                  ["login", "restricted", "retry"].includes(display.action);
+                return (
+                  <View key={site.domain} style={s.card}>
+                    <View style={s.spread}>
+                      <Text
+                        style={[
+                          s.cardTitle,
+                          { fontSize: 19, flex: 1, marginRight: 8 },
+                        ]}
+                      >
+                        {site.domain}
+                      </Text>
+                      <Text
+                        style={[
+                          s.muted,
+                          {
+                            color:
+                              display.action === "none" ||
+                              display.action === "automatic"
+                                ? C.green
+                                : C.accent,
+                          },
+                        ]}
+                      >
+                        {display.label}
+                      </Text>
+                    </View>
+                    <Text style={[s.muted, { marginTop: 8 }]}>
+                      {Math.max(0, site.total - site.pending)} / {site.total}{" "}
+                      个来源已取得正文
+                      {site.pending ? ` · ${site.pending} 个待处理` : ""}
                     </Text>
-                    <Text
-                      style={[
-                        s.muted,
-                        {
-                          color:
-                            site.enabled && site.status === "ready"
-                              ? C.green
-                              : C.accent,
-                        },
-                      ]}
-                    >
-                      {site.status === "ready" && !site.enabled
-                        ? "自动补采已暂停"
-                        : LABEL[site.status] || "等待处理"}
+                    <Text style={[s.body, { marginTop: 10, fontSize: 13 }]}>
+                      {display.message}
                     </Text>
-                  </View>
-                  <Text style={[s.muted, { marginTop: 8 }]}>
-                    {site.total} 个直接来源 · {site.pending} 个尚未取得正文
-                  </Text>
-                  <Text style={[s.body, { marginTop: 10, fontSize: 13 }]}>
-                    {site.message}
-                  </Text>
-                  {site.status === "unverified" &&
-                    !!(
-                      site.statuses.auth_required ||
-                      site.statuses.access_restricted
-                    ) && (
-                      <Text style={[s.muted, { marginTop: 8 }]}>
-                        网站可能限制自动访问，打开后可确认是否需要登录。
+                    {site.retry_at && display.action === "retry" && (
+                      <Text style={[s.muted, { marginTop: 6 }]}>
+                        下次重试：
+                        {new Date(site.retry_at).toLocaleString("zh-CN")}
                       </Text>
                     )}
-                  <Pressable
-                    disabled={busy || !data.enabled}
-                    style={[
-                      s.button,
-                      { marginTop: 16, opacity: data.enabled ? 1 : 0.4 },
-                    ]}
-                    onPress={() =>
-                      action(async () => {
-                        const session = await api<Session>(
-                          adminConnection,
-                          "/v1/browser/sessions",
-                          {
-                            method: "POST",
-                            body: JSON.stringify({
-                              document_id: site.document_id,
-                            }),
-                          },
-                          90000,
-                        );
-                        setRemote(session);
-                      })
-                    }
-                  >
-                    <Text style={s.buttonText}>
-                      {site.pending ? "打开网页处理" : "打开浏览器"}
-                    </Text>
-                  </Pressable>
-                  {site.status === "ready" && (
-                    <Pressable
-                      disabled={busy}
-                      style={[s.smallButton, { marginTop: 10 }]}
-                      onPress={() =>
-                        action(async () => {
-                          await api(
-                            adminConnection,
-                            `/v1/browser/sites/${encodeURIComponent(site.domain)}`,
+                    {needsReading && (
+                      <>
+                        <Pressable
+                          accessibilityRole="button"
+                          disabled={busy}
+                          style={[
+                            s.button,
+                            { marginTop: 16, opacity: busy ? 0.5 : 1 },
+                          ]}
+                          onPress={() =>
+                            action(async () => {
+                              await api(
+                                adminConnection,
+                                "/v1/browser/permissions",
+                              );
+                              const saved = await loadDeviceSites(
+                                connection.url,
+                              );
+                              if (
+                                Platform.OS === "web" ||
+                                saved[siteHost(site.domain)]?.allowed
+                              )
+                                setLocal(site);
+                              else setConsent(site);
+                            })
+                          }
+                        >
+                          <Text style={s.buttonText}>
+                            {Platform.OS === "web"
+                              ? "打开原文 / 粘贴正文"
+                              : grant?.needsVerification
+                                ? "重新验证手机访问"
+                                : grant?.allowed
+                                  ? "打开手机浏览器"
+                                  : "开启手机自动读取"}
+                          </Text>
+                        </Pressable>
+                        {data.enabled && (
+                          <Pressable
+                            accessibilityRole="button"
+                            disabled={busy}
+                            style={[
+                              s.smallButton,
+                              { marginTop: 10, alignItems: "center" },
+                            ]}
+                            onPress={() =>
+                              action(async () => {
+                                const session = await api<Session>(
+                                  adminConnection,
+                                  "/v1/browser/sessions",
+                                  {
+                                    method: "POST",
+                                    body: JSON.stringify({
+                                      document_id: site.document_id,
+                                    }),
+                                  },
+                                  90000,
+                                );
+                                setRemote(session);
+                              })
+                            }
+                          >
+                            <Text style={s.muted}>服务器浏览器（可选）</Text>
+                          </Pressable>
+                        )}
+                      </>
+                    )}
+                    {grant?.allowed && Platform.OS !== "web" && (
+                      <View style={{ marginTop: 12, gap: 6 }}>
+                        <Text
+                          style={[
+                            s.muted,
                             {
-                              method: "POST",
-                              body: JSON.stringify({ enabled: !site.enabled }),
+                              color: grant.needsVerification
+                                ? C.accent
+                                : C.green,
                             },
-                          );
-                        })
-                      }
-                    >
-                      <Text style={s.body}>
-                        {site.enabled ? "暂停自动补采" : "恢复自动补采"}
-                      </Text>
-                    </Pressable>
-                  )}
-                </View>
-              ))}
+                          ]}
+                        >
+                          {grant.needsVerification
+                            ? "手机访问需要重新验证，自动许可仍保留。"
+                            : "手机自动补采已开启 · App 在前台时运行"}
+                        </Text>
+                        <Pressable
+                          accessibilityRole="button"
+                          disabled={busy}
+                          onPress={() =>
+                            action(async () => {
+                              await updateDeviceSite(
+                                connection.url,
+                                site.domain,
+                                { allowed: false },
+                              );
+                              setNotice(`${site.domain} 的手机补采已暂停。`);
+                            })
+                          }
+                        >
+                          <Text style={s.muted}>暂停手机补采</Text>
+                        </Pressable>
+                      </View>
+                    )}
+                    {site.status === "paused" && (
+                      <Pressable
+                        disabled={busy}
+                        style={[s.smallButton, { marginTop: 10 }]}
+                        onPress={() =>
+                          action(async () => {
+                            await api(
+                              adminConnection,
+                              `/v1/browser/sites/${encodeURIComponent(site.domain)}`,
+                              {
+                                method: "POST",
+                                body: JSON.stringify({ enabled: true }),
+                              },
+                            );
+                          })
+                        }
+                      >
+                        <Text style={s.body}>恢复自动读取</Text>
+                      </Pressable>
+                    )}
+                  </View>
+                );
+              })}
               {!data && !error && <ActivityIndicator color={C.green} />}
               {data?.items.length === 0 && (
                 <Text style={s.muted}>

@@ -2,7 +2,15 @@
 
 ## 当前服务器版本与验收范围
 
-- 当前 release **20260908-4d196af** 已由 TAT `inv-m8d4nk0pmn` 成功启用（SUCCESS，退出 0）。完整测试 **594 passed、6 skipped**，Ruff 通过；6 项为既有浏览器环境限制。127,211 字节归档包含 47 份文件，实际只改变 CLI、配置和翻译三个运行时模块。预检 `inv-j8d4mgg5fd` 生成 `radar-translation-stage-options-20260907T210017Z.db`。
+- 当前 release **20260908-07015b7** 已由 TAT `inv-m8d69c0sm9` 成功启用（SUCCESS，退出 0）。完整测试 **732 passed、6 skipped**，Ruff 通过；6 项为既有浏览器环境限制。归档 128,176 字节、48 份已提交文件、6 个分片，SHA-256 `8b15b4094c0b766d739e778799334d4d67901a5d08a1cc9296264b3e8269a5e5`。实际归档逐文件与提交一致，新增数字模块在包内，分片及嵌入的源码清单均核验一致。
+- 新校验覆盖 Jan / Mar 等月份缩写的上下文、中文数字列表与合法千分位、中文邻接 7B 等数量单位、负号和版本号；百分比支持 percent / per cent / 百分之 / 全角％对应，正文 @账号使用 ASCII 边界，URL 中账号由完整链接检查。回归同时保留真实数字、单位、账号和链接差异的拒绝，独立语义审计及修订轮次未放宽。详见 [翻译机制](TRANSLATION.md)。
+- 最终部署前只读预览 `inv-e8d66s0kah` 于 **2026-09-07 21:52:54.642617 UTC** 成功。范围为 47 份绑定网页及主消息对应的 93 份缓存、277 个段落，其中 97 个未完成段落的数字问题 **43 → 31**、账号问题 **2 → 0**；全部检查新增问题数为 **0**，96 个当前策略已审计段落前后均无机器检查问题。实际输出 `dist/cloud/number-context-preview-adf7df523500.txt` / `.json`。检查仅在内存运行规则，没有模型调用、内容写入或状态重标；不能把规则变化当成候选获得语义批准。
+- 预检 `inv-n8d6870h30` 生成一致性备份 `radar-translation-number-context-20260907T215422Z.db`；激活结果 `dist/cloud/translation-number-context-activation.txt` 确认 14 张表、三份当前配置、Caddy / 原 8080 及九组历史均保持。新增第八组为已结束的阶段验证操作，第九组为阶段配置指针、收据、旧配置 / 数据库备份及收据指定的受保护文件；当前配置 SHA 与已应用的收据一致，旧七组证据未重复注入或改写。
+- 本次没有运行模型或重审内容，部署后主消息仍为 **46 ready**，47 份关联网页全文仍为 **13 ready、34 review_required、0 error**，全文中文尚未完成。API、浏览器 worker 与 Caddy 正常，余额告警为空；此前待审内容未重新尝试。**2026-09-07 21:57:56.910998 UTC** 公网只读 `dist/cloud/translation-number-context-public.json` 通过：默认近七天 42 篇消息及 43 个关联资源（13 ready、30 review_required），可见范围与数据库全量分开统计；未通过全文全部隐藏，无令牌请求 401、reader 管理请求 403，无运行任务或授权窗口，余额告警为空、调度器开启，X 和官方来源 healthy、Facebook auth_required。Android / iOS 源码未变，无需重新构建或安装。
+
+## 历史：4d196af 分阶段配置与真实调用
+
+- 当时 release **20260908-4d196af** 已由 TAT `inv-m8d4nk0pmn` 成功启用（SUCCESS，退出 0）。完整测试 **594 passed、6 skipped**，Ruff 通过；6 项为既有浏览器环境限制。127,211 字节归档包含 47 份文件，实际只改变 CLI、配置和翻译三个运行时模块。预检 `inv-j8d4mgg5fd` 生成 `radar-translation-stage-options-20260907T210017Z.db`。
 - 本次代码部署保持 14 张表、三份私有配置、Caddy、原 8080 服务及七组历史证据。第七组保护上次已经结束的 `c10b0ead` 操作；部署本身不启动模型。实际启用结果保存为 `dist/cloud/translation-stage-options-activation.txt`。
 - 新能力按初稿、修订、独立审计分别配置请求选项和 token 预算；阶段对象完整替换公共对象。真实 SDK 模拟请求验证三阶段参数、并发隔离、嵌套配置保护、重试预算、保活数据下的整体超时、空或截断输出拒绝，以及脱敏日志。`--translation-diagnostics` 仅开启翻译 logger 的 stderr 诊断，stdout JSON 不变，结束后恢复日志配置。
 - 随后配置切换 `inv-n8d4v4g0xk` 成功：仅七处叶字段变化，校对与审计分别启用 `thinking=enabled`、`reasoning_effort=high`、32768 token，整体请求时限 300 秒；初稿仍 disabled / 12000。原配置备份及严格差异记录位于 `/var/lib/ai-radar/translation-stage-config/20260907T210825Z-e965fb23/metadata.json`，实际结果 `dist/cloud/translation-stage-config-applied.txt`。14 张表、两个凭据文件、七组历史、浏览器/Caddy/8080 服务保留，API PID 1848549，调度器保持开启；配置操作没有调用模型。
@@ -182,7 +190,7 @@
 
 ## 尚未完成，不能视为已交付
 
-1. **关联网页全文补译**：数据库全量 47 份正文为 13 ready、34 review_required、0 error；最新公网默认近七天可见 43 个资源为 13 ready、30 review_required。`4d196af` 和分阶段推理配置已部署，单条正式 errors-only 验证完成后由 error 转为待审；没有新增整篇 ready，未通过候选没有发布，全文中文尚未补齐。
+1. **关联网页全文补译**：数据库全量 47 份正文为 13 ready、34 review_required、0 error；最新公网默认近七天可见 43 个资源为 13 ready、30 review_required。当前 `07015b7` 仅升级通用校验代码，沿用分阶段推理配置，本次没有模型调用或重试待审内容。此前 `4d196af` 下正式单条任务 `fafcf476` 完成后由 error 转为待审；未新增整篇 ready，未通过候选没有发布，全文中文尚未补齐。
 2. **Facebook 实际采集**：账号正在审核，后续 Graph API 还需具体应用权限与 Page ID。X 官方 API 已接通，且已观察到真实定时任务完成；当前分页上限不保证全面覆盖。
 3. **Android 用户设备复验**：用户已反馈旧版 App 的实际使用问题；0.5.0 已交付签名 APK 并通过原生模拟器验证，尚无该最终版在用户手机上的复验结果。应用商店发布未请求，不作为本次 APK 交付的前置条件。
 4. **iOS 运行与真机 IPA**：0.5.0 模拟器产物仍存在且已校验，但本机只有 Command Line Tools，没有完整 Xcode 或模拟器运行时；有效签名身份与描述文件均为 0，未生成 IPA。Apple 下载登录访问被自动审批审查拒绝，用户访问授权请求待回复；免费 Apple Account 即可获取兼容本机的 Xcode，不必等待付费会员才能运行模拟器。现有 EAS `preview` 的 Ad Hoc 真机分发另需付费开发者资格和目标设备 UDID，账号状态尚未确认；不会将商店发布强加为前置。旧 EAS 远程模拟器可用性查询仅保留为历史，没有重复查询。产物与操作见 [IOS.md](IOS.md)。

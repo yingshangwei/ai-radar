@@ -4,7 +4,17 @@
 
 ## 当前部署状态 · 2026-09-08
 
-当前 release 为 `/opt/ai-radar/releases/20260908-4d196af`，TAT `inv-m8d4nk0pmn` 启用成功（SUCCESS，退出 0）。完整测试 **594 passed、6 skipped**，Ruff 通过。代码部署保持 14 张表、三份私有配置、Caddy、原 8080 服务和七组历史证据；实际启用输出为 `dist/cloud/translation-stage-options-activation.txt`。
+当前 release 为 `/opt/ai-radar/releases/20260908-07015b7`，TAT `inv-m8d69c0sm9` 激活成功（SUCCESS，退出 0），实际输出为 `dist/cloud/translation-number-context-activation.txt`。完整测试 **732 passed、6 skipped**，Ruff 通过；跳过项为既有浏览器环境限制。本版修复通用数字、百分比及账号校验边界，未改动模型配置、文章原文或候选译文，也未启动模型任务。
+
+归档 `dist/ai-radar-server-20260908-07015b7.tar.gz` 为 128,176 字节、48 份已提交文件、6 个传输分片，SHA-256 `8b15b4094c0b766d739e778799334d4d67901a5d08a1cc9296264b3e8269a5e5`，清单 `dist/cloud/translation-number-context-release.json`。逐文件比对提交 `07015b7` 与归档一致，包含新增 `translation_numbers.py`；分片重组及嵌入的源码清单一致。预检 `inv-n8d6870h30` 生成 `/var/lib/ai-radar/backups/radar-translation-number-context-20260907T215422Z.db`。
+
+部署保留 14 张表、三份当前私有配置、Caddy、原 8080 服务及九组历史证据。新增保护包括已结束的 `fafcf476` 阶段验证操作，以及阶段配置收据、原配置和数据库备份；收据指针 SHA、备份 SHA 与当前配置 `b98e3f85…` 均核对。新部署以已启用的阶段配置作为基线，不将旧预检中的配置哈希误当作当前值。旧操作、收据和私有输出均保持；独立虚拟环境、切换前空闲检查、冻结备份与回滚机制保留。
+
+部署前只读预览 `inv-e8d66s0kah` 于 21:52:54 UTC 完成，检查主消息及 47 份绑定网页关联的 93 份缓存、277 个段落；97 个未完成段落的数字标记由 43 减至 31，账号标记由 2 减至 0，没有新增问题。96 个当前策略已审计段落前后均无机器检查问题。该检查仅在内存比较规则，不代表剩余语义疑点通过。激活后主消息 46 ready、47 份网页全文 13 ready / 34 review_required，余额告警为空，API / 浏览器 / Caddy 正常。21:57:56.910998 UTC 公网只读 `dist/cloud/translation-number-context-public.json` 通过：默认近七天 42 篇消息及 43 个关联资源（13 ready / 30 review_required），未通过的全文中文隐藏，401/403 权限隔离有效，无运行任务或授权窗口；调度器开启，X 与官方来源 healthy，Facebook auth_required。本次没有模型调用，也没有重试此前待审内容。Android / iOS 无需重建。
+
+## 历史：4d196af 分阶段配置与验证
+
+当时 release 为 `/opt/ai-radar/releases/20260908-4d196af`，TAT `inv-m8d4nk0pmn` 启用成功（SUCCESS，退出 0）。完整测试 **594 passed、6 skipped**，Ruff 通过。代码部署保持 14 张表、三份私有配置、Caddy、原 8080 服务和七组历史证据；实际启用输出为 `dist/cloud/translation-stage-options-activation.txt`。
 
 归档 `dist/ai-radar-server-20260908-4d196af.tar.gz` 为 127,211 字节、47 份文件、6 个传输分片，SHA-256 `39031635997a779dfb3f03df8aafdba211c70e6871db8506fed9a0d02ae3b588`，清单 `dist/cloud/translation-stage-options-release.json`。预检 `inv-j8d4mgg5fd` 生成 `/var/lib/ai-radar/backups/radar-translation-stage-options-20260907T210017Z.db`。配置切换与真实模型验证单独记录，不能把代码部署当作翻译通过证明；Android / iOS 无需重建。
 

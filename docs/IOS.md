@@ -1,18 +1,18 @@
 # iOS 构建与签名
 
-## 0.5.0 / code 6
+## 当前版本：0.5.0 / code 6
 
 最终 EAS 模拟器构建 `9526a508-77d8-4893-b1ff-38cac07ed0fd` 成功，源码 `98c3847`，包含一次网站许可、手机自动读取以及原生 URL / 消息桥兼容修复。交付包 `dist/ai-radar-0.5.0-ios-simulator.tar.gz`，14,496,493 字节，SHA-256 `4f3f76f3b644ab26cac3496a8d1e6c372aeb6f1f9a8730fbdb1143bd8350f833`。
 
 `dist/ios-simulator-v0.5/AIRadar.app` 已核验 0.5.0 / 6、最低 iOS 15.1、arm64 / x86_64 模拟器平台、内置 JavaScript、严格签名及五个已知秘密扫描。使用既有 Free 额度，最终 iOS 10 / 15，无超额费用或附加项。此前中间包只保留为基线；交付路径指向最终源码。尚未实际运行 iOS，也未生成可安装到 iPhone 的 IPA。
 
-## 0.4.0 / code 5
+## 历史版本：0.4.0 / code 5
 
 EAS 模拟器构建 `46d82cca-0c07-4491-ba0a-1d40b77dbd1b` 成功，移动端源码 `73e6dbd`，新增原生 WebView 模块。实际产物 `dist/ios-simulator-v0.4-final/AIRadar.app`，交付包 `dist/ai-radar-0.4.0-ios-simulator.tar.gz`，14,734,614 字节，SHA-256 `fe35ea0c70d113a424f771c6030bd1ba53e61f8d8472af7e8e2c06fd614ccf65`。签名与凭据扫描通过；仍是模拟器包，没有实际 iOS 运行验证或真机分发签名。
 
 应用 ID 为 `cn.yswdra.airadar`，原生工程位于 `app/ios`。React Native 界面、云端 API 和设备令牌存储与 Android 共用。发布版本内置 JavaScript，不依赖 Metro。
 
-## 0.3.0 / code 4
+## 历史版本：0.3.0 / code 4
 
 EAS 模拟器构建 `5227dc71-de1b-4b34-b112-5a96b9f7c5b9` 成功，源码 `3781b62`。实际产物为 `dist/ios-simulator-v0.3/AIRadar.app`，压缩交付包 `dist/ai-radar-0.3.0-ios-simulator.tar.gz`，14,222,673 字节，SHA-256 `84df5c685e6c810ac43cc821423c30a6c038794a3cc53a272afa470b0f21c129`。
 
@@ -58,33 +58,38 @@ pnpm dlx eas-cli@23.2.0 build --platform ios --profile preview
 
 只有被加入描述文件的设备才能安装。新增设备后需要重新签名或重建。详见 [Expo 内部分发说明](https://docs.expo.dev/build/internal-distribution/)。不自动购买 Apple 会员，不自动提交 App Store。
 
-## 当前验证
+## 历史构建与验证（0.1.0–0.2.1）
 
-- 最新 0.2.1 / 3 构建 [`bab56d1f-a0a9-4df2-b8f4-a2e39e11821f`](https://expo.dev/accounts/yswdra/projects/ai-radar/builds/bab56d1f-a0a9-4df2-b8f4-a2e39e11821f) 于 2026-09-07 04:40 北京时间成功，源码 `52fd8e5`，加入 DeepSeek 余额不足提示及前台状态刷新。下载后的 bundle、版本、iOS 15.1+、arm64/x86_64 模拟器架构、Hermes、秘密扫描及 codesign 校验通过；仍未实际运行 iOS 模拟器。
+- 0.2.1 / 3 构建 [`bab56d1f-a0a9-4df2-b8f4-a2e39e11821f`](https://expo.dev/accounts/yswdra/projects/ai-radar/builds/bab56d1f-a0a9-4df2-b8f4-a2e39e11821f) 于 2026-09-07 04:40 北京时间成功，源码 `52fd8e5`，加入 DeepSeek 余额不足提示及前台状态刷新。下载后的 bundle、版本、iOS 15.1+、arm64/x86_64 模拟器架构、Hermes、秘密扫描及 codesign 校验通过；仍未实际运行 iOS 模拟器。
 - 0.2.0 / 2 构建 [`bc0c6444-eeea-42e7-95c1-ccce0b6e358e`](https://expo.dev/accounts/yswdra/projects/ai-radar/builds/bc0c6444-eeea-42e7-95c1-ccce0b6e358e) 于 2026-09-07 04:13 北京时间成功，源码 `d9004ec`，包含持久化中文阅读、原文切换和中文日期。
 - 首次云端原生构建 [`52d8a69e-d0e7-451d-9418-5d12312c41e7`](https://expo.dev/accounts/yswdra/projects/ai-radar/builds/52d8a69e-d0e7-451d-9418-5d12312c41e7) 已成功，版本 `0.1.0` / `1`，`simulator` profile。下载后确认 Xcode 26.2 编译、最低 iOS 15.1、arm64 与 x86_64 模拟器架构及内置 Hermes bundle。
 - 首次云端 Expo Doctor 提示 `expo-font` 缺少直接依赖声明，已通过官方 `expo install` 补齐，版本保持锁文件中的 `55.0.8`；iOS prebuild 复核没有原生语义变化，TypeScript 检查通过。首次 iOS Xcode 日志和已交付 Android APK 均确认字体原生模块已存在。
 - 修正后的构建 [`e54ecfe1-a025-4f8d-bb96-a208411ee7ea`](https://expo.dev/accounts/yswdra/projects/ai-radar/builds/e54ecfe1-a025-4f8d-bb96-a208411ee7ea) 于 2026-09-07 02:14 北京时间成功。源码提交 `1a7e64a`；云端 Expo Doctor 为 19/20，已消除缺少直接依赖的提醒。
 - 仓库主动保留两个原生工程，因此 Expo Doctor 的“app.json 不会由 EAS 自动同步到原生工程”提醒适用。修改相关配置后必须执行 prebuild 并审查原生差异；没有屏蔽这条检查。
-- `eas account:usage yswdra --json` 确认 Free 套餐，本月 iOS 构建额度 15 次，提交时统计使用量 0；没有新增套餐、附加项或超额费用。
+- 首次构建前，`eas account:usage yswdra --json` 确认 Free 套餐，本月 iOS 构建额度 15 次，当时统计使用量 0；最终 0.5.0 构建后的用量见本文当前版本记录。没有新增套餐、附加项或超额费用。
 - 本机只有 Apple Command Line Tools，没有完整 Xcode；官方 `eas simulator:availability` 返回当前账号未开放远程模拟器功能，因此原生运行仍不可验证。
 - Apple Developer 账号状态与真机签名尚待用户提供；未生成可安装 IPA。
 
-## 模拟器交付产物
+## 当前模拟器交付与安装
 
-- 最新：`dist/ai-radar-0.2.1-ios-simulator.tar.gz`，14,218,220 字节，SHA-256 `83593f91e627387db6c5eca0a2445a9d045961e597c370f82d0ffd4bfc620077`。
-- 最新解压目录：`dist/ios-simulator-v0.2.1/AIRadar.app`；核验结果 `dist/ios-v0.2.1-verification.json`。此前版本继续保留作为历史产物。
+- 交付包：`dist/ai-radar-0.5.0-ios-simulator.tar.gz`，14,496,493 字节，SHA-256 `4f3f76f3b644ab26cac3496a8d1e6c372aeb6f1f9a8730fbdb1143bd8350f833`；同目录提供 `.sha256` 文件。
+- 解压目录：`dist/ios-simulator-v0.5/AIRadar.app`；核验结果 `dist/ios-v0.5-verification.json`。仍未实际运行 iOS，也不能安装到实体 iPhone。
+
+有完整 Xcode 和已启动的模拟器后，可从仓库根目录安装：
+
+```bash
+xcrun simctl install booted dist/ios-simulator-v0.5/AIRadar.app
+xcrun simctl launch booted cn.yswdra.airadar
+```
+
+在连接页填写 `https://radar.yswdra.cn` 与本机私有 `credentials/cloud-reader.env` 中的 reader token。令牌未打包进应用。
+
+## 历史模拟器产物
+
+- 0.2.1：`dist/ai-radar-0.2.1-ios-simulator.tar.gz`，14,218,220 字节，SHA-256 `83593f91e627387db6c5eca0a2445a9d045961e597c370f82d0ffd4bfc620077`。
+- 0.2.1 解压目录：`dist/ios-simulator-v0.2.1/AIRadar.app`；核验结果 `dist/ios-v0.2.1-verification.json`。此前版本继续保留作为历史产物。
 - `dist/ai-radar-0.1.0-ios-simulator.tar.gz`，14,215,183 字节。
 - SHA-256：`d19e7e0c227dd6f9e8faa9ddcb011d4f01b62e401394cd0028af296e992c8a03`，同目录提供 `.sha256` 文件。
 - 解压后的应用也保存在 `dist/ios-simulator/AIRadar.app`。
 - 核验 `Info.plist`、Mach-O 两个架构的平台标记（iOS Simulator）、内置 Hermes、秘密扫描与 `codesign --verify --deep --strict` 均通过。模拟器签名校验通过不代表具备 iPhone 分发证书。
 - 详细本机核验结果位于 `dist/ios-simulator-verification.json`。尚未启动 iOS 模拟器或在 iPhone 真机运行。
-
-有完整 Xcode 和已启动的模拟器后，可从仓库根目录安装：
-
-```bash
-xcrun simctl install booted dist/ios-simulator-v0.2.1/AIRadar.app
-xcrun simctl launch booted cn.yswdra.airadar
-```
-
-在连接页填写 `https://radar.yswdra.cn` 与本机私有 `credentials/cloud-reader.env` 中的 reader token。令牌未打包进应用。

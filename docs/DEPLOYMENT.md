@@ -2,9 +2,17 @@
 
 目标实例：`lhins-e5gcg722`，`ap-seoul`，公网 `43.155.203.253`，Ubuntu Server 24.04 LTS，2 核 4 GB。
 
-## 当前部署状态 · 2026-09-07
+## 当前部署状态 · 2026-09-08
 
-最新升级：自动公开网页读取、准确的采集状态、手机正文导入与自动队列。当前 release `/opt/ai-radar/releases/20260907-622e107`，每版独立 `.venv`，前版 `bebe45b` 及更早版本保留。新增 `document_captures` 表，既有表列不改动；服务器配置与模型/社交密钥不变。升级前备份 `/var/lib/ai-radar/backups/radar-device-queue-20260907T143032Z.db`，44 条消息及七张表旧数据逐项一致，Caddy 与原 8080 服务保持运行。noVNC 的 `android-compat-v1` 灰屏修复继续生效。
+当前 release 为 `/opt/ai-radar/releases/20260908-5672e2d`，增加服务器独立语义审计、自动修订与正式翻译重审 CLI。TAT `inv-m8cvw7g5d9` 成功：46 条消息、七张表既有数据、三份私有配置保留，Caddy 和原 8080 进程不变；本项目 API 与浏览器均正常。18 个完整采集网站显示完成，手机队列的 reader/admin 权限隔离与只读行为通过。此次升级不改移动端，不需要重新安装 App。
+
+完整可重新部署源码归档为 `dist/ai-radar-server-20260908-5672e2d.tar.gz`，119,635 字节，SHA-256 `3d56855f19cb190872556b62654889021a7bc3afeaedf2dd3e57187fe6644fd5`。包内 47 份文件的已提交内容与 `source-manifest.json` 哈希一致，每版使用独立虚拟环境与锁定依赖；依赖准备期间旧 API 继续服务，切换前再次检查任务与授权窗口为空并冻结备份。旧 release 保留以便回滚。
+
+最终切换备份为 `/var/lib/ai-radar/backups/translation-automation-final-20260907T171108626588Z.db`。部署后通过正式 CLI 对 4 份历史编辑记录按原文重审，最终均通过；原文及不相关译文逐项不变，完整历史保留，重复执行为零条且全部翻译缓存不变。重审前备份 `/var/lib/ai-radar/translation-recheck/20260907T171541Z-bcfad5ae/before.db`。实际任务与验证见 [验证记录](VALIDATION.md)。
+
+此前在 `622e107` 上部署过 `338dbb9` 的两份源码补丁：Facebook 中断保留已读数据、美元/序数词校验等价处理；均包含于当前完整版本。TAT `inv-e8cuvr0qej` 成功，历史备份 `/var/lib/ai-radar/backups/collection-reliability-20260907T163602Z` 和归档 `dist/ai-radar-server-20260908-338dbb9.tar.gz` 保留。
+
+0.5.0 历史升级：自动公开网页读取、准确的采集状态、手机正文导入与自动队列。当时 release `/opt/ai-radar/releases/20260907-622e107`，每版独立 `.venv`，前版 `bebe45b` 及更早版本保留。新增 `document_captures` 表，既有表列不改动；服务器配置与模型/社交密钥不变。升级前备份 `/var/lib/ai-radar/backups/radar-device-queue-20260907T143032Z.db`，44 条消息及七张表旧数据逐项一致，Caddy 与原 8080 服务保持运行。noVNC 的 `android-compat-v1` 灰屏修复继续生效。
 
 归档 `dist/ai-radar-server-20260907-622e107.tar.gz`，114,607 字节，SHA-256 `f651d42652db0e6fc05e6dd84ac07e3e27ebb045c4f80ebf372379cc68c49599`。预检 `inv-e8cr83g9gv`，启用 `inv-e8cr9a0w58`，均 SUCCESS；公开 HTTPS 健康、鉴权隔离、浏览器空闲、17 个完整采集网站及手机队列跳过冷却文章均通过。具体逻辑见 [WEB-AUTHORIZATION.md](WEB-AUTHORIZATION.md)。
 
@@ -16,11 +24,11 @@
 
 首轮官方 API 任务 `c700474d-e3a8-4b38-967a-6f6a2c65c3de` 完成，读取 30 条、新增 6 条、更新 1 条旧帖，总计 40 条，X 为 healthy。Codex 任务 `b5d910c6-6ecc-4575-bfbc-117ae6cef67f` 已更新 9 月 6 日日报，5 条输入形成 1 条报道、4 个引用，原文和日期窗口校验通过。下面的部署记录保留各阶段的历史计数。
 
-- 已通过用户配置的腾讯云官方 CLI + TAT 部署，当前 API release 为 `/opt/ai-radar/releases/20260907-622e107`；历史版本均已保留。
+- 已通过用户配置的腾讯云官方 CLI + TAT 部署，当前 API release 为 `/opt/ai-radar/releases/20260908-5672e2d`；历史版本均已保留。
 - HTTPS 地址：`https://radar.yswdra.cn`；`/healthz` 已从本机及服务器验证为 200。无令牌读取返回 401，reader 读取返回 200，reader 调用管理任务返回 403。
 - 官方 Caddy 2.11.4 已安装并运行，使用独立 `radar` 主机规则；DNSPod 新增 `radar` A 记录，防火墙只追加 TCP 443。原有根域名、`www`、22/80/8080 规则未更改。
 - 原有 8080 进程 PID `303258` 保持运行，部署前后访问根路径均返回 404；新 API 仅监听 `127.0.0.1:18473`。
-- 首次 5 个官方来源采集 23 条有效信息。9 月 7 日 00:52 加入 Meta Newsroom 后有 6 个健康官方来源、25 条有效信息；之后导入 8 条已授权浏览器采集的 X 公开帖，总计 33 条，并实际生成 9 月 5 日与 6 日中文日报。X 定时采集仍等待付费 API 选择与凭据接入，Facebook 账号正在审核。
+- 首次 5 个官方来源采集 23 条有效信息。9 月 7 日 00:52 加入 Meta Newsroom 后有 6 个健康官方来源、25 条有效信息；之后导入 8 条已授权浏览器采集的 X 公开帖，总计 33 条，并实际生成 9 月 5 日与 6 日中文日报。当时 X 尚待 API 凭据，现已接通并观察到自然定时采集；Facebook 账号仍在审核。
 - Codex CLI 0.153.3 完整原生包已安装，包括 code-mode host、bwrap、rg 和包清单。9 月 7 日 00:03（北京时间）服务用户完成设备码登录，独立 `codex login status` 返回 `Logged in using ChatGPT`。
 - 云端实际调用 Codex 生成 9 月 4 日历史日报，6 条中文总结使用 9 个来源，所有引用 ID 均匹配原文。任务完成后开启调度器：每天北京时间 08:00 汇报，每两小时采集。
 - reader 连接信息通过临时 RSA 公钥加密传回本机，仅保存在仓库忽略的 `credentials/cloud-reader.env`（0600）中，未输出到日志。腾讯云密钥和模型凭据没有打进 App。

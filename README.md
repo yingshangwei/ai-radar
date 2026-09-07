@@ -36,9 +36,9 @@ ai-radar/
 
 服务地址为 `https://radar.yswdra.cn`，已部署到指定腾讯云实例；[健康检查](https://radar.yswdra.cn/healthz)可公开访问，内容接口需要设备令牌。本机连接信息保存在未纳入 Git 的 `credentials/cloud-reader.env`，只允许当前用户读取。App 连接页填写其中的服务地址和 reader token。
 
-当前已验证部署的服务器版本为 `20260908-37e24fc`，完整测试 386 通过、6 项既有浏览器集成测试跳过，Ruff 通过。两轮正式补译及最后一次 errors-only 恢复均已结束；数据库全量主消息 46 条中文 ready，47 份已保存网页正文为 13 ready、33 review_required、1 error。最后 8 份错误缓存中，7 份进入待审、1 份仍被原文保护校验拦截；没有放宽门槛、再重试或发布未通过译文。原文、原有已发布译文和未选待审缓存保持不变，全文中文尚未全部补齐。
+当前已验证部署的服务器版本为 `20260908-f574f87`，完整测试 506 通过、6 项既有浏览器集成测试跳过，Ruff 通过。该版增加受保护字面量与结构错误共用的有界恢复，并修正日期、币种等价校验的误报。随后正式 errors-only 任务仅处理剩余 1 份错误缓存，任务已结束，但仍因校对阶段 `protected_literal_mismatch` 被拒绝，没有继续重试或发布。数据库全量主消息 46 条中文 ready，47 份已保存网页正文仍为 13 ready、33 review_required、1 error；原文、既有已发布译文和未选缓存保持不变，全文中文尚未全部补齐。
 
-2026-09-07 19:41:58 UTC 的公网只读验证显示：App 默认近七天可见 42 篇消息及 43 个关联资源，资源为 13 ready、29 review_required、1 error；这是时间窗口内可见范围，与数据库全量分开统计。未通过的全文中文不暴露；余额告警为空、X healthy，Facebook 仍待授权。任务、租约和授权窗口已清空，本次只升级服务器，无需重建 App。实际部署与任务证据见 [验证记录](docs/VALIDATION.md)。
+2026-09-07 20:33:24 UTC 的公网只读验证显示：App 默认近七天可见 42 篇消息及 43 个关联资源，资源为 13 ready、29 review_required、1 error；这是时间窗口内可见范围，与数据库全量分开统计。未通过的全文中文不暴露；余额告警为空、X 与官方信息源 healthy，Facebook 仍待授权。调度器开启，无运行中任务或授权窗口，本次只升级服务器，无需重建 App。实际部署与任务证据见 [验证记录](docs/VALIDATION.md)。
 
 已观察到 9 月 8 日 00:32（北京时间）自然定时采集，X 读取 30 条并新增 2 条，另处理 14 个直接来源。当前每查询最多 10 条、1 页，每两小时采集一次；这是有限范围的检索，不保证全面覆盖。4 份历史编辑记录已由服务器自动重审，原始证据与历史记录保留。
 
@@ -46,7 +46,7 @@ ai-radar/
 
 日报引用可中英切换。此前真实日报重建验证了 40 份翻译缓存的调用次数与时间戳均未改变。DeepSeek 密钥仅配置在服务端，摘要引擎仍为独立的 Codex CLI。
 
-Android 0.5.0 签名安装包位于本机 `dist/ai-radar-0.5.0-android.apk`，可覆盖旧版保留登录；[网页采集中心](docs/WEB-AUTHORIZATION.md)支持公开网页自动读取、按网站一次手机许可及 App 前台自动补采；包含网页与文章解读、中文阅读、原文切换、离线缓存和余额不足提示。iOS 模拟器原生构建与产物见 [IOS.md](docs/IOS.md)；尚无实际 iOS 运行验证，真机签名仍待 Apple Developer 账号。Facebook 账号正在审核；Meta 官方新闻和 Meta 的 X 帖子不代表 Facebook 社交帖已接通。
+Android 0.5.0 签名安装包位于本机 `dist/ai-radar-0.5.0-android.apk`，可覆盖旧版保留登录；[网页采集中心](docs/WEB-AUTHORIZATION.md)支持公开网页自动读取、按网站一次手机许可及 App 前台自动补采；包含网页与文章解读、中文阅读、原文切换、离线缓存和余额不足提示。iOS 模拟器原生构建与产物见 [IOS.md](docs/IOS.md)；本机缺完整 Xcode 和运行时，Apple 下载账号访问授权待处理，尚未实际运行 iOS 或生成真机 IPA。免费 Apple Account 可获取 Xcode，真机分发签名另行处理。Facebook 账号正在审核；Meta 官方新闻和 Meta 的 X 帖子不代表 Facebook 社交帖已接通。
 
 本次仅升级服务器，Android / iOS 源码未变，不需要为这些修复重新构建或安装 App。
 
@@ -95,7 +95,7 @@ pnpm exec expo export --platform all
 `app/android` 和 `app/ios` 是已生成的原生工程。修改 Expo 配置后运行 `pnpm prebuild`，不要使用会删除原生更改的 `--clean`。
 
 - Android：独立签名 Release 已完成；使用 `python3 scripts/build-android.py` 构建，环境、签名备份和本机 Google 下载兼容选项见 [Android 构建说明](docs/ANDROID.md)。Debug 版本需要 Metro。
-- iOS：可在完整 Xcode 26.2+、CocoaPods 环境运行 `cd app && pnpm ios`，或使用已关联的 EAS 云构建。构建与签名说明见 [IOS.md](docs/IOS.md)；真机包需要 Apple 签名，模拟器包不等同于可安装 IPA。
+- iOS：可在与 macOS 兼容的完整 Xcode、CocoaPods 环境运行 `cd app && pnpm ios`；本机 macOS 15.6 可使用 Xcode 26.2。已有 0.5.0 模拟器包无需重复 EAS 构建。构建与签名说明见 [IOS.md](docs/IOS.md)；真机包需要 Apple 签名，模拟器包不等同于可安装 IPA。
 - EAS 官方云构建：`cd app && pnpm dlx eas-cli login`，授权后运行 `pnpm dlx eas-cli build --platform android --profile preview` 或 `--platform ios --profile preview`。配置见 `eas.json`，不会自动提交应用商店。
 
 ## 配置和运行边界

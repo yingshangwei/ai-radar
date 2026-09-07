@@ -4,7 +4,13 @@
 
 最终 EAS 模拟器构建 `9526a508-77d8-4893-b1ff-38cac07ed0fd` 成功，源码 `98c3847`，包含一次网站许可、手机自动读取以及原生 URL / 消息桥兼容修复。交付包 `dist/ai-radar-0.5.0-ios-simulator.tar.gz`，14,496,493 字节，SHA-256 `4f3f76f3b644ab26cac3496a8d1e6c372aeb6f1f9a8730fbdb1143bd8350f833`。
 
-`dist/ios-simulator-v0.5/AIRadar.app` 已核验 0.5.0 / 6、最低 iOS 15.1、arm64 / x86_64 模拟器平台、内置 JavaScript、严格签名及五个已知秘密扫描。使用既有 Free 额度，最终 iOS 10 / 15，无超额费用或附加项。此前中间包只保留为基线；交付路径指向最终源码。尚未实际运行 iOS，也未生成可安装到 iPhone 的 IPA。
+`dist/ios-simulator-v0.5/AIRadar.app` 已核验 0.5.0 / 6、最低 iOS 15.1、arm64 / x86_64 模拟器平台、内置 JavaScript、严格签名及五个已知秘密扫描。0.5.0 构建时使用既有 Free 额度，用量为 iOS 10 / 15，无超额费用或附加项；没有重新查询额度或重复构建。此前中间包只保留为基线；交付路径指向最终源码。产物仍存在，尚未实际运行 iOS，也未生成可安装到 iPhone 的 IPA。后续 `f574f87` 仅升级服务器，无需重建此包。
+
+## 当前本机运行条件
+
+本机为 macOS 15.6 / arm64，当前开发工具指向 Command Line Tools；没有完整 Xcode、可用 `simctl` 或已安装的模拟器运行时，有效代码签名身份与描述文件数量均为 0。旧 EAS 远程模拟器可用性结果保留在历史记录，没有重新查询。
+
+完整 Xcode 可免费获取：Apple 明确旧版下载只需 Apple Account，不要求付费 Developer Program；Xcode 26.2 支持本机 macOS 15.6，可用现有 0.5.0 包继续运行验证，无需重复 EAS 构建或升级系统。[Apple 下载说明](https://developer.apple.com/xcode/resources/)、[兼容矩阵](https://developer.apple.com/xcode/system-requirements/)。本次 Apple 下载登录跳转被自动审批审查拒绝，已向用户请求 Apple 账号访问授权，尚待回复；未绕过授权、下载或安装大包，也未读取密码或账号令牌。App Store 登录状态未确认，不能据此认定账号已退出。
 
 ## 历史版本：0.4.0 / code 5
 
@@ -47,6 +53,8 @@ pnpm dlx eas-cli@23.2.0 build:inspect --platform ios --profile simulator \
 EAS Git 客户端还会保留浅克隆的 `.git` 元数据；`.easignore` 不能删除已提交内容在 Git 对象中的副本。因此秘密必须始终留在 Git 之外。本次最终上传检查了 72 个工作文件及 158 个浅克隆 Git 对象，未发现设备令牌或 Android 签名密码，私有凭据文件未上传。EAS 项目没有配置任何构建环境秘密。
 
 ## 真机安装
+
+以下为现有 EAS 内部分发路径；付费资格不是 Xcode 下载或模拟器运行的前置条件。Apple 也支持使用个人 Apple Account 在 Xcode 中配置本人设备的开发签名，该路径仍需完整 Xcode、账号授权与连接设备后的验证。[Apple 设备运行说明](https://developer.apple.com/documentation/xcode/running-your-app-on-simulated-or-physical-devices)
 
 `preview` 是内部测试配置，使用 Apple Ad Hoc 签名。需要有效的付费 Apple Developer 账号，以及目标 iPhone 的 UDID。用户完成 Apple 授权后，通过官方 EAS 流程登记设备和生成签名：
 

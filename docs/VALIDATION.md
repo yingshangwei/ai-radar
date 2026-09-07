@@ -2,7 +2,19 @@
 
 ## 当前服务器版本与验收范围
 
-- 当前 release `20260908-37e24fc` 已由 TAT `inv-e8d1wbgit4` 成功启用（SUCCESS，退出 0）。完整服务器测试 **386 passed、6 skipped**，Ruff 通过；6 项跳过均为既有浏览器集成环境限制。源码包 123,815 字节、47 份已提交文件，SHA-256 `d2993b78cec1fb3338eca0cd37a34254ba092741494fec292d458ac2cc2458e0`，见 [部署记录](DEPLOYMENT.md)。
+- 当前 release **20260908-f574f87** 已由 TAT `inv-m8d3qqgvhd` 成功启用（SUCCESS，退出 0）。完整服务器测试 **506 passed、6 skipped**，Ruff 通过；6 项跳过均为既有浏览器集成环境限制。125,817 字节的归档包含 47 份已提交文件、6 个传输分片，路径与 SHA-256 见 [部署记录](DEPLOYMENT.md)。
+- 预检 `inv-e8d3pbg22j` 生成一致性备份 `radar-translation-calendar-context-20260907T202807Z.db`；部署前后 14 张表、三份私有配置、Caddy 与原 8080 服务保留。六组历史证据均不变，第六组包含已经结束的 errors-only 操作之 latest、metadata、数据库备份与私有输出；新部署使用独立前缀，不覆盖旧证据。
+- `cae1e18` 将受保护字面量错误恢复与 JSON/Schema 恢复共用最多两次请求预算，同一原文与输入草稿不变，只反馈安全对应错误，不拼接缺失链接或人工改文案。`f574f87` 补齐通用月份上下文规则，避免从小数/版本末尾误取日期；中英货币等价仅在适当语境适用，重量和明确人名不被误当作币种或月份。独立语义审计、真实缺漏与未解决疑点的发布门槛保留。
+- `cae1e18` 曾通过 `inv-e8d3b6g244` 部署（484 passed、6 skipped、Ruff 通过），但只读影响检查发现三个新数字标记，因此先完成通用修复再升级。`inv-m8d3n2gncq` 在内存检查 34 份当前网页缓存中的 98 个未完成段落，确认新增日期误报消除：旧/新数字标记均为 43，货币标记 3 → 2，链接校验保留。该检查没有模型调用或数据库写入，不代表其余数字或语义疑点已解决。
+- 正式 errors-only 启动 `inv-m8d3sj08ug` 成功，任务 `c10b0ead-2174-4239-bd61-53294353a8ce` 于 2026-09-07 20:31:38.714907–20:32:03.448959 UTC completed，只处理 1 份现存 error 缓存，结果仍为 **error / correction / protected_literal_mismatch**。未继续重试、未改文章内容、未人工批准，也没有新增发布成功的整篇译文。
+- 最终只读验收 `inv-m8d3t8g1sa` 于 20:32:18 UTC 成功，实际输出及同一输出提取的 JSON 为 `dist/cloud/translation-calendar-literal-final.txt` / `.json`。`verification_passed=true` 表示操作结束及保护核验通过，**translation_ready=false**；systemd 单元 exited、退出 0。60 份既有 ready 缓存、34 份未选待审缓存（33 份关联正文、1 份历史缓存）、11 张受保护表、配置、原文、旧补译基线和旧 `bccb692e` 操作均不变。
+- 独立元数据为 `/var/lib/ai-radar/translation-calendar-literal-recovery/20260907T203137040137Z-6b927236/metadata.json`。数据库全量主消息 **46 ready**；47 份已保存关联网页正文仍为 **13 ready、33 review_required、1 error**，全文中文尚未补齐。
+- 20:33:24.632861 UTC 公网只读验证 `dist/cloud/translation-integrity-public.json` 成功：状态总消息数 46，默认近七天可见 42 篇消息与 43 个关联资源，资源为 **13 ready、29 review_required、1 error**；可见范围不等于数据库全量。未通过的全文中文不暴露，无令牌读取 401、reader 管理操作 403，无运行中任务或授权窗口，余额告警为空，调度器开启，X 与官方信息源 healthy、Facebook auth_required。
+- Android / iOS 源码未变，本次没有重建安装包。本机 iOS 运行仍缺完整 Xcode 与模拟器运行时，Apple 下载登录访问被自动审批审查拒绝，用户访问授权请求尚待回复；没有绕过授权或生成真机 IPA。免费获取 Xcode 与付费 Ad Hoc 分发条件分开说明，见 [IOS.md](IOS.md)。
+
+## 历史：37e24fc 部署与补译验收
+
+- 当时 release `20260908-37e24fc` 已由 TAT `inv-e8d1wbgit4` 成功启用（SUCCESS，退出 0）。完整服务器测试 **386 passed、6 skipped**，Ruff 通过；6 项跳过均为既有浏览器集成环境限制。源码包 123,815 字节、47 份已提交文件，SHA-256 `d2993b78cec1fb3338eca0cd37a34254ba092741494fec292d458ac2cc2458e0`，见 [部署记录](DEPLOYMENT.md)。
 - 部署前后 14 张表保留；补译操作另核对原文、摘要等 11 张受保护表、58 份既有 ready 缓存、未选择缓存和三份私有配置。Caddy、原 8080 服务以及五组历史诊断记录和基线保留。
 - 正式补译任务 `61afa513-2046-4730-9200-9f9d9e209144`（提交 `inv-j8d18t05tr`）于 2026-09-07 19:04:23–19:24:50.928733 UTC 执行完成。原补译操作第 2 轮选择 36 份缓存，结果 2 ready、26 review_required、8 error；全体网页 13 ready、26 review_required、8 error，主消息 46 ready。19:25:54 UTC 只读验收 `inv-j8d1v0g2tu` 成功，原始基线、11 张受保护表、58 份既有 ready 缓存、未选缓存、配置和原文不变；部署基线 9 份缓存中已有的 14 个通过段落均保留。任务 completed 不能代表全部通过。
 - `37e24fc` 预检 `inv-e8d1vs0h3p` 成功，已生成 `radar-translation-stage-recovery-20260907T192644Z.db` 一致性备份，启用 `inv-e8d1wbgit4` 随后成功。正式 errors-only 启动 `inv-n8d1xi0t6e` 成功，任务 `bccb692e-9199-4316-a347-c567e223fd68` 于 2026-09-07 19:28:41–19:40:29.942517 UTC 执行完成，只选 8 份错误缓存，结果 7 review_required、1 error；原有 26 份网页待审不重跑。
@@ -12,7 +24,7 @@
 - 19:41:58 UTC 公网只读验证 `dist/cloud/web-translation-public.json` 成功：状态总消息数 46，默认近七天可见 42 篇消息及 43 个关联资源，资源计数 **13 ready、29 review_required、1 error**。这与数据库全量不是同一范围。未授权读取 401、reader 管理请求 403，未审核正文 `text_zh` 不暴露；余额告警为空，X healthy、Facebook auth_required。
 - Android / iOS 源码未变，本次没有重建安装包。Facebook 账号与 Graph API 接入、iOS 实际运行和真机签名仍为外部待办，详见本文末尾。
 
-## 关联网页中文队列与失败诊断
+## 历史：关联网页中文队列与失败诊断
 
 - 只读盘点发现 47 份已保存的关联网页均有解读，但只有 11 份全文中文 ready；其余 36 份待校对或发生错误，其中 34 份已耗尽旧版重试次数。主消息的 46 条中文 ready 不能代表网页全文完成。
 - `05b9c33` 将仍有关联、当前正文非空的网页纳入统一翻译队列，主消息优先、内容去重、过滤过期与孤立缓存，并在状态及任务消息中独立报告 `resource_counts`。11 项新增回归通过，完整服务器测试 286 通过、6 项既有浏览器测试跳过；没有修改移动端或依赖。
@@ -158,10 +170,10 @@
 
 ## 尚未完成，不能视为已交付
 
-1. **关联网页全文补译**：数据库全量 47 份已保存正文为 13 ready、33 review_required、1 error；默认近七天可见 43 个资源为 13 ready、29 review_required、1 error。`37e24fc` 已部署，一次错误恢复已结束；剩余待审和原文保护校验失败未放行、未再次重试，全文中文尚未补齐。
+1. **关联网页全文补译**：数据库全量 47 份已保存正文为 13 ready、33 review_required、1 error；最新公网默认近七天可见 43 个资源为 13 ready、29 review_required、1 error。`f574f87` 已部署，随后正式 errors-only 仅处理 1 份错误缓存，仍被校对阶段原文保护校验拦截；待审内容没有重跑或放行，本次任务后没有继续重试，全文中文尚未补齐。
 2. **Facebook 实际采集**：账号正在审核，后续 Graph API 还需具体应用权限与 Page ID。X 官方 API 已接通，且已观察到真实定时任务完成；当前分页上限不保证全面覆盖。
 3. **Android 用户设备复验**：用户已反馈旧版 App 的实际使用问题；0.5.0 已交付签名 APK 并通过原生模拟器验证，尚无该最终版在用户手机上的复验结果。应用商店发布未请求，不作为本次 APK 交付的前置条件。
-4. **iOS 运行与真机 IPA**：模拟器原生构建与产物校验已完成；本机没有完整 Xcode，当前账号也未开放 EAS 远程模拟器运行，尚未实际启动 iOS App。真机签名等待 Apple Developer 账号状态，未生成可在 iPhone 安装的 IPA。产物与操作见 [IOS.md](IOS.md)。
+4. **iOS 运行与真机 IPA**：0.5.0 模拟器产物仍存在且已校验，但本机只有 Command Line Tools，没有完整 Xcode 或模拟器运行时；有效签名身份与描述文件均为 0，未生成 IPA。Apple 下载登录访问被自动审批审查拒绝，用户访问授权请求待回复；免费 Apple Account 即可获取兼容本机的 Xcode，不必等待付费会员才能运行模拟器。现有 EAS `preview` 的 Ad Hoc 真机分发另需付费开发者资格和目标设备 UDID，账号状态尚未确认；不会将商店发布强加为前置。旧 EAS 远程模拟器可用性查询仅保留为历史，没有重复查询。产物与操作见 [IOS.md](IOS.md)。
 
 Tibo 默认采用已核验有 AI 产品相关动态的 `tibo_maker`；这是可在 App 中调整的关注配置，不作为构建或授权的阻碍。
 

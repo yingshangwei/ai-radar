@@ -29,6 +29,7 @@ import { api, APIError, cached, normalizeURL, storage } from "./src/api";
 import { C, s } from "./src/theme";
 import AuthorizationCenter from "./src/AuthorizationCenter";
 import DeviceReading from "./src/DeviceReading";
+import appManifest from "./app.json";
 import { demoArticles, demoDigest, demoStatus, demoWatches } from "./src/demo";
 import type {
   Article,
@@ -1556,7 +1557,7 @@ function Reader({
         <T
           style={[s.label, { textAlign: "center", marginTop: 28, fontSize: 9 }]}
         >
-          AI RADAR / 前沿 · 0.4.0
+          AI RADAR / 前沿 · {appManifest.expo.version}
         </T>
       </Sheet>
       <DeviceReading

@@ -120,10 +120,8 @@ def x_references(post: dict, referenced: dict) -> list[dict]:
 
 
 def x_page_items(body: dict) -> list[IncomingArticle]:
-    if not isinstance(body.get("data", []), list) or not isinstance(body.get("meta"), dict):
+    if not isinstance(body.get("data", []), list):
         raise ValueError("Invalid X page structure")
-    if not isinstance(body["meta"].get("next_token", ""), str):
-        raise ValueError("Invalid X pagination token")
     users = {user["id"]: user for user in body.get("includes", {}).get("users", [])}
     referenced = {post["id"]: post for post in body.get("includes", {}).get("tweets", [])}
     items = {}

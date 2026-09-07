@@ -306,6 +306,12 @@ class XCollector:
                     async with asyncio.timeout(30):
                         body = await get_json(client, ENDPOINT, params=params,
                                               headers={"Authorization": f"Bearer {token}"}, allow_partial=True)
+                    # A completed watermark needs explicit pagination metadata;
+                    # the shared item parser also serves callers without cursors.
+                    if not isinstance(body.get("meta"), dict):
+                        raise ValueError("Invalid X pagination metadata")
+                    if not isinstance(body["meta"].get("next_token", ""), str):
+                        raise ValueError("Invalid X pagination token")
                     items = x_page_items(body)
                     accepted = self.save_page(key, window_id, body, items, owner, ingest_page)
                     result.read_count += len(items)

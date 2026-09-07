@@ -200,14 +200,18 @@ async def test_valid_review_rejection_is_not_format_retried_and_cannot_publish(s
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("fault", ["unknown_id", "duplicate_id", "missing_literal", "duplicate_literal"])
-async def test_ids_and_literals_fail_outside_format_retry(setup, fault):
+async def test_ids_fail_immediately_and_literal_failures_exhaust_one_shared_retry(setup, fault):
     sessions, config, _ = setup
     service, calls = TranslationService(sessions, config), []
 
     async def completion(payload, *, system, model):
         assert_request_payload(payload, system, model, config, review=False)
         calls.append(deepcopy(payload))
-        assert "format_feedback" not in payload
+        if len(calls) == 1:
+            assert "format_feedback" not in payload
+        else:
+            assert len(calls) == 2 and "literal" in fault
+            assert payload["format_feedback"]["reason"] == "protected_literal_mismatch"
         output = json.loads(translated())
         if fault == "unknown_id":
             output["translations"][0]["id"] = "unknown"
@@ -223,7 +227,7 @@ async def test_ids_and_literals_fail_outside_format_retry(setup, fault):
     with pytest.raises(TranslationValidationError) as caught:
         await service.request([{"id": "body-0", "source": SOURCE}], review=False)
     assert caught.value.code == ("translation_part_mismatch" if "id" in fault else "protected_literal_mismatch")
-    assert len(calls) == 1
+    assert len(calls) == (1 if "id" in fault else 2)
 
 
 @pytest.mark.asyncio

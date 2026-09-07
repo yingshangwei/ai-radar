@@ -146,7 +146,9 @@ POLICY = """你是 AI 科技内容的严谨中英翻译编辑。任务是完整�
 MRR 等财务缩写保留并译出其含义；收入与利润、规模与质量、自己的设备与私有云架构不能混同。
 Markdown 链接保留结构，只翻译链接的显示文字。校对时草稿漏掉的链接占位符须按原文补回。
 每项必须明确给出 approved，使用 JSON 布尔值 true 或 false；issues 使用字符串数组，保留全部尚存疑点。
-若收到 format_feedback，它仅指出上次输出结构无效；请基于同一原文和输入草稿按给定结构完成当前任务。
+若收到 format_feedback，它仅指出上次输出结构或占位符对应无效；请基于同一原文和输入草稿重新完整输出。
+其中 input_index 从零对应输入项，expected_count 是该项原文中对应 marker 的次数，actual_count 是上次输出次数。
+须在原文对应位置忠实保留全部标记，不能集中附加在文末或因原草稿缺失而继续遗漏。
 格式恢复不代表译文已获批准，不能为满足结构而默认批准或忽略真实疑点；仍须保留全部原文保护占位符。
 每个输入项对应一个输出项，id 原样返回，不得合并或遗漏。只返回 JSON 对象：
 {"translations":[{"id":"title","zh":"中文译文","approved":true,"issues":[]}]}
@@ -259,11 +261,65 @@ def quality_issues(source: str, chinese: str) -> list[str]:
     def urls(value):
         return Counter(x.rstrip(".,);]") for x in URL.findall(value))
 
+    month_numbers = {english.casefold(): index for index, (english, _) in enumerate(MONTHS, 1)}
+    month_pattern = re.compile(r"\b(?:" + "|".join(english for english, _ in MONTHS) + r")\b", re.I)
+
+    def date_month(match, value):
+        before, after = value[:match.start()], value[match.end():]
+        if re.match(r"['’]s\b", after, re.I):
+            return False  # May's work, June's opinion: names are not calendar evidence.
+        day = r"(?:0?[1-9]|[12]\d|3[01])(?:st|nd|rd|th)?"
+        following = re.match(r"\s+(?:[12]\d{3}|" + day + r")(?!\w)", after, re.I)
+        if following and not re.match(
+            r"\s+(?:miles?|steps?|kilomet(?:er|re)s?|met(?:er|re)s?|million|billion)\b",
+            after[following.end():], re.I,
+        ):
+            return True
+        if re.search(r"\b" + day + r"\s+$", before, re.I):
+            return True
+        event = re.match(r"\s+(meetings?|releases?|updates?)\b", after, re.I)
+        if event and (
+            match[0].casefold() not in {"may", "march"} or
+            event[1].casefold().startswith("meeting") or
+            re.search(r"\b(?:the|a|an|our|their|its|this|that|next|last)\s+$", before, re.I)
+        ):
+            # Calendar modifiers are numeric dates, but "may release/update"
+            # alone is also a modal verb phrase and supplies no date evidence.
+            return True
+        return bool(re.search(
+            r"\b(?:in|during|since|until|through|throughout|from|by|before|after|this|last|next)\s+$",
+            before, re.I,
+        ))
+
     def numbers(value, counterpart):
         value = URL.sub("", value)
-        for index, (english, chinese) in reversed(list(enumerate(MONTHS, 1))):
-            value = re.sub(r"\b" + english + r"\b", str(index) + "月", value)
-            value = value.replace(chinese, str(index) + "月")
+        counterpart = URL.sub("", counterpart)
+        isolated_month = month_pattern.fullmatch(counterpart.strip())
+        ambiguous = Counter(
+            [month_numbers[isolated_month[0].casefold()]] if isolated_month else []
+        )
+        chinese_months = {name: index for index, (_, name) in enumerate(MONTHS, 1)}
+
+        def month_value(match):
+            token = match[0]
+            index = chinese_months[token] if token in chinese_months else int(token[:-1])
+            if ambiguous[index]:
+                # Only an isolated month label permits a same-month spelling
+                # counterpart. A name or modal inside prose cannot cancel an
+                # unrelated date added to the translation.
+                ambiguous[index] -= 1
+                return "月份"
+            return str(index) + "月"
+
+        value = re.sub(
+            r"(?<![零一二三四五六七八九十\d])(?:" +
+            "|".join(reversed(list(chinese_months))) + r"|(?:0?[1-9]|1[0-2])月)", month_value, value,
+        )
+        dated_value = value
+        value = month_pattern.sub(
+            lambda m: str(month_numbers[m[0].casefold()]) + "月" if date_month(m, dated_value) else m[0],
+            value,
+        )
         scales = {
             "billion": 10**9,
             "million": 10**6,
@@ -325,16 +381,54 @@ def quality_issues(source: str, chinese: str) -> list[str]:
         )
     if compact_amounts(source) != compact_amounts(chinese):
         issues.append("原文紧凑金额或单位未保留")
-    for symbol in ["%", "$", "€", "£", "¥"]:
+    def currency_marks(value):
+        value = URL.sub("", value)
+        ambiguous = Counter()
         # Currency words/codes must count just like their translated symbol.
         # Whole tokens avoid matching product/code identifiers containing "dollar".
         dollar_words = r"\b(?:USD|(?:US\s+|U\.S\.\s+)?dollars?)\b"
-        normalized_source = re.sub(dollar_words, "$", source, flags=re.I)
-        normalized_chinese = re.sub(dollar_words, "$", chinese, flags=re.I)
+        money_cue = r"\b(?:costs?|costing|prices?|priced|paid|pay(?:s|ing)?|fees?|charges?|charged|" \
+                    r"spend|spent|earns?|earned|revenue|profit|budget|worth|rent|cash|currency|sterling)\b"
+        weight_cue = r"\b(?:weigh(?:s|ed|ing)?|weight|mass|heavy|lighter|lift(?:ed|ing)?)\b"
+
+        def currency_word(match):
+            token = match[0].casefold()
+            if token in {"eur", "gbp"} or "british" in token or "sterling" in token:
+                return "€" if token == "eur" else "£"
+            before = re.split(r"[;!?\n]|(?<!\d)\.|\.(?!\d)", value[:match.start()])[-1][-120:]
+            after = value[match.end():match.end()+60]
+            money = list(re.finditer(money_cue, before, re.I))
+            weight = list(re.finditer(weight_cue, before, re.I))
+            if token.startswith("pound") and (
+                re.match(r"\s+(?:of\b|(?:in|by)\s+weight\b)|\s*\(\s*weight\b", after, re.I) or
+                (weight and (not money or weight[-1].start() > money[-1].start()))
+            ):
+                return match[0]  # Explicit weight cannot supply a currency marker.
+            amount = re.search(
+                r"(?:\d+(?:[.,]\d+)*|\b(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|"
+                r"hundred|thousand|million|billion))\s+$", before, re.I,
+            )
+            marker = "€" if token.startswith("euro") else "£"
+            if money or (marker == "€" and amount):
+                return marker
+            # Bare pounds may mean weight or money; do not infer sterling from
+            # the candidate. Only that unresolved occurrence is left to audit.
+            ambiguous[marker] += 1
+            return match[0]
+
+        value = re.sub(r"\b(?:EUR|GBP|(?:British\s+)?pounds?(?:\s+sterling)?|euros?)\b",
+                       currency_word, value, flags=re.I)
+        value = re.sub(dollar_words, "$", value, flags=re.I)
         for word, marker in [("美元", "$"), ("欧元", "€"), ("英镑", "£")]:
-            normalized_source = normalized_source.replace(word, marker)
-            normalized_chinese = normalized_chinese.replace(word, marker)
-        if normalized_source.count(symbol) != normalized_chinese.count(symbol):
+            value = value.replace(word, marker)
+        return Counter(char for char in value if char in "%$€£¥"), ambiguous
+
+    source_marks, source_ambiguous = currency_marks(source)
+    chinese_marks, _ = currency_marks(chinese)
+    for symbol in ["%", "$", "€", "£", "¥"]:
+        difference = source_marks[symbol] - chinese_marks[symbol]
+        # Candidate ambiguity cannot satisfy an explicit source currency.
+        if difference > 0 or -difference > source_ambiguous[symbol]:
             issues.append("百分比或货币标记不一致")
             break
     prose = MENTION.sub("", URL.sub("", source))
@@ -539,11 +633,13 @@ class TranslationService:
             raise TranslationValidationError("output_empty_or_oversized")
         return content
 
-    async def _structured_completion(self, payload: dict, *, system: str, model: str, output: type[BaseModel]):
+    async def _structured_completion(
+        self, payload: dict, *, system: str, model: str, output: type[BaseModel], validate_literals=None,
+    ):
         for attempt in range(2):
             content = await self._completion(payload, system=system, model=model)
             try:
-                return output.model_validate_json(content)
+                result = output.model_validate_json(content)
             except ValidationError as exc:
                 if attempt:
                     raise
@@ -553,6 +649,19 @@ class TranslationService:
                     "reason": "output_schema_invalid", "errors": validation_diagnostics(exc),
                     "required_schema": output.model_json_schema(),
                 }}
+                continue
+            errors = validate_literals(result) if validate_literals else []
+            if not errors:
+                return result
+            if attempt:
+                raise TranslationValidationError("protected_literal_mismatch")
+            # Literal correspondence and JSON shape share one recovery budget.
+            # Ask the model to regenerate from the same evidence; never append
+            # missing links, repair prose, or forward an invalid raw response.
+            payload = {**payload, "format_feedback": {
+                "reason": "protected_literal_mismatch", "errors": errors,
+                "required_schema": output.model_json_schema(),
+            }}
 
     async def request(self, parts: list[dict], *, review: bool) -> dict[str, TranslatedPart]:
         config = self.config
@@ -581,9 +690,25 @@ class TranslationService:
                         copy[field] = pattern.sub(protect, copy[field])
             protected.append(copy)
         payload = {"glossary": config.glossary, "untrusted_parts": protected}
+
+        def validate_literals(result):
+            byid = {p.id: p for p in result.translations}
+            if len(byid) != len(result.translations) or set(byid) != {p["id"] for p in parts}:
+                raise TranslationValidationError("translation_part_mismatch")
+            errors = []
+            for index, part in enumerate(protected):
+                for marker, _ in literals[part["id"]]:
+                    expected = part["source"].count(marker)
+                    actual = byid[part["id"]].zh.count(marker)
+                    if actual != expected:
+                        errors.append({"input_index": index, "marker": marker,
+                                       "expected_count": expected, "actual_count": actual})
+            return errors
+
         result = await self._structured_completion(
             payload, system=POLICY + (REVIEW if review else ""),
             model=config.review_model if review else config.model, output=TranslationOutput,
+            validate_literals=validate_literals,
         )
         byid = {p.id: p for p in result.translations}
         if len(byid) != len(result.translations) or set(byid) != {p["id"] for p in parts}:

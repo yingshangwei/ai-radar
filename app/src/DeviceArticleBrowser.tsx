@@ -257,6 +257,7 @@ export default function DeviceArticleBrowser(props: DeviceArticleBrowserProps) {
             event.nativeEvent.data,
             pending.current,
             event.nativeEvent.url,
+            current.current,
           );
           if (!article) return;
           clear();

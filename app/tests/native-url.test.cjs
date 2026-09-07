@@ -175,3 +175,81 @@ test("native URL path from WebView reply to permitted auto import works for exac
   );
   assert.equal(automaticCapture(document, article, {}), null);
 });
+
+test("Android origin-only events require a separately observed exact native article URL", () => {
+  const pending = {
+    nonce: "android-origin-only",
+    url: "https://example.org/?radar_fixture=3",
+  };
+  const reply = (patch = {}) =>
+    JSON.stringify({
+      type: "radar.article",
+      nonce: pending.nonce,
+      url: pending.url,
+      title: "Example Domain",
+      text: "This domain is for use in documentation examples without needing permission. Avoid use in operations.",
+      links: [],
+      partial: false,
+      ...patch,
+    });
+  const origin = "https://example.org";
+  assert.equal(new NativeURL(pending.url).origin, origin);
+  assert.equal(
+    parseCaptureMessage(reply(), pending, origin, pending.url).url,
+    pending.url,
+  );
+  assert.equal(
+    parseCaptureMessage(reply(), pending, origin, pending.url + "#section").url,
+    pending.url,
+  );
+  assert.equal(
+    parseCaptureMessage(
+      reply(),
+      pending,
+      origin,
+      "https://example.org/?radar_fixture=2",
+    ),
+    null,
+  );
+  assert.equal(
+    parseCaptureMessage(
+      reply(),
+      pending,
+      "https://wrong.example.org",
+      pending.url,
+    ),
+    null,
+  );
+  assert.equal(
+    parseCaptureMessage(
+      reply(),
+      pending,
+      "https://example.org/other",
+      pending.url,
+    ),
+    null,
+  );
+  assert.equal(parseCaptureMessage(reply(), pending, origin), null);
+  assert.equal(
+    parseCaptureMessage(
+      reply({ nonce: "old-nonce" }),
+      pending,
+      origin,
+      pending.url,
+    ),
+    null,
+  );
+  assert.throws(() =>
+    parseCaptureMessage(
+      reply({ url: "https://example.org/?radar_fixture=2" }),
+      pending,
+      origin,
+      pending.url,
+    ),
+  );
+  // Full-URL events retain the existing iOS/default behavior.
+  assert.equal(
+    parseCaptureMessage(reply(), pending, pending.url).url,
+    pending.url,
+  );
+});

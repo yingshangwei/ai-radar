@@ -52,6 +52,7 @@ export function parseCaptureMessage(
   raw: string,
   pending: { nonce: string; url: string } | undefined,
   eventURL: string,
+  nativePageURL: string = eventURL,
 ): MobileArticle | null {
   if (!pending || raw.length > MAX_MESSAGE_CHARS) return null;
   let value: unknown;
@@ -65,7 +66,12 @@ export function parseCaptureMessage(
   if (
     message.type !== "radar.article" ||
     message.nonce !== pending.nonce ||
-    !samePageURL(eventURL, pending.url)
+    !samePageURL(nativePageURL, pending.url) ||
+    // Android WebMessageListener reports sourceOrigin, while iOS reports the
+    // full page URL. An origin-only event requires the separately observed
+    // native navigation URL above; another path on the same host is not enough.
+    (!samePageURL(eventURL, pending.url) &&
+      eventURL !== new URL(pending.url).origin)
   )
     return null;
   if (typeof message.error === "string")

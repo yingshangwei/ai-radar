@@ -1,5 +1,11 @@
 # iOS 构建与签名
 
+## 0.5.0 / code 6
+
+最终 EAS 模拟器构建 `9526a508-77d8-4893-b1ff-38cac07ed0fd` 成功，源码 `98c3847`，包含一次网站许可、手机自动读取以及原生 URL / 消息桥兼容修复。交付包 `dist/ai-radar-0.5.0-ios-simulator.tar.gz`，14,496,493 字节，SHA-256 `4f3f76f3b644ab26cac3496a8d1e6c372aeb6f1f9a8730fbdb1143bd8350f833`。
+
+`dist/ios-simulator-v0.5/AIRadar.app` 已核验 0.5.0 / 6、最低 iOS 15.1、arm64 / x86_64 模拟器平台、内置 JavaScript、严格签名及五个已知秘密扫描。使用既有 Free 额度，最终 iOS 10 / 15，无超额费用或附加项。此前中间包只保留为基线；交付路径指向最终源码。尚未实际运行 iOS，也未生成可安装到 iPhone 的 IPA。
+
 ## 0.4.0 / code 5
 
 EAS 模拟器构建 `46d82cca-0c07-4491-ba0a-1d40b77dbd1b` 成功，移动端源码 `73e6dbd`，新增原生 WebView 模块。实际产物 `dist/ios-simulator-v0.4-final/AIRadar.app`，交付包 `dist/ai-radar-0.4.0-ios-simulator.tar.gz`，14,734,614 字节，SHA-256 `fe35ea0c70d113a424f771c6030bd1ba53e61f8d8472af7e8e2c06fd614ccf65`。签名与凭据扫描通过；仍是模拟器包，没有实际 iOS 运行验证或真机分发签名。

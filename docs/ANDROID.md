@@ -1,5 +1,13 @@
 # Android 构建与签名
 
+## 0.5.0 / code 6
+
+交付包 `dist/ai-radar-0.5.0-android.apk`，69,622,350 字节，SHA-256 `142bb1f7bf3779df2f11e617fb57fff0f3f143e5677b80a3f60ad265834387ba`，源码 `98c3847`。沿用原签名与四 ABI，可覆盖安装保留阅读连接、管理令牌和网站许可。
+
+公开页面由服务端自动读取；手机按网站许可一次后，在前台自动读取、保存、翻译和总结，无需逐篇确认。Android 16 模拟器只点一次网站许可，完成三个不同目标 URL 的正文入库；第一篇可见网页保存后自动返回，另外两篇由前台队列继续读取。详见 [网页采集说明](WEB-AUTHORIZATION.md)。
+
+原生验收发现并修复 React Native URL 没有属性 setter，以及 Android WebMessageListener 只回传 origin 的差异。回归使用安装版本的真实 React Native URL 实现。测试 APK 只为本地隔离 API 允许 HTTP，正式包恢复生产配置；两者 Hermes 字节码逐字节相同。正式包签名、版本、无 debug/cleartext 开关及五个已知私密值扫描通过。
+
 ## 0.4.0 / code 5
 
 交付包 `dist/ai-radar-0.4.0-android.apk`，69,398,978 字节，SHA-256 `5351b9ac1342a9b22adef95a7ed439181a7b7f01b013d9f38338c9586bfcc1a5`。原签名证书和四 ABI 保持不变，可覆盖旧版保留登录。新增 App 内网页授权中心、受保护的远程浏览器、一次保存管理令牌与验证后自动补采，使用方法见 [WEB-AUTHORIZATION.md](WEB-AUTHORIZATION.md)。

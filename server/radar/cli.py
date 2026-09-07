@@ -19,6 +19,7 @@ def main():
     parser.add_argument("--date", type=date.fromisoformat)
     parser.add_argument("--file", type=Path)
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--limit", type=int, metavar="N", help="Limit a translate batch to 1..500 caches")
     recheck = parser.add_mutually_exclusive_group()
     recheck.add_argument("--recheck-article", action="append", default=[], metavar="ARTICLE_ID")
     recheck.add_argument("--recheck-editorial", action="store_true")
@@ -28,6 +29,11 @@ def main():
         parser.error("翻译复核选项只能用于 translate")
     if rechecking and (args.file or args.date):
         parser.error("翻译复核只接受已有文章 ID 或历史范围，不能使用 --file 或 --date")
+    if args.limit is not None:
+        if not 1 <= args.limit <= 500:
+            parser.error("--limit 必须是 1 到 500 之间的整数")
+        if args.action != "translate" or rechecking or args.file or args.date:
+            parser.error("--limit 只能用于普通 translate，不能与复核、--file 或 --date 合用")
     if args.action == "init":
         target = Path(".env")
         fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -41,7 +47,16 @@ def main():
     config = settings.load()
     engine, sessions = database(settings.database_url)
     try:
-        if rechecking:
+        if args.limit is not None:
+            from .translation_recheck import translate_limited
+
+            result = asyncio.run(translate_limited(
+                sessions, config.translation, limit=args.limit, force=args.force,
+            ))
+            print(json.dumps(result, ensure_ascii=False))
+            if result["status"] != "completed":
+                raise SystemExit(1)
+        elif rechecking:
             from .translation_recheck import recheck_translations
 
             result = asyncio.run(recheck_translations(

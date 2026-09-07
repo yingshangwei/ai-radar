@@ -7,6 +7,7 @@ cache key; drafts survive failures and original source text is never overwritten
 import asyncio
 import hashlib
 import json
+import logging
 import re
 import unicodedata
 from collections import Counter
@@ -16,8 +17,8 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 
 import httpx
-from openai import APIStatusError
-from pydantic import BaseModel, ConfigDict, Field
+from openai import APIConnectionError, APIStatusError, APITimeoutError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import func, select, update
 
 from .config import TranslationConfig, secret
@@ -38,6 +39,63 @@ NUMBER = re.compile(r"\d+(?:[.,]\d+)*")
 QUOTE_HEADER = re.compile(r"\[引用帖[^\]]*\]")
 COMPACT_CURRENCY = re.compile(r"[$€£¥]\d+(?:[.,]\d+)*(?:[kKmMbB](?![A-Za-z]))?")
 RECHECK_POLICY = "zh-independent-audit-v1"
+logger = logging.getLogger(__name__)
+VALIDATION_FAILURES = {
+    "output_incomplete": "翻译输出不完整",
+    "output_empty_or_oversized": "翻译输出为空或过长",
+    "translation_part_mismatch": "翻译段落未一一对应",
+    "protected_literal_mismatch": "原文链接、金额或引用元信息未完整保留",
+    "audit_part_mismatch": "审计段落未一一对应",
+}
+
+
+class TranslationValidationError(ValueError):
+    def __init__(self, code: str):
+        if code not in VALIDATION_FAILURES:
+            raise ValueError("Unknown translation validation code")
+        self.code = code
+        super().__init__(VALIDATION_FAILURES[code])
+
+
+class TranslationLeaseError(RuntimeError):
+    pass
+
+
+def failure_diagnostic(key: str, stage: str, exc: BaseException) -> dict:
+    """Only fixed codes, class names and numeric status; never format an exception."""
+    status = None
+    if isinstance(exc, APIStatusError):
+        status = exc.status_code
+    elif isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+    if not isinstance(status, int) or not 100 <= status <= 599:
+        status = None
+    if isinstance(exc, TranslationValidationError) and exc.code in VALIDATION_FAILURES:
+        code = exc.code
+    elif isinstance(exc, TranslationLeaseError):
+        code = "lease_lost"
+    elif isinstance(exc, ValidationError):
+        code = "output_schema_invalid"
+    elif status is not None:
+        code = "insufficient_balance" if status == 402 else "provider_http_error"
+    elif isinstance(exc, (APITimeoutError, httpx.TimeoutException, TimeoutError)):
+        code = "request_timeout"
+    elif isinstance(exc, (APIConnectionError, httpx.TransportError)):
+        code = "request_connection_error"
+    elif isinstance(exc, (KeyError, TypeError, AttributeError)):
+        code = "local_state_error"
+    elif isinstance(exc, (asyncio.CancelledError, KeyboardInterrupt, SystemExit)):
+        code = "cancelled"
+    else:
+        code = "unclassified_error"
+    return {
+        "event": "translation_failure",
+        "translation_id": key if re.fullmatch(r"[a-f0-9]{64}", key) else "invalid_cache_id",
+        "stage": stage if stage in {"draft", "correction", "audit"} else "draft",
+        "exception_type": type(exc).__name__, "http_status": status, "code": code,
+    }
+
+
 MONTHS = list(
     zip(
         "January February March April May June July August September October November December".split(),
@@ -432,10 +490,10 @@ class TranslationService:
             if account and account.observed_at <= started:
                 account.code = ""
         if not response.choices or response.choices[0].finish_reason != "stop":
-            raise ValueError("翻译输出不完整")
+            raise TranslationValidationError("output_incomplete")
         content = response.choices[0].message.content
         if not content or len(content) > 180000:
-            raise ValueError("翻译输出为空或过长")
+            raise TranslationValidationError("output_empty_or_oversized")
         return content
 
     async def request(self, parts: list[dict], *, review: bool) -> dict[str, TranslatedPart]:
@@ -472,12 +530,12 @@ class TranslationService:
         result = TranslationOutput.model_validate_json(content)
         byid = {p.id: p for p in result.translations}
         if len(byid) != len(result.translations) or set(byid) != {p["id"] for p in parts}:
-            raise ValueError("翻译段落未一一对应")
+            raise TranslationValidationError("translation_part_mismatch")
         for uid, translated in byid.items():
             original = next(p for p in protected if p["id"] == uid)["source"]
             for marker, literal in literals[uid]:
                 if translated.zh.count(marker) != original.count(marker):
-                    raise ValueError("原文链接、金额或引用元信息未完整保留")
+                    raise TranslationValidationError("protected_literal_mismatch")
                 translated.zh = translated.zh.replace(marker, literal)
         return byid
 
@@ -492,7 +550,7 @@ class TranslationService:
         result = AuditOutput.model_validate_json(content)
         byid = {part.id: part for part in result.audits}
         if len(byid) != len(result.audits) or set(byid) != {part["id"] for part in parts}:
-            raise ValueError("审计段落未一一对应")
+            raise TranslationValidationError("audit_part_mismatch")
         return byid
 
     async def auxiliary(self, parts: list[dict]) -> dict[str, str]:
@@ -525,7 +583,7 @@ class TranslationService:
         with self.sessions.begin() as session:
             row = session.get(Translation, key)
             if row.owner != owner:
-                raise RuntimeError("Translation lease lost")
+                raise TranslationLeaseError("Translation lease lost")
             row.parts = json.loads(json.dumps(parts))
             row.updated_at = now_iso()
             row.lease_until = (
@@ -561,15 +619,18 @@ class TranslationService:
             if not needs_translation(part["source"]) and not editorial:
                 part.update(zh=part["source"], draft=part["source"], ok=True)
 
-    async def review_parts(self, key, owner, parts):
+    async def review_parts(self, key, owner, parts, progress=None):
+        progress = progress if progress is not None else {}
         rounds = Counter()
         while True:
+            progress["stage"] = "correction" if any(p.get("correction_required") for p in parts) else "audit"
             pending = [part for part in parts if not part_audited(part)]
             if not pending:
                 return
             corrections = [p for p in pending if p.get("correction_required")
                            and rounds[p["id"]] < self.config.review_max_rounds]
             for group in batches(corrections):
+                progress["stage"] = "correction"
                 self.save_parts(key, owner, parts)
                 result = await self.request([
                     {"id": p["id"], "source": p["source"], "draft": p["draft"],
@@ -593,6 +654,7 @@ class TranslationService:
             if not audit_parts:
                 return  # Bounded repairs are exhausted; preserve draft and explicit issues.
             for group in batches(audit_parts):
+                progress["stage"] = "audit"
                 self.save_parts(key, owner, parts)
                 result = await self.audit([
                     {"id": p["id"], "source": p["source"], "candidate": p["draft"]} for p in group
@@ -663,6 +725,7 @@ class TranslationService:
                         part["ok"] = False
                         part.setdefault("correction_required", not bool(part.get("zh")))
                 row.parts = json.loads(json.dumps(parts))
+            progress = {"stage": "draft"}
             try:
                 for group in batches([p for p in parts if not p.get("draft")]):
                     self.save_parts(key, owner, parts)
@@ -677,7 +740,7 @@ class TranslationService:
                         part["initial_draft"] = result[part["id"]].zh
                         part["correction_required"] = True
                     self.save_parts(key, owner, parts)
-                await self.review_parts(key, owner, parts)
+                await self.review_parts(key, owner, parts, progress=progress)
                 with self.sessions.begin() as session:
                     row = session.get(Translation, key)
                     if row.owner != owner:
@@ -700,6 +763,8 @@ class TranslationService:
                         row.retry_at = (datetime.now(UTC) + timedelta(minutes=30)).isoformat()
                     row.lease_until, row.owner, row.updated_at = "", "", now_iso()
             except BaseException as exc:
+                diagnostic = failure_diagnostic(key, progress["stage"], exc)
+                logger.warning("translation_failure %s", json.dumps(diagnostic, ensure_ascii=False, sort_keys=True))
                 insufficient = isinstance(exc, APIStatusError) and exc.status_code == 402
                 if insufficient:
                     self.balance_blocked = True
@@ -716,8 +781,13 @@ class TranslationService:
                     if row.owner == owner:
                         row.status = "insufficient_balance" if insufficient else "error"
                         # Provider exception strings may contain keys or source contents.
+                        stage_name = {"draft": "初稿生成", "correction": "修订校对", "audit": "独立审计"}[
+                            diagnostic["stage"]
+                        ]
+                        status_label = f"，HTTP {diagnostic['http_status']}" if diagnostic["http_status"] else ""
                         row.issues = [
-                            "翻译账户余额不足，已保存进度" if insufficient else "翻译服务暂不可用，已保存进度"
+                            "翻译账户余额不足，已保存进度" if insufficient else
+                            f"{stage_name}失败（{diagnostic['code']}{status_label}），已保存进度"
                         ]
                         if insufficient:
                             # Waiting for a top-up must not permanently exhaust content retries.

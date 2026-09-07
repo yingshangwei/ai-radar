@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -141,192 +142,117 @@ export default function AuthorizationCenter({
         else onClose();
       }}
     >
-      <SafeAreaView style={{ flex: 1, backgroundColor: C.paper }}>
-        <View
-          style={[
-            s.spread,
-            {
-              paddingHorizontal: 22,
-              paddingVertical: 16,
-              borderBottomWidth: 1,
-              borderColor: C.line,
-            },
-          ]}
-        >
-          <View>
-            <Text style={s.label}>{remote ? "远程浏览器" : "你的雷达"}</Text>
-            <Text style={[s.sectionTitle, { marginTop: 5 }]}>
-              {remote ? remote.domain : "网页授权中心"}
-            </Text>
-          </View>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => {
-              if (remote) void closeRemote();
-              else onClose();
-            }}
-            style={s.smallButton}
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.paper }}>
+          <View
+            style={[
+              s.spread,
+              {
+                paddingHorizontal: 22,
+                paddingVertical: 16,
+                borderBottomWidth: 1,
+                borderColor: C.line,
+              },
+            ]}
           >
-            <Text style={s.body}>{remote ? "关闭" : "返回"}</Text>
-          </Pressable>
-        </View>
-        {remote ? (
-          <RemoteBrowser
-            url={connection.url + remote.path}
-            onDone={() => {
-              setRemote(undefined);
-              void refresh();
-              onRefresh();
-            }}
-          />
-        ) : (
-          <ScrollView
-            contentContainerStyle={{ padding: 22, paddingBottom: 50 }}
-            keyboardShouldPersistTaps="handled"
-          >
-            <View style={[s.note, { marginBottom: 20 }]}>
-              <Text style={s.body}>
-                在这里完成登录或网页验证，后续采集自动复用。
-              </Text>
-              <Text style={[s.muted, { marginTop: 8 }]}>
-                打开的是采集服务的专用浏览器。操作完成后点击“验证并补采”，我们会检查目标文章能否读取。每次可操作一个网站，窗口有效期为
-                20 分钟。
+            <View>
+              <Text style={s.label}>{remote ? "远程浏览器" : "你的雷达"}</Text>
+              <Text style={[s.sectionTitle, { marginTop: 5 }]}>
+                {remote ? remote.domain : "网页授权中心"}
               </Text>
             </View>
-            {(needsAdmin || !admin) && (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                if (remote) void closeRemote();
+                else onClose();
+              }}
+              style={s.smallButton}
+            >
+              <Text style={s.body}>{remote ? "关闭" : "返回"}</Text>
+            </Pressable>
+          </View>
+          {remote ? (
+            <RemoteBrowser
+              url={connection.url + remote.path}
+              onDone={() => {
+                setRemote(undefined);
+                void refresh();
+                onRefresh();
+              }}
+            />
+          ) : (
+            <ScrollView
+              contentContainerStyle={{ padding: 22, paddingBottom: 50 }}
+              keyboardShouldPersistTaps="handled"
+            >
               <View style={[s.note, { marginBottom: 20 }]}>
-                <Text style={s.label}>设备管理权限</Text>
-                <Text style={[s.muted, { marginVertical: 8 }]}>
-                  当前连接若使用阅读令牌，首次操作需填写管理令牌。保存后无需每次输入。
+                <Text style={s.body}>
+                  在这里完成登录或网页验证，后续采集自动复用。
                 </Text>
-                <TextInput
-                  style={s.input}
-                  value={draft}
-                  onChangeText={setDraft}
-                  secureTextEntry
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  placeholder="管理令牌（已用管理令牌连接可直接操作）"
-                  accessibilityLabel="管理令牌"
-                />
-                <Pressable
-                  disabled={busy || !draft.trim()}
-                  onPress={saveAdmin}
-                  style={[
-                    s.smallButton,
-                    { marginTop: 10, opacity: draft.trim() ? 1 : 0.4 },
-                  ]}
-                >
-                  <Text style={s.body}>验证并保存</Text>
-                </Pressable>
+                <Text style={[s.muted, { marginTop: 8 }]}>
+                  打开的是采集服务的专用浏览器。操作完成后点击“验证并补采”，我们会检查目标文章能否读取。每次可操作一个网站，窗口有效期为
+                  20 分钟。
+                </Text>
               </View>
-            )}
-            {!!error && (
-              <Text
-                accessibilityRole="alert"
-                style={[s.body, { color: C.accent, marginBottom: 16 }]}
-              >
-                {error}
-              </Text>
-            )}
-            {!!notice && (
-              <Text style={[s.body, { color: C.green, marginBottom: 16 }]}>
-                {notice}
-              </Text>
-            )}
-            {busy && (
-              <ActivityIndicator color={C.green} style={{ marginBottom: 16 }} />
-            )}
-            {data && !data.enabled && (
-              <Text style={[s.body, { marginBottom: 20 }]}>
-                网页授权服务尚未启用，请稍后刷新。
-              </Text>
-            )}
-            {data?.active.map((active) => (
-              <View key={active.id} style={s.note}>
-                <Text style={s.body}>{active.domain} 的授权窗口仍在运行</Text>
-                <Pressable
-                  disabled={busy}
-                  style={[s.smallButton, { marginTop: 10 }]}
-                  onPress={() =>
-                    action(async () => {
-                      await api(
-                        adminConnection,
-                        `/v1/browser/sessions/${active.id}/close`,
-                        { method: "POST" },
-                      );
-                    })
-                  }
-                >
-                  <Text style={s.body}>关闭旧窗口</Text>
-                </Pressable>
-              </View>
-            ))}
-            {data?.items.map((site) => (
-              <View key={site.domain} style={s.card}>
-                <View style={s.spread}>
-                  <Text style={[s.cardTitle, { fontSize: 19, flex: 1 }]}>
-                    {site.domain}
+              {(needsAdmin || !admin) && (
+                <View style={[s.note, { marginBottom: 20 }]}>
+                  <Text style={s.label}>设备管理权限</Text>
+                  <Text style={[s.muted, { marginVertical: 8 }]}>
+                    当前连接若使用阅读令牌，首次操作需填写管理令牌。保存后无需每次输入。
                   </Text>
-                  <Text
+                  <TextInput
+                    style={s.input}
+                    value={draft}
+                    onChangeText={setDraft}
+                    secureTextEntry
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    placeholder="管理令牌（已用管理令牌连接可直接操作）"
+                    accessibilityLabel="管理令牌"
+                  />
+                  <Pressable
+                    disabled={busy || !draft.trim()}
+                    onPress={saveAdmin}
                     style={[
-                      s.muted,
-                      {
-                        color:
-                          site.enabled && site.status === "ready"
-                            ? C.green
-                            : C.accent,
-                      },
+                      s.smallButton,
+                      { marginTop: 10, opacity: draft.trim() ? 1 : 0.4 },
                     ]}
                   >
-                    {site.status === "ready" && !site.enabled
-                      ? "自动补采已暂停"
-                      : LABEL[site.status] || "等待处理"}
-                  </Text>
+                    <Text style={s.body}>验证并保存</Text>
+                  </Pressable>
                 </View>
-                <Text style={[s.muted, { marginTop: 8 }]}>
-                  {site.total} 个直接来源 · {site.pending} 个尚未取得正文
-                </Text>
-                <Text style={[s.body, { marginTop: 10, fontSize: 13 }]}>
-                  {site.message}
-                </Text>
-                {site.status === "unverified" &&
-                  !!(
-                    site.statuses.auth_required ||
-                    site.statuses.access_restricted
-                  ) && (
-                    <Text style={[s.muted, { marginTop: 8 }]}>
-                      网站可能限制自动访问，打开后可确认是否需要登录。
-                    </Text>
-                  )}
-                <Pressable
-                  disabled={busy || !data.enabled}
-                  style={[
-                    s.button,
-                    { marginTop: 16, opacity: data.enabled ? 1 : 0.4 },
-                  ]}
-                  onPress={() =>
-                    action(async () => {
-                      const session = await api<Session>(
-                        adminConnection,
-                        "/v1/browser/sessions",
-                        {
-                          method: "POST",
-                          body: JSON.stringify({
-                            document_id: site.document_id,
-                          }),
-                        },
-                        90000,
-                      );
-                      setRemote(session);
-                    })
-                  }
+              )}
+              {!!error && (
+                <Text
+                  accessibilityRole="alert"
+                  style={[s.body, { color: C.accent, marginBottom: 16 }]}
                 >
-                  <Text style={s.buttonText}>
-                    {site.pending ? "打开网页处理" : "打开浏览器"}
-                  </Text>
-                </Pressable>
-                {site.status === "ready" && (
+                  {error}
+                </Text>
+              )}
+              {!!notice && (
+                <Text style={[s.body, { color: C.green, marginBottom: 16 }]}>
+                  {notice}
+                </Text>
+              )}
+              {busy && (
+                <ActivityIndicator
+                  color={C.green}
+                  style={{ marginBottom: 16 }}
+                />
+              )}
+              {data && !data.enabled && (
+                <Text style={[s.body, { marginBottom: 20 }]}>
+                  网页授权服务尚未启用，请稍后刷新。
+                </Text>
+              )}
+              {data?.active.map((active) => (
+                <View key={active.id} style={s.note}>
+                  <Text style={s.body}>{active.domain} 的授权窗口仍在运行</Text>
                   <Pressable
                     disabled={busy}
                     style={[s.smallButton, { marginTop: 10 }]}
@@ -334,37 +260,120 @@ export default function AuthorizationCenter({
                       action(async () => {
                         await api(
                           adminConnection,
-                          `/v1/browser/sites/${encodeURIComponent(site.domain)}`,
-                          {
-                            method: "POST",
-                            body: JSON.stringify({ enabled: !site.enabled }),
-                          },
+                          `/v1/browser/sessions/${active.id}/close`,
+                          { method: "POST" },
                         );
                       })
                     }
                   >
-                    <Text style={s.body}>
-                      {site.enabled ? "暂停自动补采" : "恢复自动补采"}
+                    <Text style={s.body}>关闭旧窗口</Text>
+                  </Pressable>
+                </View>
+              ))}
+              {data?.items.map((site) => (
+                <View key={site.domain} style={s.card}>
+                  <View style={s.spread}>
+                    <Text style={[s.cardTitle, { fontSize: 19, flex: 1 }]}>
+                      {site.domain}
+                    </Text>
+                    <Text
+                      style={[
+                        s.muted,
+                        {
+                          color:
+                            site.enabled && site.status === "ready"
+                              ? C.green
+                              : C.accent,
+                        },
+                      ]}
+                    >
+                      {site.status === "ready" && !site.enabled
+                        ? "自动补采已暂停"
+                        : LABEL[site.status] || "等待处理"}
+                    </Text>
+                  </View>
+                  <Text style={[s.muted, { marginTop: 8 }]}>
+                    {site.total} 个直接来源 · {site.pending} 个尚未取得正文
+                  </Text>
+                  <Text style={[s.body, { marginTop: 10, fontSize: 13 }]}>
+                    {site.message}
+                  </Text>
+                  {site.status === "unverified" &&
+                    !!(
+                      site.statuses.auth_required ||
+                      site.statuses.access_restricted
+                    ) && (
+                      <Text style={[s.muted, { marginTop: 8 }]}>
+                        网站可能限制自动访问，打开后可确认是否需要登录。
+                      </Text>
+                    )}
+                  <Pressable
+                    disabled={busy || !data.enabled}
+                    style={[
+                      s.button,
+                      { marginTop: 16, opacity: data.enabled ? 1 : 0.4 },
+                    ]}
+                    onPress={() =>
+                      action(async () => {
+                        const session = await api<Session>(
+                          adminConnection,
+                          "/v1/browser/sessions",
+                          {
+                            method: "POST",
+                            body: JSON.stringify({
+                              document_id: site.document_id,
+                            }),
+                          },
+                          90000,
+                        );
+                        setRemote(session);
+                      })
+                    }
+                  >
+                    <Text style={s.buttonText}>
+                      {site.pending ? "打开网页处理" : "打开浏览器"}
                     </Text>
                   </Pressable>
-                )}
-              </View>
-            ))}
-            {!data && !error && <ActivityIndicator color={C.green} />}
-            {data?.items.length === 0 && (
-              <Text style={s.muted}>
-                采集到网页来源后，会在这里按网站汇总。
-              </Text>
-            )}
-            <Pressable
-              style={[s.smallButton, { marginTop: 20 }]}
-              onPress={() => void refresh()}
-            >
-              <Text style={s.body}>刷新状态</Text>
-            </Pressable>
-          </ScrollView>
-        )}
-      </SafeAreaView>
+                  {site.status === "ready" && (
+                    <Pressable
+                      disabled={busy}
+                      style={[s.smallButton, { marginTop: 10 }]}
+                      onPress={() =>
+                        action(async () => {
+                          await api(
+                            adminConnection,
+                            `/v1/browser/sites/${encodeURIComponent(site.domain)}`,
+                            {
+                              method: "POST",
+                              body: JSON.stringify({ enabled: !site.enabled }),
+                            },
+                          );
+                        })
+                      }
+                    >
+                      <Text style={s.body}>
+                        {site.enabled ? "暂停自动补采" : "恢复自动补采"}
+                      </Text>
+                    </Pressable>
+                  )}
+                </View>
+              ))}
+              {!data && !error && <ActivityIndicator color={C.green} />}
+              {data?.items.length === 0 && (
+                <Text style={s.muted}>
+                  采集到网页来源后，会在这里按网站汇总。
+                </Text>
+              )}
+              <Pressable
+                style={[s.smallButton, { marginTop: 20 }]}
+                onPress={() => void refresh()}
+              >
+                <Text style={s.body}>刷新状态</Text>
+              </Pressable>
+            </ScrollView>
+          )}
+        </SafeAreaView>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

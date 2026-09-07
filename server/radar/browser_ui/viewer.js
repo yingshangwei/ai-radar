@@ -48,6 +48,7 @@ $('close').onclick = async () => {
 };
 const key = (sym, code) => rfb?.sendKey(sym, code);
 $('tab').onclick = () => key(0xff09, 'Tab');
+$('backspace').onclick = () => key(0xff08, 'Backspace');
 $('enter').onclick = () => key(0xff0d, 'Enter');
 $('keyboard').onclick = () => {const input=$('input'); input.hidden=!input.hidden; if (!input.hidden) input.focus();};
 // Send text through RFB keyboard events; never submit it to an application API,
@@ -61,6 +62,11 @@ $('input').addEventListener('input', event => {
   input.value='';
 });
 $('input').addEventListener('keydown', event => {
-  if (event.key === 'Backspace' && !event.target.value) key(0xff08, 'Backspace');
+  if (event.key === 'Backspace' && !event.target.value) {event.preventDefault(); key(0xff08, 'Backspace');}
   if (event.key === 'Enter') key(0xff0d, 'Enter');
+});
+$('input').addEventListener('beforeinput', event => {
+  if (event.inputType === 'deleteContentBackward' && !event.target.value) {
+    event.preventDefault(); key(0xff08, 'Backspace');
+  }
 });

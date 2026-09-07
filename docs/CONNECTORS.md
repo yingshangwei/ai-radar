@@ -76,9 +76,11 @@ x_head_refresh_hours = 24
 
 直接使用发布方的公开内容，作为独立的一手渠道。Anthropic 新闻页通过 Beautiful Soup 解析可见的标题、日期和简介，不使用未公开的内部 API。仅公布日期的来源会标记 `published_precision=date`，归一化为 UTC 当日零点；这不声称知道准确发布时刻。页面结构改变后会报告解析错误。
 
-Meta 使用 [官方 Newsroom RSS](https://about.fb.com/feed/)，沿用相同日期、主题与去重规则；全站新闻中的非 AI 内容会被过滤。目前 Meta 输入使用 RSS 原始摘录，正文提取白名单尚未包含 Meta，摘要模型会收到明确的摘录证据标记。
+Meta 使用 [官方 Newsroom RSS](https://about.fb.com/feed/)，沿用相同日期、主题与去重规则；全站新闻中的非 AI 内容会被过滤。RSS 摘录与统一读取流程保存的网页正文是不同证据，摘要模型只能使用实际取得的内容，不能把摘录当作全文。
 
-生成日报时使用成熟的 [Trafilatura](https://trafilatura.readthedocs.io/en/latest/quickstart.html) 提取官方文章正文，避免只依据 RSS 标题分析。仅允许明确列出的官方发布方 HTTPS 域名，逐次验证重定向；用户导入的任意 URL 不会触发服务端抓取。正文读取失败时保留原始摘录，并向摘要模型标明证据类型。可用 `enrich_official_articles=false` 关闭。
+网页正文由统一 reading 流程使用 [Trafilatura](https://trafilatura.readthedocs.io/en/latest/quickstart.html) 提取并持久化，再供日报复用；直接链接的边界、网络校验与缓存规则见 [网页解读](READING.md)。正文读取失败时保留原始摘录及明确状态，不能将未取得的网页当作证据。
+
+当前线上 `c95c8d4` 已包含 `08b19a1` 对旧临时正文抓取分支的移除。`reading.enabled=false` 时仅使用已保存消息，不会因历史顶层配置 `enrich_official_articles=true` 而再次抓网页；该历史字段仍可解析，但不再控制另一条读取通道。日报回看期内的未报道补充队列、配额和“补充／含补充”标签也已上线，语义见 [日报补偿与补充选稿](READING.md#日报补偿与补充选稿)。本次发布没有触发模型任务，实际新日报结果与代码上线分开验收。
 
 ## 脚本与 Agent 导入
 

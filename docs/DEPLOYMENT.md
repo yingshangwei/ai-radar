@@ -4,7 +4,25 @@
 
 ## 当前部署状态 · 2026-09-08
 
-当前运行 `/opt/ai-radar/releases/20260908-5142473`，新增 X 请求预算内的重点账号轮转、固定时间窗口和持久分页进度。源码隔离验证 **759 passed、6 skipped**，Ruff 通过；包内没有尚待诊断的 AI 内容筛选或日报启动补偿改动。本次不调用模型、不手动修改文章或译文。
+当前运行 `/opt/ai-radar/releases/20260908-c95c8d4`。在已上线的 X 公平轮转与日报启动补偿基础上，增加回看期内未报道消息的补充选稿、按实际引用生成展示标签，并移除 reading 关闭时的临时网页正文抓取；不包含暂缓发布的 AI 筛选或中文语言门禁。TAT 激活 `inv-j8d9bvgigi` 为 **SUCCESS / 0**，实际证据 `dist/cloud/daily-evidence-activation.txt` / `.json`。
+
+归档为 137,713 字节、51 份已提交文件、6 分片，SHA-256 `6edecdbb849b0bed9e48ac8139f142ed48bac39fb9958e252ff5958ca569a035`；清单及隔离验证记录为 `dist/cloud/daily-evidence-release.json`、`daily-evidence-local-validation.json`。发布范围 **800 passed、6 skipped**，Ruff 通过；另有 10 项运维保护测试及独立审查的 70 个子场景通过。预检 `inv-e8d997gitx` 及六个分片均成功。15 张表、X 进度、三份私有配置、九组历史、浏览器、Caddy、原 8080 服务保持；9 月 7 日到期日报指纹仍为 `45a6f239f38106fb4e14125c484f516d3b0212d09f9ac4aa92ad2aa343bd33df`。`zero_job_activation=true`：本次仅发布代码，没有新建任务、调用模型或重写文章、译文和日报。
+
+**2026-09-07 23:42:51 UTC** 公网只读复验通过健康与 401/403 隔离：调度器开启、运行任务为 0、主消息 46 ready、47 份网页全文 13 ready / 34 review_required，余额告警为空。证据 `dist/cloud/supplemental-digest-public-20260907T234251291336Z.json`。该检查只读取汇总状态；X healthy 是已保存状态，不证明完整覆盖，也未验证新生产日报的补充选稿结果。
+
+## 历史：7e9774a 日报启动补偿
+
+此前运行 `/opt/ai-radar/releases/20260908-7e9774a`，在已部署的 X 公平轮转基础上增加日报启动及每 5 分钟补偿检查。TAT 激活 `inv-n8d8jb0g2u` 为 **SUCCESS / 0**；实际输出 `dist/cloud/daily-catchup-activation.txt` / `.json` 确认 46 条消息、15 张表、已有 X 采集进度、三份私有配置、九组历史、浏览器、Caddy 及原 8080 服务保持完整。
+
+发布归档为 136,042 字节、50 份已提交文件、6 分片，SHA-256 `0088743b63e3822fe8e3ace5870c37d29b921c8637e614328b378b3090887f98`。隔离发布验证 **778 passed、6 skipped**，Ruff 通过，另有 7 项运维保护测试；清单与本地记录为 `dist/cloud/daily-catchup-release.json`、`daily-catchup-local-validation.json`。当时最近到期的 `2026-09-07` 日报已经存在并核对指纹，激活按既有日报直接跳过，`zero_job_activation=true`；未创建新采集、翻译或摘要任务。主消息 46 ready，47 份网页全文为 13 ready / 34 review_required，18 个网站采集完成，手机待处理队列为 3；这些是部署快照，不表示积压内容已全部处理。
+
+启动补偿的本机真实 API 生命周期验证使用隔离数据库与合成 CLI：缺少到期日报时完成一次任务，重启后复用相同日报和任务；实际模型调用与云请求均为 0。证据 `dist/cloud/daily-startup-local-verification.json`。它证明恢复路径，不冒充生产新日报执行成功。
+
+该次启动夹具固定 `7e9774a`，不是后续补充选稿或中文语言门禁的真实执行证据。补充选稿已随本文开头的 `c95c8d4` 上线；未获具体诊断授权的 AI 内容筛选规则继续未发布。
+
+## 历史：5142473 X 分页进度
+
+当时运行 `/opt/ai-radar/releases/20260908-5142473`，新增 X 请求预算内的重点账号轮转、固定时间窗口和持久分页进度。源码隔离验证 **759 passed、6 skipped**，Ruff 通过；包内没有当时尚待诊断的 AI 内容筛选或日报启动补偿改动。本次不调用模型、不手动修改文章或译文。
 
 归档 `dist/ai-radar-server-20260908-5142473.tar.gz` 为 134,153 字节、49 份已提交文件、6 分片，SHA-256 `ef87652c6786c2de45b740b9edd3e573e5e4e1d033b74207d7bb3d28a231e1c4`。清单与本地隔离测试记录为 `dist/cloud/collection-coverage-release.json`、`collection-coverage-local-validation.json`。预检 `inv-m8d7k603xs` 成功。
 

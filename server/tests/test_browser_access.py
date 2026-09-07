@@ -163,3 +163,35 @@ def test_only_bound_documents_can_launch_browser(app, monkeypatch):
         assert c.get("/v1/browser/novnc/..%2F..%2Fetc%2Fpasswd").status_code == 404
         assert c.get("/v1/browser/permissions", headers=headers("reader")).status_code == 403
         assert c.get("/v1/browser/permissions", headers=headers()).json() == {"manage": True}
+
+
+@pytest.mark.asyncio
+async def test_completed_challenge_not_reloaded_and_login_page_not_captured(monkeypatch):
+    from radar.browser_worker import Browser
+    class Page:
+        url = "https://example.org/article"
+        navigation_count = 0
+        async def goto(self, url, **kwargs):
+            self.navigation_count += 1
+            # A login page which keeps redirecting must never become article evidence.
+            self.url = "https://example.org/login"
+        async def wait_for_timeout(self, ms):
+            pass
+        def locator(self, selector):
+            return self
+        async def count(self):
+            return 0
+        async def title(self):
+            return "Readable AI article"
+        async def content(self):
+            return "<article>real source</article>"
+    async def extract(*_):
+        return {"title": "AI article", "text": "source " * 30, "links": [], "partial": False}
+    monkeypatch.setattr("radar.browser_worker.extract_page", extract)
+    browser = Browser()
+    browser.page, browser.last_status = Page(), 200
+    assert (await browser.capture("https://example.org/article"))["status"] == "fetched"
+    assert browser.page.navigation_count == 0
+    browser.page.url = "https://example.org/dashboard"
+    assert (await browser.capture("https://example.org/article"))["status"] == "auth_required"
+    assert browser.page.navigation_count == 1

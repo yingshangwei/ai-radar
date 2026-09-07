@@ -136,7 +136,7 @@ def mount_browser(app, settings, sessions, authenticated, admin, enqueue):
     async def assets(name: str):
         if name not in {"viewer.js", "viewer.css"}:
             raise HTTPException(404)
-        return FileResponse(STATIC / name)
+        return FileResponse(STATIC / name, headers={"Cache-Control": "no-cache"})
 
     @router.get("/novnc/{path:path}")
     async def novnc(path: str):

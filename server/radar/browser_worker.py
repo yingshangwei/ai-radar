@@ -151,6 +151,11 @@ class Browser:
             await route.continue_()
         await self.context.route("**/*", guard)
         self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
+        self.last_status = 0
+        def observe(response):
+            if response.request.is_navigation_request() and response.frame == self.page.main_frame:
+                self.last_status = response.status
+        self.page.on("response", observe)
         for page in self.context.pages[1:]:
             await page.close()
         try:
@@ -161,17 +166,20 @@ class Browser:
         return url
 
     async def capture(self, url):
-        # Always return to the requested article after login; never collect an account
-        # dashboard, a consent screen, or a password form from the interactive view.
+        # Stay on a verified article: reloading can trigger another site challenge.
+        # Return from login/dashboard screens only when the target URL differs.
         try:
-            response = await self.page.goto(url, wait_until="domcontentloaded", timeout=25000)
+            a = urlsplit(url)
+            current = urlsplit(normalize_link(self.page.url) or "")
+            if (a.hostname, a.path.rstrip("/"), a.query) != (current.hostname, current.path.rstrip("/"), current.query):
+                await self.page.goto(url, wait_until="domcontentloaded", timeout=25000)
             await self.page.wait_for_timeout(1800)
             final = normalize_link(self.page.url)
             a, b = urlsplit(url), urlsplit(final or "")
             if (a.hostname, a.path.rstrip("/"), a.query) != (b.hostname, b.path.rstrip("/"), b.query):
                 return {"status": "auth_required", "message": "尚未回到目标文章，请完成登录或验证后重试。"}
-            if response and response.status in {401, 403, 429}:
-                status = {401: "auth_required", 403: "access_restricted", 429: "rate_limited"}[response.status]
+            if self.last_status in {401, 403, 429}:
+                status = {401: "auth_required", 403: "access_restricted", 429: "rate_limited"}[self.last_status]
                 return {"status": status, "message": "网站仍限制目标文章的读取，可继续在浏览器中处理。"}
             if await self.page.locator('input[type="password"]:visible').count():
                 return {"status": "auth_required", "message": "页面仍在要求登录，未保存登录页面内容。"}

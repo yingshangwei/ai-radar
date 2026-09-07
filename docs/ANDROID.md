@@ -1,6 +1,6 @@
 # Android 构建与签名
 
-## 0.5.0 / code 6
+## 当前版本：0.5.0 / code 6
 
 交付包 `dist/ai-radar-0.5.0-android.apk`，69,622,350 字节，SHA-256 `142bb1f7bf3779df2f11e617fb57fff0f3f143e5677b80a3f60ad265834387ba`，源码 `98c3847`。沿用原签名与四 ABI，可覆盖安装保留阅读连接、管理令牌和网站许可。
 
@@ -8,13 +8,13 @@
 
 原生验收发现并修复 React Native URL 没有属性 setter，以及 Android WebMessageListener 只回传 origin 的差异。回归使用安装版本的真实 React Native URL 实现。测试 APK 只为本地隔离 API 允许 HTTP，正式包恢复生产配置；两者 Hermes 字节码逐字节相同。正式包签名、版本、无 debug/cleartext 开关及五个已知私密值扫描通过。
 
-## 0.4.0 / code 5
+## 历史版本：0.4.0 / code 5
 
 交付包 `dist/ai-radar-0.4.0-android.apk`，69,398,978 字节，SHA-256 `5351b9ac1342a9b22adef95a7ed439181a7b7f01b013d9f38338c9586bfcc1a5`。原签名证书和四 ABI 保持不变，可覆盖旧版保留登录。新增 App 内网页授权中心、受保护的远程浏览器、一次保存管理令牌与验证后自动补采，使用方法见 [WEB-AUTHORIZATION.md](WEB-AUTHORIZATION.md)。
 
 应用 ID 为 `cn.yswdra.airadar`，最低 Android 7（API 24）。Release 会内置 JavaScript 和 Hermes 字节码，启动时不需要 Metro；服务地址默认使用已部署的 `https://radar.yswdra.cn`，设备令牌由用户在连接页填写。
 
-## 0.3.0 / code 4
+## 历史版本：0.3.0 / code 4
 
 交付包 `dist/ai-radar-0.3.0-android.apk`，68,523,485 字节，SHA-256 `f4564dc8ab42718cee969edfa748e24ef999d276981bc495cc08355b5bf8d1f2`。四 ABI，原签名证书保持一致；可覆盖安装并保留连接。新增网页解读、关键要点、关注价值与保存的中英正文，详见 [READING.md](READING.md)。下文保留早期构建过程与历史产物信息。
 
@@ -78,6 +78,6 @@ adb install -r app/android/app/build/outputs/apk/release/app-release.apk
 adb shell am start -n cn.yswdra.airadar/.MainActivity
 ```
 
-2026-09-07 已在 Android 16/API 36 ARM64 模拟器完成安装、云端读取、历史日报、文章详情、收藏和取消、覆盖更新保留登录，以及断网冷启动缓存阅读。最新 0.2.1 / code 3 包位于 `dist/ai-radar-0.2.1-android.apk`，继续使用相同私有签名；0.2.0 的中文正文、原文切换与离线中英阅读验收保留，0.2.1 增加了 DeepSeek 余额不足提示。
+2026-09-07 已在 Android 16/API 36 ARM64 模拟器完成安装、云端读取、历史日报、文章详情、收藏和取消、覆盖更新保留登录，以及断网冷启动缓存阅读。当前交付包为本文开头的 `dist/ai-radar-0.5.0-android.apk`。此前 0.2.1 / code 3 包及其余额告警验收保留为历史记录；0.2.0 的中文正文、原文切换与离线中英阅读验收同样保留。
 
 余额告警在独立本地 API 中用真实 SDK 模拟 402，验证首页、详情和设置的提示及调用恢复后自动清除。为访问本地 HTTP，测试包临时允许明文连接，Hermes bundle 与最终交付包完全一致；该测试包不对外交付。交付包使用原来的生产网络配置，只连接 HTTPS 云端。详细校验记录见 [VALIDATION.md](VALIDATION.md)。尚未在用户手机上安装，也没有提交应用商店。

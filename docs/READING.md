@@ -20,7 +20,7 @@ URL 归一化后共享正文，默认 24 小时内不重复下载；支持 ETag 
 
 ## 限制与访问安全
 
-使用现有 Trafilatura 提取 HTML，pypdf 提取有文字层的 PDF。每个文档最多 8 MB、60,000 字符、40 页 PDF；被截断时明确标注部分正文。解析在独立进程中运行，Linux 限制内存 512 MB / CPU 20 秒，另有 30 秒超时。扫描件不做 OCR，不执行 JavaScript，不突破登录、付费或网站访问限制；失败状态会显示在手机端。
+使用现有 Trafilatura 提取 HTML，pypdf 提取有文字层的 PDF。每个文档最多 8 MB、60,000 字符、40 页 PDF；被截断时明确标注部分正文。静态解析在独立进程中运行，Linux 限制内存 512 MB / CPU 20 秒，另有 30 秒超时。扫描件不做 OCR。需要动态渲染的页面通过隔离浏览器或已许可的手机读取流程补读，见 [网页采集说明](WEB-AUTHORIZATION.md)；登录、付费和网站访问限制仍需满足，失败状态会显示在手机端。
 
 每次请求及跳转都校验公开 IP 并固定连接地址，通过 HTTPX 官方 SNI 扩展保留 HTTPS 证书校验；不携带账户 Cookie、认证头或环境代理。遵守 robots.txt，拒绝私网 / 本机 / 云元数据地址，限制跳转次数、响应大小和耗时。
 
@@ -40,7 +40,9 @@ revision = "reading-zh-v1"
 
 `max_documents` 限制每轮下载及待处理文档数，积压在后续任务继续。普通采集 / 日报任务自动处理；管理员可调用 `POST /v1/admin/jobs?kind=read` 只补读已有消息，避免再次请求 X。`force=true` 允许失败读取、解读和未通过校对的全文译文立即重试；已成功且仍在缓存期的正文、解读和译文不会重做。普通任务遵循重试时间及次数。
 
-摘要使用现有可替换 Provider 配置（Codex / Claude / 自定义 CLI / SDK），翻译独立使用 Translation 配置。新增表均为独立表，原消息、原文、收藏及已有人工校订译文不修改。
+如果正文已经保存，只需补齐中文，可使用 `radar translate --force` 或 `POST /v1/admin/jobs?kind=translate&force=true`。统一翻译队列覆盖仍绑定消息的已保存网页，复用草稿及已审段落，不重新抓网页或生成摘要。`translation.resource_counts` 与任务消息单独报告网页中文进度，主消息全部有中文不等于网页全文全部完成。
+
+摘要使用现有可替换 Provider 配置（Codex / Claude / 自定义 CLI / SDK），翻译独立使用 Translation 配置。原消息、原文和收藏保持不变；开发者仅改进服务器逻辑，由正式服务器流程负责生成与纠错，详见 [翻译职责与重审说明](TRANSLATION.md)。
 
 X 展开链接依据：[官方 Post Lookup](https://docs.x.com/x-api/posts/lookup/introduction) 与 [数据字典](https://docs.x.com/x-api/fundamentals/data-dictionary)。
 

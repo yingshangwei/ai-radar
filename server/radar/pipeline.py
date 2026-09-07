@@ -13,8 +13,9 @@ from .providers import make_provider
 from .ranking import article_id, canonicalize, classify, engagement, rank
 from .reading import ReadingService, remember_references, sync_documents
 from .schemas import IncomingArticle
-from .sources import SourceUnavailable, fetch_anthropic, fetch_facebook, fetch_rss, fetch_x
+from .sources import SourceUnavailable, fetch_anthropic, fetch_facebook, fetch_rss
 from .translation import TranslationService, queue_article
+from .x_collection import XCollectionResult, XCollector
 
 logger = logging.getLogger(__name__)
 
@@ -100,12 +101,16 @@ class Pipeline:
 
     async def collect(self):
         with self.sessions() as session:
-            handles = list(session.scalars(select(Watch.handle).where(Watch.enabled.is_(True))))
+            handles = list(session.scalars(select(Watch.handle).where(
+                Watch.enabled.is_(True), Watch.platform == "x",
+            )))
         async with httpx.AsyncClient(
             timeout=25, headers={"User-Agent": "AIRadar/0.1 (+personal intelligence reader)"}
         ) as client:
             entries = [
-                ("x", 0, lambda: fetch_x(client, self.config, handles)),
+                ("x", 0, lambda: XCollector(self.sessions, self.config).collect(
+                    client, handles, lambda session, items: ingest(session, items, self.config),
+                )),
                 ("facebook", 0, lambda: fetch_facebook(client, self.config)),
             ]
             entries += [
@@ -118,8 +123,17 @@ class Pipeline:
                 try:
                     items = await fetch()
                     with self.sessions.begin() as session:
-                        count = ingest(session, items, self.config, authority)
                         state = session.get(SourceState, key)
+                        if isinstance(items, XCollectionResult):
+                            # X has already committed each page with its cursor.
+                            # Never re-ingest it or advance a failed page here.
+                            state.status, state.message = items.status, items.message
+                            state.item_count = items.read_count
+                            if items.committed_pages:
+                                state.last_success_at = now_iso()
+                            total += items.accepted_count
+                            continue
+                        count = ingest(session, items, self.config, authority)
                         state.status, state.message = (
                             "healthy",
                             f"本轮读取 {len(items)} 条，新增有效信息 {count} 条。",

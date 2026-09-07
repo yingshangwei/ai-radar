@@ -119,6 +119,31 @@ def x_references(post: dict, referenced: dict) -> list[dict]:
     return list(refs.values())[:30]
 
 
+def x_page_items(body: dict) -> list[IncomingArticle]:
+    if not isinstance(body.get("data", []), list) or not isinstance(body.get("meta"), dict):
+        raise ValueError("Invalid X page structure")
+    if not isinstance(body["meta"].get("next_token", ""), str):
+        raise ValueError("Invalid X pagination token")
+    users = {user["id"]: user for user in body.get("includes", {}).get("users", [])}
+    referenced = {post["id"]: post for post in body.get("includes", {}).get("tweets", [])}
+    items = {}
+    for post in body.get("data", []):
+        content = x_text_with_quotes(post, referenced, users)
+        if not content:
+            continue
+        author = users.get(post["author_id"], {})
+        handle = author.get("username", "i")
+        items[post["id"]] = IncomingArticle(
+            platform="x", source_id="x", external_id=post["id"],
+            url=f"https://x.com/{handle}/status/{post['id']}",
+            title=(x_full_text(post) or content)[:180], text=content,
+            author=author.get("name", handle), handle=handle,
+            published_at=post["created_at"], metrics=post.get("public_metrics", {}),
+            references=x_references(post, referenced),
+        )
+    return list(items.values())
+
+
 async def fetch_x(
     client: httpx.AsyncClient, config: RadarConfig, handles: list[str]
 ) -> list[IncomingArticle]:
@@ -162,27 +187,7 @@ async def fetch_x(
                     "X 请求中断，下轮重试；已取得的内容单独保留。",
                     partial_items=list(items.values()),
                 ) from exc
-            users = {u["id"]: u for u in body.get("includes", {}).get("users", [])}
-            referenced = {p["id"]: p for p in body.get("includes", {}).get("tweets", [])}
-            for post in body.get("data", []):
-                text = x_text_with_quotes(post, referenced, users)
-                if not text:
-                    continue  # A video without readable text is not textual evidence.
-                author = users.get(post["author_id"], {})
-                handle = author.get("username", "i")
-                items[post["id"]] = IncomingArticle(
-                    platform="x",
-                    source_id="x",
-                    external_id=post["id"],
-                    url=f"https://x.com/{handle}/status/{post['id']}",
-                    title=(x_full_text(post) or text)[:180],
-                    text=text,
-                    author=author.get("name", handle),
-                    handle=handle,
-                    published_at=post["created_at"],
-                    metrics=post.get("public_metrics", {}),
-                    references=x_references(post, referenced),
-                )
+            items.update({item.external_id: item for item in x_page_items(body)})
             next_token = body.get("meta", {}).get("next_token")
             if not next_token:
                 break

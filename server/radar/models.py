@@ -47,6 +47,14 @@ class Watch(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
+class XCollectionState(Base):
+    """Private pagination progress; committed atomically with each collected page."""
+    __tablename__ = "x_collection_states"
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    data: Mapped[dict] = mapped_column(JSON, default=dict)
+    updated_at: Mapped[str] = mapped_column(String(40), default=now_iso)
+
+
 class Translation(Base):
     """Content-addressed, durable translations; independent of mutable social metrics."""
     __tablename__ = "translations"

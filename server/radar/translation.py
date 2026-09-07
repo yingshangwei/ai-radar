@@ -268,6 +268,9 @@ def quality_issues(source: str, chinese: str) -> list[str]:
         before, after = value[:match.start()], value[match.end():]
         if re.match(r"['’]s\b", after, re.I):
             return False  # May's work, June's opinion: names are not calendar evidence.
+        if (re.search(r"\b(?:Dr|Mr|Mrs|Ms|Professor)\.?\s+$", before, re.I) or
+                re.match(r"\s+(?:created|said|says|spoke|speaks)\b", after, re.I)):
+            return False  # A named person can share a month's spelling.
         day = r"(?:0?[1-9]|[12]\d|3[01])(?:st|nd|rd|th)?"
         following = re.match(r"\s+(?:[12]\d{3}|" + day + r")(?!\w)", after, re.I)
         if following and not re.match(
@@ -275,7 +278,11 @@ def quality_issues(source: str, chinese: str) -> list[str]:
             after[following.end():], re.I,
         ):
             return True
-        if re.search(r"\b" + day + r"\s+$", before, re.I):
+        if re.search(r"(?<![\w.,])" + day + r"\s+$", before, re.I):
+            return True
+        if match[0][0].isupper() and match[0].casefold() not in {"may", "march"}:
+            # Ordinary capitalized month names retain their calendar value in
+            # headings, lists and prose; do not require a growing noun list.
             return True
         event = re.match(r"\s+(meetings?|releases?|updates?)\b", after, re.I)
         if event and (
@@ -295,9 +302,8 @@ def quality_issues(source: str, chinese: str) -> list[str]:
         value = URL.sub("", value)
         counterpart = URL.sub("", counterpart)
         isolated_month = month_pattern.fullmatch(counterpart.strip())
-        ambiguous = Counter(
-            [month_numbers[isolated_month[0].casefold()]] if isolated_month else []
-        )
+        ambiguous = Counter([month_numbers[isolated_month[0].casefold()]]
+                            if isolated_month and not date_month(isolated_month, counterpart.strip()) else [])
         chinese_months = {name: index for index, (_, name) in enumerate(MONTHS, 1)}
 
         def month_value(match):

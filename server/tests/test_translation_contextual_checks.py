@@ -8,6 +8,8 @@ from radar.translation import quality_issues
     ("May I use this AI model?", "我可以使用这个 AI 模型吗？"),
     ("May created an AI model.", "梅创建了一个 AI 模型。"),
     ("June created an AI model.", "琼创建了一个 AI 模型。"),
+    ("Dr. June leads AI research.", "琼博士领导 AI 研究。"),
+    ("June said AI could help.", "琼说 AI 可以提供帮助。"),
     ("In May's opinion, AI can help.", "在梅看来，AI 能提供帮助。"),
     ("March forward with AI tools.", "借助 AI 工具向前进。"),
     ("March 5 miles with AI support.", "在 AI 支持下行进 5 英里。"),
@@ -16,6 +18,10 @@ from radar.translation import quality_issues
     ("May speaks in June about AI.", "梅在六月谈论 AI。"),
     ("AI tools may release updates.", "AI 工具可能发布更新。"),
     ("May update AI tools.", "可能更新 AI 工具。"),
+    ("A temperature of 0.1 may improve results.", "0.1 的温度可能改善结果。"),
+    ("Version 2.1 may improve results.", "2.1 版本可能改善结果。"),
+    ("Model v3.0.5 may improve results.", "模型 v3.0.5 可能改善结果。"),
+    ("A count of 1,005 may improve results.", "1005 的数量可能改善结果。"),
 ])
 def test_names_modals_and_verbs_do_not_invent_calendar_numbers(source, candidate):
     assert quality_issues(source, candidate) == []
@@ -34,6 +40,13 @@ def test_names_modals_and_verbs_do_not_invent_calendar_numbers(source, candidate
     ("The May meeting covers AI.", "五月会议讨论 AI。"),
     ("June release", "六月发布"),
     ("The May update improves AI tools.", "五月更新改进了 AI 工具。"),
+    ("The July incidents prompted AI changes.", "七月事件促使 AI 发生变化。"),
+    ("In early April, AI tools improved.", "四月初，AI 工具有所改进。"),
+    ("April alignment risk update", "四月对齐风险更新"),
+    ("August Risk Report", "八月风险报告"),
+    ("January, February, July, August", "一月、二月、七月、八月"),
+    ("April", "四月"),
+    ("The AI release is 5 May.", "AI 将于五月 5 日发布。"),
 ])
 def test_explicit_dates_keep_equivalent_month_representations(source, candidate):
     assert quality_issues(source, candidate) == []
@@ -55,6 +68,15 @@ def test_explicit_dates_keep_equivalent_month_representations(source, candidate)
     ("The May meeting covers AI.", "六月会议讨论 AI。"),
     ("June release", "七月发布"),
     ("The May update improves AI tools.", "六月更新改进了 AI 工具。"),
+    ("The July incidents prompted AI changes.", "八月事件促使 AI 发生变化。"),
+    ("The July incidents prompted AI changes.", "事件促使 AI 发生变化。"),
+    ("In early April, AI tools improved.", "五月初，AI 工具有所改进。"),
+    ("April alignment risk update", "五月对齐风险更新"),
+    ("August Risk Report", "风险报告"),
+    ("January, February, July, August", "一月、二月、七月、九月"),
+    ("The AI release is 5 May.", "AI 将于六月 5 日发布。"),
+    ("A temperature of 0.1 may improve results.", "0.2 的温度可能改善结果。"),
+    ("Version 2.1 may improve results.", "2.2 版本可能改善结果。"),
 ])
 def test_date_and_number_changes_are_still_rejected(source, candidate):
     assert "数字或版本不一致" in quality_issues(source, candidate)

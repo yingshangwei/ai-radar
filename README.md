@@ -41,7 +41,7 @@ ai-radar/
 
 现有 40 条内容已补齐中文，日报引用也可中英切换。真实日报重建验证了 40 份翻译缓存的调用次数与时间戳均未改变。DeepSeek 密钥仅配置在服务端，摘要引擎仍为独立的 Codex CLI。
 
-Android 0.3.0 签名安装包位于本机 `dist/ai-radar-0.3.0-android.apk`，可覆盖旧版保留登录；包含网页与文章解读、中文阅读、原文切换、离线缓存和余额不足提示。iOS 模拟器原生构建与产物见 [IOS.md](docs/IOS.md)；尚无实际 iOS 运行验证，真机签名仍待 Apple Developer 账号。Facebook 账号正在审核；Meta 官方新闻和 Meta 的 X 帖子不代表 Facebook 社交帖已接通。
+Android 0.4.0 签名安装包位于本机 `dist/ai-radar-0.4.0-android.apk`，可覆盖旧版保留登录；新增 [App 内网页授权中心](docs/WEB-AUTHORIZATION.md)，可在专用远程浏览器登录并自动补采；包含网页与文章解读、中文阅读、原文切换、离线缓存和余额不足提示。iOS 模拟器原生构建与产物见 [IOS.md](docs/IOS.md)；尚无实际 iOS 运行验证，真机签名仍待 Apple Developer 账号。Facebook 账号正在审核；Meta 官方新闻和 Meta 的 X 帖子不代表 Facebook 社交帖已接通。
 
 ## 本地启动
 

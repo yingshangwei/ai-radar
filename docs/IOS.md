@@ -1,5 +1,9 @@
 # iOS 构建与签名
 
+## 0.4.0 / code 5
+
+EAS 模拟器构建 `46d82cca-0c07-4491-ba0a-1d40b77dbd1b` 成功，移动端源码 `73e6dbd`，新增原生 WebView 模块。实际产物 `dist/ios-simulator-v0.4-final/AIRadar.app`，交付包 `dist/ai-radar-0.4.0-ios-simulator.tar.gz`，14,734,614 字节，SHA-256 `fe35ea0c70d113a424f771c6030bd1ba53e61f8d8472af7e8e2c06fd614ccf65`。签名与凭据扫描通过；仍是模拟器包，没有实际 iOS 运行验证或真机分发签名。
+
 应用 ID 为 `cn.yswdra.airadar`，原生工程位于 `app/ios`。React Native 界面、云端 API 和设备令牌存储与 Android 共用。发布版本内置 JavaScript，不依赖 Metro。
 
 ## 0.3.0 / code 4

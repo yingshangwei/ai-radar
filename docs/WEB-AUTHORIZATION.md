@@ -2,7 +2,9 @@
 
 App 0.4.0：进入「你的雷达 → 网页授权中心」，按网站查看直接来源、未取得正文的数量及浏览器访问状态。使用阅读令牌连接的设备，第一次操作需要验证并保存管理令牌；原有阅读连接不变。管理令牌保存在 Android/iOS SecureStore，退出连接时一并移除。
 
-选择「打开网页处理」，在 App 内的专用远程浏览器中正常登录或处理网站要求的验证。输入框点选后，可使用底部「键盘」「下一输入框」「回车」。完成后点「验证并补采」：服务检查当前页面是否为指定的原文章，必要时从登录页返回文章，再提取正文；已打开的目标文章不会为了验证而再次刷新。只有验证通过才开启该网站的浏览器补采。未通过时保留操作窗口和具体提示，不把点击完成当作登录成功。
+网页窗口通过原生键盘避让调整高度；网页 CSS 跟随容器，在键盘展开时收起重复标题，把输入与完成按钮留在可见区域。
+
+选择「打开网页处理」，在 App 内的专用远程浏览器中正常登录或处理网站要求的验证。输入框点选后，可使用底部「键盘」「退格」「下一输入框」「回车」。完成后点「验证并补采」：服务检查当前页面是否为指定的原文章，必要时从登录页返回文章，再提取正文；已打开的目标文章不会为了验证而再次刷新。只有验证通过才开启该网站的浏览器补采。未通过时保留操作窗口和具体提示，不把点击完成当作登录成功。
 
 窗口有效期 20 分钟，一次只运行一个。关闭窗口会保留该域名的浏览器资料；「暂停自动补采」停止自动使用该资料，不代表退出网站账号。需要退出网站账号时，在远程浏览器中使用网站自己的退出入口。账号仍在审核、订阅权限不足、网站拒绝服务器 IP 等情况不能靠保存 Cookie 保证解决。
 
@@ -26,6 +28,6 @@ App 0.4.0：进入「你的雷达 → 网页授权中心」，按网站查看直
 
 创建/关闭会话、启停补采需要管理令牌。首次打开使用 90 秒内有效的单次票据，票据只放 URL fragment，随后兑换成仅限该窗口路径的 HttpOnly / Secure / SameSite=Strict Cookie。票据使用后立即失效，WebSocket 验证 Cookie、固定 Origin、会话期限且只允许一个观察端。页面不加载外部脚本，键盘内容只经过加密的 VNC 通道；不写入日志、正文、翻译或持久化页面存储。
 
-使用官方 [Playwright](https://playwright.dev/python/docs/auth) 1.62.0 和 [noVNC](https://github.com/novnc/noVNC) 1.7.0，移动容器使用 Expo 55 对应的 [React Native WebView](https://github.com/react-native-webview/react-native-webview) 13.16.0。Python 依赖使用含哈希的 requirements.lock，noVNC npm 发行包验证固定 SHA-512 integrity 并保留许可证，浏览器二进制由 Playwright 官方安装命令下载。更新这些依赖后应重新验证沙箱、远程交互和网站兼容性。
+使用 Ubuntu 官方包中的 Openbox 管理远程按键焦点，关闭桌面菜单和启动快捷键。使用官方 [Playwright](https://playwright.dev/python/docs/auth) 1.62.0 和 [noVNC](https://github.com/novnc/noVNC) 1.7.0，移动容器使用 Expo 55 对应的 [React Native WebView](https://github.com/react-native-webview/react-native-webview) 13.16.0。Python 依赖使用含哈希的 requirements.lock，noVNC npm 发行包验证固定 SHA-512 integrity 并保留许可证，浏览器二进制由 Playwright 官方安装命令下载。更新这些依赖后应重新验证沙箱、远程交互和网站兼容性。
 
 以上浏览器服务面向当前单用户部署。多用户隔离、独立网站账号管理和本机补采节点不在本次实现范围内。

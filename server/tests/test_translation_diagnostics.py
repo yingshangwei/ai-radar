@@ -5,6 +5,8 @@ import logging
 import httpx
 import pytest
 from openai import APIStatusError
+from pydantic import ValidationError
+from pydantic_core import PydanticCustomError
 
 from radar.config import TranslationConfig
 from radar.db import database
@@ -17,6 +19,7 @@ from radar.translation import (
     account_scope,
     ensure_translation,
     failure_diagnostic,
+    validation_diagnostics,
 )
 
 SECRET = "sk-test-hidden-provider-source-candidate"
@@ -131,6 +134,101 @@ def test_validation_codes_are_owned_and_schema_payload_is_never_rendered():
     generic = failure_diagnostic(SECRET, SECRET, ValueError(SECRET))
     assert generic["translation_id"] == "invalid_cache_id" and generic["stage"] == "draft"
     assert generic["code"] == "unclassified_error" and SECRET not in json.dumps(generic)
+
+
+def test_validation_details_show_owned_schema_locations_without_extra_keys_or_values():
+    payload = {"audits": [{
+        "id": SOURCE, "approved": SECRET, "issues": [{"candidate": CHINESE}],
+        SECRET + CHINESE: SOURCE,
+    }]}
+    with pytest.raises(ValidationError) as caught:
+        AuditOutput.model_validate(payload)
+    detail = validation_diagnostics(caught.value)
+    assert detail == [
+        {"type": "bool_type", "loc": ["audits", 0, "approved"]},
+        {"type": "string_type", "loc": ["audits", 0, "issues", 0]},
+        {"type": "extra_forbidden", "loc": ["audits", 0, "unknown_field"]},
+    ]
+    diagnostic = failure_diagnostic("a" * 64, "audit", caught.value)
+    assert diagnostic["validation_errors"] == detail
+    rendered = json.dumps(diagnostic, ensure_ascii=False)
+    for private in [SECRET, SOURCE, CHINESE, "candidate", "input", "context", "msg", "url"]:
+        assert private not in rendered
+
+
+def test_validation_details_bound_types_indexes_depth_and_count_without_formatting_exception():
+    class GuardedValidationError(ValidationError):
+        def errors(self, **kwargs):
+            assert kwargs == {"include_url": False, "include_context": False, "include_input": False}
+            return super().errors(**kwargs)
+
+        def __str__(self):
+            raise AssertionError("Raw validation exceptions must never be formatted")
+
+        def __repr__(self):
+            raise AssertionError("Raw validation exceptions must never be represented")
+
+    malicious = PydanticCustomError(SECRET, "{payload}", {"payload": SOURCE + CHINESE})
+    errors = [
+        {"type": malicious, "loc": ("audits", 0, SECRET), "input": CHINESE},
+        {"type": "string_type", "loc": ("translations", 29, "zh"), "input": {SECRET: CHINESE}},
+        {"type": "extra_forbidden", "loc": (SOURCE,), "input": SECRET},
+        {"type": "bool_type", "loc": ("audits", 30, "issues", 1, "candidate", SECRET, CHINESE),
+         "input": SECRET},
+        {"type": "bool_type", "loc": ("audits", -1, "approved"), "input": CHINESE},
+        {"type": "missing", "loc": ("audits", 2, "id"), "input": {SECRET: SOURCE}},
+    ]
+    error = GuardedValidationError.from_exception_data(SECRET, errors)
+    detail = validation_diagnostics(error)
+    assert detail == [
+        {"type": "unknown_error", "loc": ["audits", 0, "unknown_field"]},
+        {"type": "string_type", "loc": ["translations", 29, "zh"]},
+        {"type": "extra_forbidden", "loc": ["unknown_field"]},
+        {"type": "bool_type", "loc": ["audits", "unknown_index", "issues", 1,
+                                      "unknown_field", "unknown_field"]},
+        {"type": "bool_type", "loc": ["audits", "unknown_index", "approved"]},
+    ]
+    rendered = json.dumps(failure_diagnostic("a" * 64, "audit", error), ensure_ascii=False)
+    assert all(private not in rendered for private in [SECRET, SOURCE, CHINESE, "candidate"])
+    assert all(set(item) == {"type", "loc"} for item in detail)
+
+
+def test_invalid_json_details_do_not_export_parser_context():
+    with pytest.raises(ValidationError) as caught:
+        AuditOutput.model_validate_json('{"audits": ' + SECRET + SOURCE + CHINESE)
+    diagnostic = failure_diagnostic("b" * 64, "audit", caught.value)
+    assert diagnostic["validation_errors"] == [{"type": "json_invalid", "loc": []}]
+    rendered = json.dumps(diagnostic, ensure_ascii=False)
+    assert all(private not in rendered for private in [SECRET, SOURCE, CHINESE, "context", "input"])
+
+
+@pytest.mark.asyncio
+async def test_schema_failure_structured_log_has_safe_details_and_public_row_stays_generic(setup, caplog):
+    sessions, config, key = setup
+    service = TranslationService(sessions, config)
+
+    async def request(parts, *, review):
+        return {p["id"]: TranslatedPart(id=p["id"], zh=CHINESE, approved=True) for p in parts}
+
+    async def audit(parts):
+        AuditOutput.model_validate({"audits": [{
+            "id": parts[0]["id"], "approved": SECRET, SECRET: CHINESE,
+        }]})
+
+    service.request, service.audit = request, audit
+    with caplog.at_level(logging.WARNING, logger="radar.translation"):
+        await service.translate_one(key)
+    assert records(caplog)[0]["validation_errors"] == [
+        {"type": "bool_type", "loc": ["audits", 0, "approved"]},
+        {"type": "extra_forbidden", "loc": ["audits", 0, "unknown_field"]},
+    ]
+    with sessions() as session:
+        row = session.get(Translation, key)
+        assert row.status == "error" and not row.text_zh
+        assert row.issues == ["独立审计失败（output_schema_invalid），已保存进度"]
+        assert row.parts[0]["draft"] == CHINESE and row.parts[0]["review"]["approved"]
+    assert all(private not in caplog.text for private in [SECRET, SOURCE, CHINESE])
+    assert all(record.exc_info is None for record in caplog.records)
 
 
 @pytest.mark.asyncio

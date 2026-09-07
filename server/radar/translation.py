@@ -61,6 +61,31 @@ class TranslationLeaseError(RuntimeError):
     pass
 
 
+VALIDATION_ERROR_TYPES = frozenset({
+    "missing", "extra_forbidden", "string_type", "string_too_short", "string_too_long",
+    "bool_type", "bool_parsing", "list_type", "too_short", "too_long", "model_type",
+    "model_attributes_type", "dict_type", "json_invalid", "json_type",
+})
+VALIDATION_LOCATION_FIELDS = frozenset({"audits", "translations", "id", "approved", "issues", "zh"})
+
+
+def validation_diagnostics(exc: ValidationError) -> list[dict]:
+    # Pydantic messages, inputs, context and arbitrary extra-key names can
+    # contain full source/candidate text. Export only our schema vocabulary.
+    errors = exc.errors(include_url=False, include_context=False, include_input=False)
+    return [
+        {
+            "type": error["type"] if error["type"] in VALIDATION_ERROR_TYPES else "unknown_error",
+            "loc": [
+                (field if 0 <= field < 30 else "unknown_index") if type(field) is int else
+                field if isinstance(field, str) and field in VALIDATION_LOCATION_FIELDS else "unknown_field"
+                for field in error.get("loc", ())[:6]
+            ],
+        }
+        for error in errors[:5]
+    ]
+
+
 def failure_diagnostic(key: str, stage: str, exc: BaseException) -> dict:
     """Only fixed codes, class names and numeric status; never format an exception."""
     status = None
@@ -88,12 +113,15 @@ def failure_diagnostic(key: str, stage: str, exc: BaseException) -> dict:
         code = "cancelled"
     else:
         code = "unclassified_error"
-    return {
+    diagnostic = {
         "event": "translation_failure",
         "translation_id": key if re.fullmatch(r"[a-f0-9]{64}", key) else "invalid_cache_id",
         "stage": stage if stage in {"draft", "correction", "audit"} else "draft",
         "exception_type": type(exc).__name__, "http_status": status, "code": code,
     }
+    if isinstance(exc, ValidationError):
+        diagnostic["validation_errors"] = validation_diagnostics(exc)
+    return diagnostic
 
 
 MONTHS = list(
@@ -138,6 +166,10 @@ AUDIT = """你是独立的中英翻译质量审计员，只审核，不改写任
 通过时 approved=true 且 issues=[]；存在问题则 approved=false，issues 精确指出原文与译文的差异。
 不得输出替换译文，不得因措辞不够华丽而拒绝；不提供无依据准确率。
 audits 必须完整覆盖每个输入 id，返回项数必须与输入一致；不得合并、遗漏、重复或另造 id。
+approved 只能是 JSON 布尔值 true 或 false，不得使用字符串。issues 必须是字符串数组，最多 12 条；
+疑点较多时归纳主要问题，仍须设 approved=false。通过时 issues=[]。每项只能含 id、approved、issues，
+顶层只能含 audits。若收到 format_feedback，它仅指出上次输出结构无效；请按给定结构重新独立审计，
+不能把结构错误或恢复请求理解为候选已获批准。
 逐项保留 id，只返回 JSON：{"audits":[{"id":"body-0","approved":true,"issues":[]}]}。
 """
 
@@ -545,10 +577,23 @@ class TranslationService:
         payload = {"glossary": self.config.glossary, "untrusted_parts": [
             {key: part[key] for key in ("id", "source", "candidate")} for part in parts
         ]}
-        content = await self._completion(
-            payload, system=AUDIT, model=self.config.audit_model or self.config.review_model,
-        )
-        result = AuditOutput.model_validate_json(content)
+        for attempt in range(2):
+            content = await self._completion(
+                payload, system=AUDIT, model=self.config.audit_model or self.config.review_model,
+            )
+            try:
+                result = AuditOutput.model_validate_json(content)
+            except ValidationError as exc:
+                if attempt:
+                    raise
+                # Only an unusable output format is retried, once. No raw model
+                # response, editor approval or replacement candidate is included.
+                payload = {**payload, "format_feedback": {
+                    "reason": "output_schema_invalid", "errors": validation_diagnostics(exc),
+                    "required_schema": AuditOutput.model_json_schema(),
+                }}
+            else:
+                break
         byid = {part.id: part for part in result.audits}
         if len(byid) != len(result.audits) or set(byid) != {part["id"] for part in parts}:
             raise TranslationValidationError("audit_part_mismatch")

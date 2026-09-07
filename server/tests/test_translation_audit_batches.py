@@ -11,6 +11,7 @@ from radar.models import Translation
 from radar.translation import (
     AUDIT,
     RECHECK_POLICY,
+    AuditOutput,
     TranslationService,
     candidate_fingerprint,
     ensure_translation,
@@ -58,7 +59,12 @@ def audit_response(parts, *, approved=True, issues=()):
 
 def audit_inputs(payload, system, model):
     assert system == AUDIT and model == "separate-auditor"
-    assert set(payload) == {"glossary", "untrusted_parts"}
+    assert set(payload) in [
+        {"glossary", "untrusted_parts"}, {"glossary", "untrusted_parts", "format_feedback"}
+    ]
+    if "format_feedback" in payload:
+        assert payload["format_feedback"]["reason"] == "output_schema_invalid"
+        assert payload["format_feedback"]["required_schema"] == AuditOutput.model_json_schema()
     parts = payload["untrusted_parts"]
     assert parts and all(set(part) == {"id", "source", "candidate"} for part in parts)
     assert PRIVATE_NOTE not in json.dumps(payload)
@@ -160,7 +166,10 @@ async def test_fallback_saves_each_passing_part_and_resumes_only_remaining_part(
 
     service._completion = completion
     await service.translate_one(key)
-    assert calls == [["title", "body-0"], ["title"], ["body-0"]]
+    expected = [["title", "body-0"], ["title"], ["body-0"]]
+    if failure == "schema":
+        expected += [["body-0"]]
+    assert calls == expected
     row = row_snapshot(sessions, key)
     assert row["status"] == ("insufficient_balance" if failure == "balance" else "error")
     assert row["attempts"] == (0 if failure == "balance" else 1)
@@ -181,7 +190,7 @@ async def test_fallback_saves_each_passing_part_and_resumes_only_remaining_part(
     await resumed.translate_one(key, force=True)
     row = row_snapshot(sessions, key)
     assert row["status"] == "ready" and row["parts"][0] == saved_title
-    assert calls == [["title", "body-0"], ["title"], ["body-0"], ["body-0"]]
+    assert calls == expected + [["body-0"]]
 
 
 @pytest.mark.asyncio
@@ -201,7 +210,7 @@ async def test_non_id_batch_failures_never_trigger_single_fallback(setup, failur
 
     service._completion = completion
     await service.translate_one(key)
-    assert calls == [["title", "body-0"]]
+    assert calls == [["title", "body-0"]] * (2 if failure == "schema" else 1)
     row = row_snapshot(sessions, key)
     assert row["status"] == "error" and not row["text_zh"]
     assert not any(part_audited(part) for part in row["parts"])

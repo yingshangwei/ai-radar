@@ -263,9 +263,15 @@ class Pipeline:
                 if self.config.translation.enabled:
                     translated = await self.translations.pending(force=force if kind == "translate" else False)
                     counts = translated.get("counts", {})
-                    message += f"中文版本 {counts.get('ready', 0)} 条"
+                    message += f"主消息中文版本 {counts.get('ready', 0)} 条"
                     waiting = sum(n for status, n in counts.items() if status != "ready")
                     message += f"，{waiting} 条仍在等待翻译或校对。" if waiting else "。"
+                    resources = translated.get("resource_counts", {})
+                    message += f"网页正文中文版本 {resources.get('ready', 0)} 份"
+                    resource_waiting = sum(n for status, n in resources.items() if status != "ready")
+                    message += (
+                        f"，{resource_waiting} 份仍在等待翻译或校对。" if resource_waiting else "。"
+                    )
                 if self.config.reading.enabled and kind != "translate":
                     reading = await self.reading.pending(force=force if kind == "read" else False)
                     message += f"本轮处理 {reading['fetched']} 个直接来源，完成 {reading['summarized']} 份网页解读。"

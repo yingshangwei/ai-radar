@@ -21,7 +21,15 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select, update
 
 from .config import TranslationConfig, secret
-from .models import Article, ArticleTranslation, Translation, TranslationAccountState, now_iso
+from .models import (
+    Article,
+    ArticleDocument,
+    ArticleTranslation,
+    Translation,
+    TranslationAccountState,
+    WebDocument,
+    now_iso,
+)
 
 HAN = re.compile(r"[\u3400-\u9fff]")
 URL = re.compile(r"https?://[^\s\u3400-\u9fff<>\[\]\"'`，。！？；：、（）“”‘’《》【】]+")
@@ -338,6 +346,23 @@ def balance_alert(session, config: TranslationConfig) -> dict | None:
     }
 
 
+def bound_resource_texts(session):
+    """Current saved pages, once per document, ordered by their latest linked article."""
+    linked = (
+        select(ArticleDocument.document_id, func.max(Article.published_at).label("latest"))
+        .join(Article, Article.id == ArticleDocument.article_id)
+        .group_by(ArticleDocument.document_id)
+        .subquery()
+    )
+    rows = session.execute(
+        select(WebDocument.id, WebDocument.title, WebDocument.text)
+        .join(linked, linked.c.document_id == WebDocument.id)
+        .where(WebDocument.text != "")
+        .order_by(linked.c.latest.desc(), WebDocument.id)
+    )
+    return [row for row in rows if row.text.strip()]
+
+
 def translation_status(session, config: TranslationConfig) -> dict:
     counts = dict(
         session.execute(
@@ -346,12 +371,18 @@ def translation_status(session, config: TranslationConfig) -> dict:
             .group_by(Translation.status)
         ).all()
     )
+    resource_keys = [cache_key(doc.title, doc.text, config) for doc in bound_resource_texts(session)]
+    resource_statuses = dict(session.execute(
+        select(Translation.id, Translation.status).where(Translation.id.in_(set(resource_keys)))
+    ).all())
+    resource_counts = dict(Counter(resource_statuses.get(key, "pending") for key in resource_keys))
     return {
         "enabled": config.enabled,
         "configured": bool(secret(config.api_key_env)),
         "model": config.model,
         "review_model": config.review_model,
         "counts": counts,
+        "resource_counts": resource_counts,
         "alert": balance_alert(session, config),
     }
 
@@ -701,7 +732,7 @@ class TranslationService:
             return {"enabled": False}
         self.balance_blocked = False
         with self.sessions.begin() as session:
-            for article in session.scalars(select(Article).order_by(Article.published_at.desc())):
+            for article in session.scalars(select(Article).order_by(Article.published_at.desc(), Article.id)):
                 queue_article(session, article, self.config)
             session.flush()
             keys = list(
@@ -710,9 +741,16 @@ class TranslationService:
                     .join(Article)
                     .join(Translation, Translation.id == ArticleTranslation.translation_id)
                     .where(Translation.status != "ready")
-                    .order_by(Article.published_at.desc())
+                    .order_by(Article.published_at.desc(), Article.id)
                 )
             )
+            # Use saved body text only. No fetch or summary is needed to finish a
+            # page's translation, and a stale/orphan cache must not enter this queue.
+            for doc in bound_resource_texts(session):
+                row = ensure_translation(session, doc.title, doc.text, self.config)
+                if row.status != "ready":
+                    keys.append(row.id)
+            keys = list(dict.fromkeys(keys))  # Main messages keep priority over shared page caches.
         if secret(self.config.api_key_env):
             # Filter eligibility before applying the limit, so failed items do not starve the backlog.
             with self.sessions() as session:

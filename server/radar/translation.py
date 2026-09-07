@@ -92,7 +92,7 @@ def quality_issues(source: str, chinese: str) -> list[str]:
     def urls(value):
         return Counter(x.rstrip(".,);]") for x in URL.findall(value))
 
-    def numbers(value):
+    def numbers(value, counterpart):
         value = URL.sub("", value)
         for index, (english, chinese) in reversed(list(enumerate(MONTHS, 1))):
             value = re.sub(r"\b" + english + r"\b", str(index) + "月", value)
@@ -119,9 +119,25 @@ def quality_issues(source: str, chinese: str) -> list[str]:
             pattern, lambda m: format((Decimal(m[1].replace(",", "")) * scales[m[2]]).normalize(), "f"), value
         )
         digits = "零一二三四五六七八九十"
+        ordinal_words = "zeroth first second third fourth fifth sixth seventh eighth ninth tenth".split()
+        spelled_ordinals = Counter(
+            re.findall(r"\b(?:" + "|".join(ordinal_words) + r")\b", URL.sub("", counterpart).lower())
+        )
+
+        def ordinal(match):
+            number = digits.index(match[1])
+            word = ordinal_words[number]
+            # Matching spelled ordinals add no Arabic number to either side.
+            # Bound by occurrences, so an extra ordinal cannot mask a missing $1.
+            # Do not globally number "first name" or "First, ..." in English prose.
+            if spelled_ordinals[word]:
+                spelled_ordinals[word] -= 1
+                return "第" + word
+            return "第" + str(number)
+
         value = re.sub(
             r"第([一二三四五六七八九十])(?![一二三四五六七八九十百千万])",
-            lambda m: "第" + str(digits.index(m[1])),
+            ordinal,
             value,
         )
         numbers = NUMBER.findall(unicodedata.normalize("NFKC", value))
@@ -129,14 +145,18 @@ def quality_issues(source: str, chinese: str) -> list[str]:
         return Counter(re.sub(r",(?=\d{3}(?:\D|$))", "", n) for n in numbers)
 
     issues = []
-    if numbers(source) != numbers(chinese):
+    if numbers(source, chinese) != numbers(chinese, source):
         issues.append("数字或版本不一致")
     if urls(source) != urls(chinese):
         issues.append("原文链接不一致")
     if Counter(MENTION.findall(source)) != Counter(MENTION.findall(chinese)):
         issues.append("引用账号不一致")
     for symbol in ["%", "$", "€", "£", "¥"]:
-        normalized_source, normalized_chinese = source, chinese
+        # Currency words/codes must count just like their translated symbol.
+        # Whole tokens avoid matching product/code identifiers containing "dollar".
+        dollar_words = r"\b(?:USD|(?:US\s+|U\.S\.\s+)?dollars?)\b"
+        normalized_source = re.sub(dollar_words, "$", source, flags=re.I)
+        normalized_chinese = re.sub(dollar_words, "$", chinese, flags=re.I)
         for word, marker in [("美元", "$"), ("欧元", "€"), ("英镑", "£")]:
             normalized_source = normalized_source.replace(word, marker)
             normalized_chinese = normalized_chinese.replace(word, marker)

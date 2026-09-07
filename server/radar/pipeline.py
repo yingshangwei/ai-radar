@@ -7,7 +7,7 @@ import httpx
 from sqlalchemy import select
 
 from .config import RadarConfig
-from .enrichment import enrich
+from .digest_selection import mark_supplemental_stories, select_digest_articles
 from .models import Article, Digest, Job, SourceState, Watch, now_iso
 from .providers import make_provider
 from .ranking import article_id, canonicalize, classify, engagement, rank
@@ -170,39 +170,10 @@ class Pipeline:
             raise ValueError("日报统计窗口尚未结束")
         with self.sessions() as session:
             existing = session.get(Digest, day.isoformat())
-            if existing and existing.source_count > 0 and not force:
+            if existing and not force:
                 return existing.date
-            rows = session.scalars(
-                select(Article)
-                .where(Article.published_at >= start.isoformat(), Article.published_at < end.isoformat())
-                .order_by(Article.score.desc())
-            ).all()
-            selected, seen = [], set()
-            for row in rows:
-                if row.canonical_url in seen:
-                    continue
-                seen.add(row.canonical_url)
-                selected.append(
-                    {
-                        k: v
-                        for k, v in as_dict(row).items()
-                        if k
-                        in {
-                            "id",
-                            "title",
-                            "text",
-                            "url",
-                            "author",
-                            "published_at",
-                            "published_precision",
-                            "topics",
-                            "platform",
-                            "metrics",
-                        }
-                    }
-                )
-                if len(selected) == self.config.provider.max_items:
-                    break
+            selection = select_digest_articles(session, self.config, day, start, end)
+            selected = selection.articles
             coverage = [as_dict(s) for s in session.scalars(select(SourceState))]
         if not selected:
             healthy = [s for s in coverage if s["status"] == "healthy"]
@@ -233,8 +204,6 @@ class Pipeline:
             return day.isoformat()
         if self.config.reading.enabled:
             selected = self.reading.evidence(selected)
-        elif self.config.enrich_official_articles:
-            selected = await enrich(selected)
         selected = await self.translations.evidence(selected)
         result = await make_provider(self.config.provider).generate(selected, day.isoformat())
         with self.sessions.begin() as session:
@@ -243,7 +212,7 @@ class Pipeline:
                     date=day.isoformat(),
                     title=result.title,
                     overview=result.overview,
-                    stories=[s.model_dump() for s in result.stories],
+                    stories=mark_supplemental_stories(result.stories, selection),
                     provider=self.config.provider.kind,
                     model=self.config.provider.model,
                     window_start=start.isoformat(),

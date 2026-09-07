@@ -10,7 +10,7 @@ if [[ -n "$(ss -H -ltn 'sport = :18475')" ]] && ! systemctl is-active --quiet ai
 fi
 export NEEDRESTART_MODE=l
 apt-get update -qq
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends xvfb x11vnc fonts-noto-cjk
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends xvfb x11vnc openbox fonts-noto-cjk
 python3 -m venv "$RADAR_RELEASE/.venv"
 "$RADAR_RELEASE/.venv/bin/pip" install --require-hashes -r "$RADAR_RELEASE/server/requirements.lock"
 "$RADAR_RELEASE/.venv/bin/pip" install --no-deps -e "$RADAR_RELEASE/server"

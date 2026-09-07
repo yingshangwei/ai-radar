@@ -117,13 +117,17 @@ class Browser:
         await public_addresses(urlsplit(url).hostname, 443 if url.startswith("https:") else 80)
         profile = self.root / "profiles" / hashlib.sha256(urlsplit(url).hostname.encode()).hexdigest()
         profile.mkdir(parents=True, mode=0o700, exist_ok=True)
-        commands = [["Xvfb", ":89", "-screen", "0", "500x860x24", "-nolisten", "tcp", "-ac"]]
+        commands = [["Xvfb", ":89", "-screen", "0", "500x860x24", "-nolisten", "tcp", "-ac"],
+                    ["openbox", "--sm-disable", "--config-file",
+                     str(Path(__file__).with_name("browser_ui") / "openbox.xml")]]
         if interactive:
             commands.append(["x11vnc", "-display", ":89", "-localhost", "-rfbport", "15989", "-nopw", "-forever",
                              "-shared", "-noxdamage", "-quiet"])
         for command in commands:
             self.processes.append(await asyncio.create_subprocess_exec(
-                *command, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL))
+                *command, env={"DISPLAY": ":89", "HOME": str(self.root),
+                                "PATH": os.environ.get("PATH", "/usr/bin:/bin"), "LANG": "C.UTF-8"},
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL))
             await asyncio.sleep(0.3)
             if self.processes[-1].returncode is not None:
                 raise HTTPException(503, "浏览器显示服务未启动，请稍后重试")

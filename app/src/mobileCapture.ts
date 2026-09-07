@@ -37,9 +37,8 @@ export function samePageURL(a: string, b: string): boolean {
   if (!isWebURL(a) || !isWebURL(b)) return false;
   const first = new URL(a);
   const second = new URL(b);
-  first.hash = "";
-  second.hash = "";
-  return first.href === second.href;
+  // React Native's built-in URL has getters but no hash/protocol setters.
+  return first.href.split("#", 1)[0] === second.href.split("#", 1)[0];
 }
 
 // This nonce correlates a single user-triggered extraction; it is not a credential.

@@ -14,9 +14,8 @@ export type DeviceDocument = {
 
 export function mobilePageURL(value: string): string {
   if (!isWebURL(value)) return value;
-  const url = new URL(value);
-  if (url.protocol === "http:") url.protocol = "https:";
-  return url.href;
+  // Keep this usable with React Native's getter-only URL implementation.
+  return new URL(value.replace(/^http:/i, "https:")).href;
 }
 
 export function siteHost(value: string): string {

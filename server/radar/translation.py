@@ -137,6 +137,7 @@ AUDIT = """你是独立的中英翻译质量审计员，只审核，不改写任
 输入不包含编辑者的批准结论；独立判断这份候选本身是否忠实、完整。
 通过时 approved=true 且 issues=[]；存在问题则 approved=false，issues 精确指出原文与译文的差异。
 不得输出替换译文，不得因措辞不够华丽而拒绝；不提供无依据准确率。
+audits 必须完整覆盖每个输入 id，返回项数必须与输入一致；不得合并、遗漏、重复或另造 id。
 逐项保留 id，只返回 JSON：{"audits":[{"id":"body-0","approved":true,"issues":[]}]}。
 """
 
@@ -553,6 +554,38 @@ class TranslationService:
             raise TranslationValidationError("audit_part_mismatch")
         return byid
 
+    async def audit_batches(self, key, owner, parts, audit_parts):
+        """Recover a malformed batch by strictly auditing each original item.
+
+        Yield each successful response before issuing the next request, so the
+        caller can persist its existing quality checks even if a later call fails.
+        Never relabel an output or reuse approvals from an ambiguous batch.
+        """
+        groups = []
+        for group in batches(audit_parts):
+            # Persisted transport strategy prevents a resumed job from repeating
+            # a batch whose item correspondence already failed.
+            if any(p.get("audit_mode") == "individual" for p in group):
+                groups.extend([p] for p in group)
+            else:
+                groups.append(group)
+        for group in groups:
+            payload = [{"id": p["id"], "source": p["source"], "candidate": p["draft"]} for p in group]
+            self.save_parts(key, owner, parts)
+            try:
+                result = await self.audit(payload)
+            except TranslationValidationError as exc:
+                if exc.code != "audit_part_mismatch" or len(group) == 1:
+                    raise
+                for part in group:
+                    part["audit_mode"] = "individual"
+                self.save_parts(key, owner, parts)
+                for part, item in zip(group, payload, strict=True):
+                    self.save_parts(key, owner, parts)
+                    yield [part], await self.audit([item])
+            else:
+                yield group, result
+
     async def auxiliary(self, parts: list[dict]) -> dict[str, str]:
         """Optional administrator-configured LibreTranslate; never a public fallback."""
         if not self.config.auxiliary_url:
@@ -653,12 +686,8 @@ class TranslationService:
             audit_parts = [p for p in pending if not p.get("correction_required")]
             if not audit_parts:
                 return  # Bounded repairs are exhausted; preserve draft and explicit issues.
-            for group in batches(audit_parts):
-                progress["stage"] = "audit"
-                self.save_parts(key, owner, parts)
-                result = await self.audit([
-                    {"id": p["id"], "source": p["source"], "candidate": p["draft"]} for p in group
-                ])
+            progress["stage"] = "audit"
+            async for group, result in self.audit_batches(key, owner, parts, audit_parts):
                 for part in group:
                     audited = result[part["id"]]
                     fingerprint = candidate_fingerprint(part["source"], part["draft"])

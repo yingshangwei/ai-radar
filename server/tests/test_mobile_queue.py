@@ -121,3 +121,36 @@ def test_permission_count_and_total_length_are_bounded(queue):
     assert get(client, ",".join(f"site{i}.org" for i in range(30))).json() == []
     assert get(client, ",".join(f"site{i}.org" for i in range(31))).status_code == 400
     assert get(client, "a" * 8001).status_code == 422
+
+
+def test_phone_backoff_skips_first_three_without_starving_following_documents(queue):
+    client, sessions = queue
+    keys = [add(sessions, f"https://example.org/article-{i}", minutes=i + 10) for i in range(7)]
+    excluded = ",".join(keys[:3])
+    result = get(client, "example.org", exclude_document_ids=excluded)
+    assert result.status_code == 200
+    assert [row["document_id"] for row in result.json()] == keys[3:6]
+    # This request does not mutate the shared queue or permanently hide pages.
+    assert [row["document_id"] for row in get(client, "example.org").json()] == keys[:3]
+
+
+@pytest.mark.parametrize("excluded", [
+    "a" * 63, "a" * 65, "g" * 64, "A" * 64, " " + "a" * 64,
+    "a" * 64 + ",", "," + "a" * 64, "a" * 64 + ",," + "b" * 64, "' OR 1=1 --",
+])
+def test_invalid_excluded_document_ids_are_rejected(queue, excluded):
+    client, _ = queue
+    assert get(client, "example.org", exclude_document_ids=excluded).status_code == 400
+    assert get(client, exclude_document_ids=excluded).status_code == 400
+
+
+def test_excluded_ids_are_bounded_and_do_not_relax_admin_permissions(queue):
+    client, _ = queue
+    ids = [f"{i:064x}" for i in range(101)]
+    params = {"domains": "example.org", "exclude_document_ids": ",".join(ids[:100])}
+    assert get(client, **params).json() == []
+    assert client.get("/v1/browser/mobile-queue", params=params).status_code == 401
+    assert client.get("/v1/browser/mobile-queue", params=params,
+                      headers={"Authorization": "Bearer reader"}).status_code == 403
+    assert get(client, "example.org", exclude_document_ids=",".join(ids)).status_code == 422
+    assert get(client, "example.org", exclude_document_ids=",".join(["a"] * 101)).status_code == 400

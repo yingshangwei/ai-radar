@@ -14,6 +14,7 @@ from .links import normalize_link
 from .models import Article, ArticleDocument, WebDocument
 
 _LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", re.ASCII)
+_DOCUMENT_ID = re.compile(r"[a-f0-9]{64}", re.ASCII)
 _EXCLUDED = {"blocked", "restricted", "too_large", "rate_limited"}
 
 
@@ -40,11 +41,24 @@ def permitted_domains(value: str) -> set[str]:
     return result
 
 
+def excluded_documents(value: str) -> set[str]:
+    if not value:
+        return set()
+    values = value.split(",")
+    if len(values) > 100:
+        raise HTTPException(400, "一次最多跳过 100 篇暂缓读取的文章")
+    if not all(_DOCUMENT_ID.fullmatch(key) for key in values):
+        raise HTTPException(400, "暂缓读取的文章标识格式无效")
+    return set(values)
+
+
 def mount_mobile_queue(router, sessions, admin):
     @router.get("/mobile-queue", dependencies=[Depends(admin)])
     async def mobile_queue(domains: str = Query(default="", max_length=8000),
-                           limit: int = Query(default=3, ge=1, le=5)):
+                           limit: int = Query(default=3, ge=1, le=5),
+                           exclude_document_ids: str = Query(default="", max_length=6500)):
         permitted = permitted_domains(domains)
+        excluded = excluded_documents(exclude_document_ids)
         if not permitted:
             return []
         # Group by the durable document key before limiting: one page may be
@@ -56,6 +70,10 @@ def mount_mobile_queue(router, sessions, admin):
                  .where(WebDocument.text == "", WebDocument.status.not_in(_EXCLUDED))
                  .group_by(WebDocument.id)
                  .order_by(func.max(Article.published_at).desc(), WebDocument.id))
+        if excluded:
+            # Backoff is local to this phone/request; it must not modify the
+            # document's server retry time or hide it from another device.
+            query = query.where(WebDocument.id.not_in(excluded))
         result = []
         with sessions() as session:
             for doc in session.scalars(query).yield_per(100):

@@ -4,7 +4,18 @@
 
 ## 当前部署状态 · 2026-09-08
 
-当前 release 为 `/opt/ai-radar/releases/20260908-07015b7`，TAT `inv-m8d69c0sm9` 激活成功（SUCCESS，退出 0），实际输出为 `dist/cloud/translation-number-context-activation.txt`。完整测试 **732 passed、6 skipped**，Ruff 通过；跳过项为既有浏览器环境限制。本版修复通用数字、百分比及账号校验边界，未改动模型配置、文章原文或候选译文，也未启动模型任务。
+当前运行 `/opt/ai-radar/releases/20260908-5142473`，新增 X 请求预算内的重点账号轮转、固定时间窗口和持久分页进度。源码隔离验证 **759 passed、6 skipped**，Ruff 通过；包内没有尚待诊断的 AI 内容筛选或日报启动补偿改动。本次不调用模型、不手动修改文章或译文。
+
+归档 `dist/ai-radar-server-20260908-5142473.tar.gz` 为 134,153 字节、49 份已提交文件、6 分片，SHA-256 `ef87652c6786c2de45b740b9edd3e573e5e4e1d033b74207d7bb3d28a231e1c4`。清单与本地隔离测试记录为 `dist/cloud/collection-coverage-release.json`、`collection-coverage-local-validation.json`。预检 `inv-m8d7k603xs` 成功。
+
+激活 `inv-e8d7nq0vvq` 已切换服务，但验收脚本在 API 初始化建表前检查数据库而报 FAILED；保护逻辑阻止未知浏览器就绪状态下的回滚。没有重跑激活或覆盖失败证据。独立只读验收 `inv-m8d7sp069d` 于 **22:48:14 UTC SUCCESS / 0** 确认当前源码 49 文件一致、API 与浏览器健康，新 `x_collection_states` 表已正常创建且为空；原 14 表逐行、三份私有配置、两个服务单元、九组历史证据、Caddy 和原 8080 服务均保持。冻结备份 `/var/lib/ai-radar/backups/collection-coverage-final-20260907T224428947511Z.db`，证据 `dist/cloud/collection-coverage-recovery-verification.json`。
+
+公网只读状态于 **22:49:39 UTC** 通过健康及 401/403 权限检查：46 条主消息中文 ready；47 份网页全文 13 ready / 34 review_required，余额告警为空、调度器开启、无运行任务。X 显示的是已有采集状态，本轮未手动请求 X；新轮转的实际覆盖在后续定时任务中更新，不能把部署成功当成完整采集证明。Android 0.6.0 独立交付见 [ANDROID.md](ANDROID.md)。
+
+## 历史：07015b7 数字上下文校验
+
+
+当时 release 为 `/opt/ai-radar/releases/20260908-07015b7`，TAT `inv-m8d69c0sm9` 激活成功（SUCCESS，退出 0），实际输出为 `dist/cloud/translation-number-context-activation.txt`。完整测试 **732 passed、6 skipped**，Ruff 通过；跳过项为既有浏览器环境限制。本版修复通用数字、百分比及账号校验边界，未改动模型配置、文章原文或候选译文，也未启动模型任务。
 
 归档 `dist/ai-radar-server-20260908-07015b7.tar.gz` 为 128,176 字节、48 份已提交文件、6 个传输分片，SHA-256 `8b15b4094c0b766d739e778799334d4d67901a5d08a1cc9296264b3e8269a5e5`，清单 `dist/cloud/translation-number-context-release.json`。逐文件比对提交 `07015b7` 与归档一致，包含新增 `translation_numbers.py`；分片重组及嵌入的源码清单一致。预检 `inv-n8d6870h30` 生成 `/var/lib/ai-radar/backups/radar-translation-number-context-20260907T215422Z.db`。
 

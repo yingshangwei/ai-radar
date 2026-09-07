@@ -35,6 +35,8 @@ class TranslationConfig(BaseModel):
     api_key_env: str = "DEEPSEEK_API_KEY"
     model: str = "deepseek-v4-flash"
     review_model: str = "deepseek-v4-pro"
+    audit_model: str | None = None
+    review_max_rounds: int = Field(default=2, ge=1, le=4)
     revision: str = "zh-v1"
     timeout_seconds: int = Field(default=120, ge=10, le=600)
     concurrency: int = Field(default=2, ge=1, le=4)

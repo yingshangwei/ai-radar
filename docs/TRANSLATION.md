@@ -29,7 +29,7 @@ max_attempts = 3
 
 公共及阶段 options 均不能覆盖 `messages`、`model`、`response_format`、`tools`、`tool_choice`、`functions`、`function_call`、`stream`、`stream_options`、`max_tokens`、`max_completion_tokens` 或 `extra_body` 等正式流程字段。模型使用上述专用字段；输出预算使用 `max_tokens` 和 `stage_max_tokens`，均为 256–65536 的整数。公共预算默认 12000，阶段未指定时继承公共预算。配置校验报错不回显输入值。
 
-下面是可选的推理配置示例，不表示服务器已经启用或真实译文已经通过。初稿继承默认的非推理模式与 12000 token；修订和审计分别完整配置推理参数，并使用 32768 token 预算：
+下面的推理配置示例说明如何单独启用修订和审计。初稿继承默认的非推理模式与 12000 token；修订和审计分别完整配置推理参数，并使用 32768 token 预算：
 
 ```toml
 [translation]
@@ -49,6 +49,10 @@ reasoning_effort = "high"
 correction = 32768
 audit = 32768
 ```
+
+当前部署 `20260908-4d196af` 已实际采用上述配置：`correction`、`audit` 均为 `thinking.type=enabled`、`reasoning_effort=high`、32768 token，单次 SDK 调用整体超时为 300 秒；初稿仍为 disabled、12000 token。配置切换只改这七个字段，14 张数据表、七组历史记录、其他配置与既有服务保护检查均通过。
+
+正式单条错误恢复任务于 2026-09-07 21:18:13 UTC 完成。修订和独立审计各两次 DeepSeek Pro 调用均以 `stop` 结束，四次返回的推理 token 数分别为 14725、9990、4363、5016，证实推理模式已真实使用。唯一 `error` 转为 `review_required`，没有新增整篇 ready；候选尚未通过完整质量门槛，没有继续重跑。最终全量为主消息 46 ready、已保存网页正文 13 ready / 34 review_required / 0 error；原文、60 份既有 ready 缓存、所有未选译文、七组历史记录与当前配置保持不变。公网仍隐藏未通过的全文中文。运行证据见 [验证记录](VALIDATION.md)。
 
 官方 [DeepSeek 思考模式](https://api-docs.deepseek.com/zh-cn/guides/thinking_mode/)说明 V4 支持 `thinking` 和 `reasoning_effort`。OpenAI SDK 将 `thinking` 放入 `extra_body`；本项目的 options 会作为该对象发送，最终位于 HTTP 请求体顶层。当前翻译流程不携带工具，无需回传 `reasoning_content`；只解析最终 `content`，不保存或记录思考内容。推理模式不改变现有 JSON、段落对应、保护标记、机器检查和独立审核门槛。
 

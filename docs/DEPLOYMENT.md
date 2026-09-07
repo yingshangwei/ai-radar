@@ -4,9 +4,21 @@
 
 ## 当前部署状态 · 2026-09-08
 
-当前 release 为 `/opt/ai-radar/releases/20260908-f574f87`，TAT `inv-m8d3qqgvhd` 启用成功（SUCCESS，退出 0）。完整服务器测试 **506 passed、6 skipped**，Ruff 通过；跳过项仍为既有浏览器环境相关测试。部署前后 14 张表、三份私有配置、Caddy、原 8080 服务及六组历史证据保持不变。第六组包含已结束的 errors-only 操作之 latest、metadata、数据库备份与私有 CLI 输出，旧诊断证据未被覆盖。
+当前 release 为 `/opt/ai-radar/releases/20260908-4d196af`，TAT `inv-m8d4nk0pmn` 启用成功（SUCCESS，退出 0）。完整测试 **594 passed、6 skipped**，Ruff 通过。代码部署保持 14 张表、三份私有配置、Caddy、原 8080 服务和七组历史证据；实际启用输出为 `dist/cloud/translation-stage-options-activation.txt`。
 
-当前归档 `dist/ai-radar-server-20260908-f574f87.tar.gz`，125,817 字节、47 份已提交文件、6 个传输分片，SHA-256 `1d179e7a0b14d8f6acd31379e8ef646deb7f89238b99f327b719bdc5671d8c4b`；清单 `dist/cloud/translation-calendar-context-release.json`。预检 `inv-e8d3pbg22j` 生成备份 `/var/lib/ai-radar/backups/radar-translation-calendar-context-20260907T202807Z.db`。仍采用独立虚拟环境、锁定依赖、切换前空闲检查与冻结备份，不修改模型配置或移动端源码。
+归档 `dist/ai-radar-server-20260908-4d196af.tar.gz` 为 127,211 字节、47 份文件、6 个传输分片，SHA-256 `39031635997a779dfb3f03df8aafdba211c70e6871db8506fed9a0d02ae3b588`，清单 `dist/cloud/translation-stage-options-release.json`。预检 `inv-j8d4mgg5fd` 生成 `/var/lib/ai-radar/backups/radar-translation-stage-options-20260907T210017Z.db`。配置切换与真实模型验证单独记录，不能把代码部署当作翻译通过证明；Android / iOS 无需重建。
+
+配置随后由独立 TAT `inv-n8d4v4g0xk` 应用，严格只改七处叶字段，开启校对/审计的 high 推理与 32768 token，单次请求总时限 300 秒；初稿保持 disabled / 12000。备份与差异元数据为 `/var/lib/ai-radar/translation-stage-config/20260907T210825Z-e965fb23/metadata.json`，切换仅重启 `ai-radar.service`，14 张表、两个凭据文件、七组历史及其他服务保留。原配置 SHA-256 `605fa438519e34b37074e8c07b64cc61e2920f8a80a04430ecdc62d978bedc59` → 新配置 `b98e3f85d9d685370c77e747803c8be1fa3343a5e154dafc505925870d2f56b7`。真实验证使用新的独立操作基线，并逐项验证合法配置差异；旧操作记录未改写。
+
+正式一次单条验证 `inv-m8d5020e3h` 对应任务 `fafcf476-8167-4070-ba94-41d7da07fa82`，21:11:36–21:18:13.821015 UTC 执行结束，error 转为待审，未新增整篇 ready。4 次校对/审计均正常返回并报告推理 token，确认当前配置实际生效。最终只读 `inv-e8d57ignvx` SUCCESS，实际输出 `dist/cloud/translation-stage-validation-final.txt` / `.json`；原文、60 份既有 ready、所有未选缓存、11 张表、配置与七组历史均保持。验证只表示结束及保护通过，不能解释为翻译质量通过。
+
+全量主消息 46 ready，47 份网页全文 13 ready / 34 review_required / 0 error。21:19:44 UTC 公网 `dist/cloud/translation-stage-public.json` 核验默认近七天 42 篇消息及 43 个资源（13 ready / 30 review_required），未通过全文隐藏，401/403 权限隔离有效；X 与官方信息源 healthy、Facebook auth_required，余额告警为空，调度器开启，无运行任务、租约或授权窗口。没有继续重跑这次已结束的验证。
+
+## 历史：f574f87 部署与字面量恢复
+
+当时 release 为 `/opt/ai-radar/releases/20260908-f574f87`，TAT `inv-m8d3qqgvhd` 启用成功（SUCCESS，退出 0）。完整服务器测试 **506 passed、6 skipped**，Ruff 通过；跳过项仍为既有浏览器环境相关测试。部署前后 14 张表、三份私有配置、Caddy、原 8080 服务及六组历史证据保持不变。第六组包含已结束的 errors-only 操作之 latest、metadata、数据库备份与私有 CLI 输出，旧诊断证据未被覆盖。
+
+当时归档 `dist/ai-radar-server-20260908-f574f87.tar.gz`，125,817 字节、47 份已提交文件、6 个传输分片，SHA-256 `1d179e7a0b14d8f6acd31379e8ef646deb7f89238b99f327b719bdc5671d8c4b`；清单 `dist/cloud/translation-calendar-context-release.json`。预检 `inv-e8d3pbg22j` 生成备份 `/var/lib/ai-radar/backups/radar-translation-calendar-context-20260907T202807Z.db`。仍采用独立虚拟环境、锁定依赖、切换前空闲检查与冻结备份，不修改模型配置或移动端源码。
 
 该版继承 `cae1e18` 的通用恢复：初稿和校对遇到受保护字面量对应错误时，以同一原文和输入草稿请求模型重新输出；与 JSON/结构恢复共用最多两次请求预算，不手工补链接或替换译文。数字校验识别有上下文依据的月份及货币等价表示，排除明确人名、重量语境以及小数/版本末尾被错误识别为日期的情况。独立语义审计、真实数字/链接差异与未解决疑点的拒绝门槛保留。
 
@@ -40,7 +52,7 @@
 
 ## 历史部署记录
 
-`20260908-cae1e18` 由 TAT `inv-e8d3b6g244` 成功启用，完整测试 484 passed、6 skipped，Ruff 通过。随后只读影响检查发现三个新数字标记，未启动模型任务；通用月份上下文与小数边界修复后才前向升级至当前 `f574f87`。该版归档与 `translation-integrity-recovery` 证据保留。
+`20260908-cae1e18` 由 TAT `inv-e8d3b6g244` 成功启用，完整测试 484 passed、6 skipped，Ruff 通过。随后只读影响检查发现三个新数字标记，未启动模型任务；通用月份上下文与小数边界修复后才前向升级至当时的 `f574f87`。该版归档与 `translation-integrity-recovery` 证据保留。
 
 `20260908-7ab2ed6` 由 TAT `inv-n8d17a0xk5` 成功启用。归档 `dist/ai-radar-server-20260908-7ab2ed6.tar.gz`，123,303 字节，SHA-256 `b9248fd2b6f1b766b82900216a94caf7695e74f72aebcacd4d10b4859de5967e`，47 份文件；原 36 份缓存的恢复结果见上述 `61afa513` 任务。
 

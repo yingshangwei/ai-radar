@@ -2,7 +2,19 @@
 
 ## 当前服务器版本与验收范围
 
-- 当前 release **20260908-f574f87** 已由 TAT `inv-m8d3qqgvhd` 成功启用（SUCCESS，退出 0）。完整服务器测试 **506 passed、6 skipped**，Ruff 通过；6 项跳过均为既有浏览器集成环境限制。125,817 字节的归档包含 47 份已提交文件、6 个传输分片，路径与 SHA-256 见 [部署记录](DEPLOYMENT.md)。
+- 当前 release **20260908-4d196af** 已由 TAT `inv-m8d4nk0pmn` 成功启用（SUCCESS，退出 0）。完整测试 **594 passed、6 skipped**，Ruff 通过；6 项为既有浏览器环境限制。127,211 字节归档包含 47 份文件，实际只改变 CLI、配置和翻译三个运行时模块。预检 `inv-j8d4mgg5fd` 生成 `radar-translation-stage-options-20260907T210017Z.db`。
+- 本次代码部署保持 14 张表、三份私有配置、Caddy、原 8080 服务及七组历史证据。第七组保护上次已经结束的 `c10b0ead` 操作；部署本身不启动模型。实际启用结果保存为 `dist/cloud/translation-stage-options-activation.txt`。
+- 新能力按初稿、修订、独立审计分别配置请求选项和 token 预算；阶段对象完整替换公共对象。真实 SDK 模拟请求验证三阶段参数、并发隔离、嵌套配置保护、重试预算、保活数据下的整体超时、空或截断输出拒绝，以及脱敏日志。`--translation-diagnostics` 仅开启翻译 logger 的 stderr 诊断，stdout JSON 不变，结束后恢复日志配置。
+- 随后配置切换 `inv-n8d4v4g0xk` 成功：仅七处叶字段变化，校对与审计分别启用 `thinking=enabled`、`reasoning_effort=high`、32768 token，整体请求时限 300 秒；初稿仍 disabled / 12000。原配置备份及严格差异记录位于 `/var/lib/ai-radar/translation-stage-config/20260907T210825Z-e965fb23/metadata.json`，实际结果 `dist/cloud/translation-stage-config-applied.txt`。14 张表、两个凭据文件、七组历史、浏览器/Caddy/8080 服务保留，API PID 1848549，调度器保持开启；配置操作没有调用模型。
+- 正式单条 errors-only 验证由 `inv-m8d5020e3h` 启动，任务 `fafcf476-8167-4070-ba94-41d7da07fa82` 于 2026-09-07 21:11:36.638942 UTC 开始。它使用当前保存的 [Google 官方公开文章](https://blog.google/innovation-and-ai/models-and-research/gemini-models/introducing-agentic-video-in-gemini/)及机器候选，服务器统一处理，不接受替换文字或人工批准。21:15:14 UTC 只读观察 `inv-m8d53gg577` 确认一条 correction 正常结束，用时 171123 毫秒，输入 3641 / 输出 15923 / 推理 14725 token；当时整篇仍在运行，不能把一次调用成功视为内容通过。缓存键、已通过部分复用、原文与审计历史保护及未通过不发布的门槛均保留。
+- 上述任务于 **21:18:13.821015 UTC completed**，唯一 error 缓存转为 `review_required`，没有新增整篇 ready。4 次 DeepSeek Pro 调用（校对、审计各 2 次）均 `finish_reason=stop`，推理 token 分别为 14725、9990、4363、5016；模型协议调用完成和内容通过是不同结论，不继续重复运行此已结束任务。
+- 最终只读 `inv-e8d57ignvx` 于 21:19:34.807318 UTC SUCCESS，实际输出与对应 JSON 为 `dist/cloud/translation-stage-validation-final.txt` / `.json`，元数据 `/var/lib/ai-radar/translation-stage-validation/20260907T211134948319Z-e0f4258a/metadata.json`。60 份既有 ready、34 份未选待审缓存（33 份关联正文、1 份历史）、所有未选译文、原文等 11 张表、配置及七组历史均保持；单元 exited / 退出 0，无运行任务、租约或授权窗口。`verification_passed=true` 仅证明结束和保护核验，`translation_ready=false`。
+- 最终全量主消息 **46 ready**，47 份关联网页全文为 **13 ready、34 review_required、0 error**，全文中文仍未全部完成。21:19:44 UTC 公网只读 `dist/cloud/translation-stage-public.json` 核验默认近七天 42 篇消息与 43 个资源（13 ready、30 review_required）；所有未通过正文均不暴露，无令牌读取 401、reader 管理请求 403，余额告警为空，X/官方源 healthy，Facebook auth_required，调度器开启。
+- Android / iOS 源码未变，无需重新安装。Apple 下载账号访问仍等待已发出的授权回复；此前审批对单条 DeepSeek 调用的拒绝已通过只读公开来源核实消除：该内容来自 Google 官方公开文章、不含已配置凭据，按用户既有明确翻译授权重新审批后才启动。没有绕过审批或手工改文案。
+
+## 历史：f574f87 部署与字面量恢复
+
+- 当时 release **20260908-f574f87** 已由 TAT `inv-m8d3qqgvhd` 成功启用（SUCCESS，退出 0）。完整服务器测试 **506 passed、6 skipped**，Ruff 通过；6 项跳过均为既有浏览器集成环境限制。125,817 字节的归档包含 47 份已提交文件、6 个传输分片，路径与 SHA-256 见 [部署记录](DEPLOYMENT.md)。
 - 预检 `inv-e8d3pbg22j` 生成一致性备份 `radar-translation-calendar-context-20260907T202807Z.db`；部署前后 14 张表、三份私有配置、Caddy 与原 8080 服务保留。六组历史证据均不变，第六组包含已经结束的 errors-only 操作之 latest、metadata、数据库备份与私有输出；新部署使用独立前缀，不覆盖旧证据。
 - `cae1e18` 将受保护字面量错误恢复与 JSON/Schema 恢复共用最多两次请求预算，同一原文与输入草稿不变，只反馈安全对应错误，不拼接缺失链接或人工改文案。`f574f87` 补齐通用月份上下文规则，避免从小数/版本末尾误取日期；中英货币等价仅在适当语境适用，重量和明确人名不被误当作币种或月份。独立语义审计、真实缺漏与未解决疑点的发布门槛保留。
 - `cae1e18` 曾通过 `inv-e8d3b6g244` 部署（484 passed、6 skipped、Ruff 通过），但只读影响检查发现三个新数字标记，因此先完成通用修复再升级。`inv-m8d3n2gncq` 在内存检查 34 份当前网页缓存中的 98 个未完成段落，确认新增日期误报消除：旧/新数字标记均为 43，货币标记 3 → 2，链接校验保留。该检查没有模型调用或数据库写入，不代表其余数字或语义疑点已解决。
@@ -170,7 +182,7 @@
 
 ## 尚未完成，不能视为已交付
 
-1. **关联网页全文补译**：数据库全量 47 份已保存正文为 13 ready、33 review_required、1 error；最新公网默认近七天可见 43 个资源为 13 ready、29 review_required、1 error。`f574f87` 已部署，随后正式 errors-only 仅处理 1 份错误缓存，仍被校对阶段原文保护校验拦截；待审内容没有重跑或放行，本次任务后没有继续重试，全文中文尚未补齐。
+1. **关联网页全文补译**：数据库全量 47 份正文为 13 ready、34 review_required、0 error；最新公网默认近七天可见 43 个资源为 13 ready、30 review_required。`4d196af` 和分阶段推理配置已部署，单条正式 errors-only 验证完成后由 error 转为待审；没有新增整篇 ready，未通过候选没有发布，全文中文尚未补齐。
 2. **Facebook 实际采集**：账号正在审核，后续 Graph API 还需具体应用权限与 Page ID。X 官方 API 已接通，且已观察到真实定时任务完成；当前分页上限不保证全面覆盖。
 3. **Android 用户设备复验**：用户已反馈旧版 App 的实际使用问题；0.5.0 已交付签名 APK 并通过原生模拟器验证，尚无该最终版在用户手机上的复验结果。应用商店发布未请求，不作为本次 APK 交付的前置条件。
 4. **iOS 运行与真机 IPA**：0.5.0 模拟器产物仍存在且已校验，但本机只有 Command Line Tools，没有完整 Xcode 或模拟器运行时；有效签名身份与描述文件均为 0，未生成 IPA。Apple 下载登录访问被自动审批审查拒绝，用户访问授权请求待回复；免费 Apple Account 即可获取兼容本机的 Xcode，不必等待付费会员才能运行模拟器。现有 EAS `preview` 的 Ad Hoc 真机分发另需付费开发者资格和目标设备 UDID，账号状态尚未确认；不会将商店发布强加为前置。旧 EAS 远程模拟器可用性查询仅保留为历史，没有重复查询。产物与操作见 [IOS.md](IOS.md)。

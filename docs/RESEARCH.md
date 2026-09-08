@@ -36,4 +36,12 @@ arxiv_candidates = 60
 
 这两个公开接口无需账号或密钥，复用现有 `httpx` 与 `feedparser`，没有引入新的抓取依赖。
 
+## 2026-09-08 上线验证
+
+- 服务器版本 `20260908-9ca8b64` 加来源隔离补丁 `b848774`，11:57:52 UTC 在模型任务保存完成后切换；停机快照比较保留 15 张业务表，其他模型、授权、原有来源配置不变，API、浏览器服务和 Caddy 正常。
+- 正式采集任务 `78e59da2-4f20-454e-bffa-a614587c0524` 在 11:59:19–11:59:24 UTC 完成：HF 读取 200 个候选入选 8 篇，arXiv 读取 60 个候选入选 3 篇，总计新增 11 篇。两个来源状态 healthy；公网 `GET /v1/articles?topic=学界` 已回读 11 篇。
+- 11 份根资源均为已取得的作者摘要、`partial=true`，与主消息共用同一翻译 ID；没有绑定 HF 论文页作为自动解读证据。HF 日期精度为 date，arXiv 保留准确时间戳。OpenAI Tibo 关注修正保持有效。
+- 12:01 UTC 验证时首批 11 篇中文仍 pending；现有 read 任务运行、translate 任务排队，不能视为已完成首批中文或全文解读。后续由正式后台队列处理，不人工注入译文、摘要或审核结果。
+- 全量服务器测试 1,178 项通过、6 项既有浏览器集成测试跳过；最后的社区 AI 摘要隔离补丁相关 44 项测试通过，Ruff 检查通过。无 App 协议破坏或新增原生能力，不要求重新安装 Android 包。
+
 官方资料：[HF OpenAPI](https://huggingface.co/.well-known/openapi.json)、[HF SDK](https://github.com/huggingface/huggingface_hub/blob/main/src/huggingface_hub/hf_api.py)、[HF 限流](https://huggingface.co/docs/hub/en/rate-limits)、[arXiv API](https://info.arxiv.org/help/api/user-manual.html)、[arXiv API 使用条款](https://info.arxiv.org/help/api/tou.html)。

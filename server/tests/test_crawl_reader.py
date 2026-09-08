@@ -228,6 +228,52 @@ async def test_real_package_ignores_short_login_document():
         await crawl_reader._extract_isolated(b"<html><title>Login</title><form>Sign in</form></html>", URL)
 
 
+async def test_real_package_article_boundary_excludes_templates_and_interactive_ui():
+    require_crawl4ai()
+    data = ARTICLE.replace(b"</article>", b'''<p data-nosnippet>Restricted search snippets are still
+    legitimate article evidence and must remain intact.</p>
+    <p contenteditable="false">A non-editable source paragraph remains original evidence.</p>
+    <div contenteditable="true">EDITOR_INPUT_NOT_ARTICLE</div>
+    <dialog>DIALOG_NOT_ARTICLE</dialog><template>FEEDBACK_JSON_NOT_ARTICLE</template>
+    <devsite-feedback>FEEDBACK_CONTROLS_NOT_ARTICLE</devsite-feedback></article>''').replace(
+        b"</main>", b"<section>UNRELATED_RECOMMENDATIONS_OUTSIDE_ARTICLE</section></main>")
+    result = await crawl_reader._extract_isolated(data, URL)
+    for marker in ["Restricted search snippets", "non-editable source paragraph", "return x @ x.T"]:
+        assert marker in result["text"]
+    for marker in ["EDITOR_INPUT", "DIALOG_NOT_ARTICLE", "FEEDBACK_JSON", "FEEDBACK_CONTROLS",
+                   "UNRELATED_RECOMMENDATIONS"]:
+        assert marker not in result["text"]
+
+
+async def test_real_package_explicit_blog_body_excludes_recommendations_and_discussion():
+    require_crawl4ai()
+    source = "An original research result with quantitative evidence and detailed methodological limitations. " * 3
+    data = f'''<html><title>Blog source</title><main><div class="blog-content prose"><h1>Blog source</h1>
+    <p>{source}</p><div data-target="UpvoteControl">UPVOTE_WIDGET</div></div>
+    <div data-target="DiscussionEvents">COMMENT_COMPOSER</div>
+    <div data-target="BlogThumbnail">RECOMMENDED_ARTICLE</div>
+    <article>Small unrelated collection card</article></main></html>'''.encode()
+    result = await crawl_reader._extract_isolated(data, URL)
+    assert source.strip() in result["text"]
+    assert all(marker not in result["text"] for marker in ["UPVOTE_WIDGET", "COMMENT_COMPOSER",
+                                                           "RECOMMENDED_ARTICLE", "collection card"])
+
+
+async def test_real_package_nested_article_preserves_unlinked_external_footnotes():
+    require_crawl4ai()
+    source = "This research prototype is discussed with qualifications in the accompanying footnotes. " * 3
+    data = f'''<html><title>Nested article</title><main><article><h1>Nested article</h1>
+    <article><p>{source}<sup>1</sup></p></article>
+    <div class="Publisher__footnotes"><h4>Footnotes</h4><ol><li id="footnote-1">
+    This prototype is not planned for general release.</li></ol></div>
+    <section><h2>Related content</h2><p>Publisher recommendations remain when safe boundaries are ambiguous.</p>
+    </section></article></main></html>'''.encode()
+    result = await crawl_reader._extract_isolated(data, URL)
+    assert source.strip() in result["text"]
+    assert "not planned for general release" in result["text"]
+    assert "Related content" in result["text"]  # Prefer extra context to silently dropping qualifications.
+
+
 async def test_missing_optional_package_uses_real_legacy_parser():
     try:
         importlib.metadata.version("crawl4ai")

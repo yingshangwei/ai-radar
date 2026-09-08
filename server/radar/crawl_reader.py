@@ -49,6 +49,27 @@ def _deny_network_and_processes(event, _args):
         raise PermissionError("captured HTML extraction cannot access the network or launch processes")
 
 
+def _reading_region(tree):
+    """Honor publisher body boundaries without guessing from article wording.
+
+    Keep an outer article when articles are nested: footnotes and corrections can
+    be outside the inner article, without explicit fragment links back to it.
+    Ambiguous multi-article pages retain their complete main region.
+    """
+    selectors = [
+        '//*[contains(concat(" ", normalize-space(@class), " "), " blog-content ")]',
+        '//article[not(ancestor::article)]',
+        '//main | //*[@role="main"]',
+    ]
+    for selector in selectors:
+        regions = [node for node in tree.xpath(selector) if len(node.text_content().strip()) >= 80]
+        if len(regions) == 1:
+            return regions[0]
+    for node in tree.xpath("//body/header"):
+        node.drop_tree()
+    return tree
+
+
 def parse_crawl_page(data: bytes, url: str) -> dict:
     """Pure captured-HTML extraction; caller supplies process/resource isolation."""
     url = _validate_input(data, url)
@@ -72,27 +93,18 @@ def parse_crawl_page(data: bytes, url: str) -> dict:
     scraped = LXMLWebScrapingStrategy().scrap(
         url, source_html,
         excluded_tags=["nav", "footer", "aside", "form", "script", "style", "noscript",
-                       "iframe", "object", "embed", "base", "button", "input", "select", "textarea"],
-        excluded_selector='[hidden], [aria-hidden="true"], [role="navigation"]',
+                       "iframe", "object", "embed", "base", "button", "input", "select", "textarea",
+                       "template", "dialog", "devsite-feedback", "devsite-content-footer", "devsite-actions"],
+        excluded_selector=('[hidden], [aria-hidden="true"], [role="navigation"], '
+                           '[contenteditable]:not([contenteditable="false"]), '
+                           '[data-target="DiscussionEvents"], [data-target="BlogThumbnail"], '
+                           '[data-target="UpvoteControl"]'),
         remove_forms=True, remove_comments=True, exclude_all_images=True,
         link_preview_config=None, score_links=False,
     )
     if not scraped.success or not scraped.cleaned_html:
         raise CrawlExtractionError("no_readable_body")
-    tree = html.fromstring(scraped.cleaned_html)
-    # Prefer a semantic reading region. Work on cleaned HTML so script contents
-    # and navigation never become evidence even on pages with nested regions.
-    regions = tree.xpath("//main | //*[@role='main']")
-    if not regions:
-        regions = tree.xpath("//article")
-    regions = [node for node in regions if len(node.text_content().strip()) >= 80]
-    if len(regions) == 1:
-        tree = regions[0]
-    # A multi-article page keeps all its source entries rather than silently
-    # choosing one teaser. Site-wide headers are excluded outside a reading region.
-    if not regions:
-        for node in tree.xpath("//body/header"):
-            node.drop_tree()
+    tree = _reading_region(html.fromstring(scraped.cleaned_html))
     visible_text = tree.text_content().strip()
     if len(visible_text) < 80:
         raise CrawlExtractionError("no_readable_body")

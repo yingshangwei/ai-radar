@@ -183,6 +183,20 @@ class Job(Base):
     started_at: Mapped[str] = mapped_column(String(40), default=now_iso)
     finished_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
     message: Mapped[str] = mapped_column(Text, default="")
+    # Keep the original started_at column for existing CLI and daily history.
+    queued_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    run_started_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    request_day: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    force: Mapped[bool] = mapped_column(Boolean, default=False)
+    attempt: Mapped[int] = mapped_column(Integer, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=3)
+    retry_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    heartbeat_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    progress_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    phase: Mapped[str] = mapped_column(String(30), default="")
+    reason_code: Mapped[str] = mapped_column(String(40), default="")
+    owner: Mapped[str] = mapped_column(String(100), default="")
+    more_pending: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class WebsiteAccess(Base):

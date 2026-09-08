@@ -45,6 +45,7 @@ import {
   syncArticleBookmark,
 } from "./src/contentSync";
 import { sourceConnected, sourceStatusLabel } from "./src/sourceState";
+import { jobSummary, jobView, visibleJobs } from "./src/jobState";
 import appManifest from "./app.json";
 import { demoArticles, demoDigest, demoStatus, demoWatches } from "./src/demo";
 import type {
@@ -1512,6 +1513,28 @@ function Reader({
               )}{" "}
               条等待翻译或复核 · 原文随时可查
             </T>
+            {state.translation.queue && (
+              <>
+                <T style={[s.body, { marginTop: 12 }]}>
+                  {status.data?.offline ? "离线 · 上次队列状态：" : ""}
+                  正在处理 {state.translation.queue.counts.active || 0} 份 ·
+                  待处理 {state.translation.queue.counts.runnable || 0} 份 ·
+                  等待重试 {state.translation.queue.counts.retrying || 0} 份
+                </T>
+                {!!state.translation.queue.counts.needs_attention && (
+                  <T style={[s.muted, { marginTop: 7 }]}>
+                    {state.translation.queue.counts.needs_attention}{" "}
+                    份需要检查：审核未通过或调用结果待确认，进度已保留。
+                  </T>
+                )}
+                <T style={[s.muted, { marginTop: 7 }]}>
+                  按主消息和网页正文统计，重复内容仅计一份。
+                  {status.data?.offline
+                    ? "当前进度尚未确认，联网后会自动更新。"
+                    : "可执行的内容会自动续跑，无需反复点击采集。"}
+                </T>
+              </>
+            )}
           </View>
         )}
         <T style={s.sectionTitle}>信息源</T>
@@ -1573,14 +1596,40 @@ function Reader({
               : "自动任务未开启，需在服务器配置中启用"}
           </T>
         </View>
-        {state?.jobs.slice(0, 3).map((j) => (
-          <View key={j.id} style={[s.note, { marginBottom: 9 }]}>
-            <T style={s.muted}>
-              {j.kind} · {j.status}
-            </T>
-            <T style={{ fontSize: 12 }}>{j.message || "处理中…"}</T>
-          </View>
-        ))}
+        <T style={s.sectionTitle}>后台任务</T>
+        <T style={[s.muted, { marginTop: 7, marginBottom: 12 }]}>
+          {status.data?.offline ? "离线 · 上次状态：" : ""}
+          {state ? jobSummary(state) : "正在获取任务状态…"}
+        </T>
+        {!!status.data?.offline && (
+          <T style={[s.muted, { marginBottom: 12 }]}>
+            当前进度尚未确认，联网后会自动更新。
+          </T>
+        )}
+        {visibleJobs(state?.jobs || []).map((j) => {
+          const details = jobView(j, !!status.data?.offline, state?.server_now);
+          return (
+            <View key={j.id} style={[s.note, { marginBottom: 9 }]}>
+              <T style={{ fontWeight: "600" }}>{details.title}</T>
+              <T style={{ fontSize: 12, marginTop: 6 }}>{details.message}</T>
+              {details.phase && <T style={s.muted}>{details.phase}</T>}
+              {details.attempt && <T style={s.muted}>{details.attempt}</T>}
+              {details.times.map((time) => (
+                <T
+                  key={time.label}
+                  style={[s.muted, { fontSize: 10, marginTop: 4 }]}
+                >
+                  {time.label}：{dateTime(time.value)}
+                </T>
+              ))}
+              {details.responseNote && (
+                <T style={[s.muted, { fontSize: 10, marginTop: 4 }]}>
+                  {details.responseNote}
+                </T>
+              )}
+            </View>
+          );
+        })}
         <Pressable
           disabled={pending || demo}
           onPress={() =>
@@ -1588,7 +1637,7 @@ function Reader({
               await api(connection, "/v1/admin/jobs?kind=daily", {
                 method: "POST",
               });
-              setError("任务已提交，完成后下拉刷新。");
+              setError("任务已提交，进度和完成结果会自动更新。");
             })
           }
           style={[

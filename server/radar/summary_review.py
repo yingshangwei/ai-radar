@@ -5,6 +5,7 @@ import hashlib
 import json
 from collections.abc import Callable
 from contextlib import contextmanager
+from contextvars import ContextVar
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
@@ -52,6 +53,10 @@ class SummaryReviewPending(ValueError):
         super().__init__(message)
 
 
+class SummaryReviewYield(SummaryReviewPending):
+    """An intentional pause between saved calls, ready for the next queue batch."""
+
+
 def _hash(value) -> str:
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True,
                                     separators=(",", ":"), allow_nan=False).encode()).hexdigest()
@@ -84,6 +89,8 @@ def _failure(exc: BaseException) -> tuple[str, str]:
 class SummaryReviewService:
     def __init__(self, sessions, config: RadarConfig):
         self.sessions = sessions
+        self.stage_call_limit = None
+        self._slice = ContextVar("summary_review_slice", default=None)
         self.config = config.model_copy(deep=True)
         self.review = self.config.summary_review
         self.audit_config = self.review.provider or self.config.provider
@@ -306,6 +313,14 @@ class SummaryReviewService:
     async def _call(self, key, owner, *, stage, target, unit_id="", prompt, timeout,
                     invoke: Callable, validate: Callable, save: Callable):
         while True:
+            budget = self._slice.get()
+            if budget is not None:
+                if budget[0] <= 0:
+                    code = self._budget_block(self._read(key, owner), stage, target, unit_id)
+                    if code:
+                        self._blocked(key, owner, code, semantic=code == "correction_budget_exhausted")
+                    raise SummaryReviewYield()
+                budget[0] -= 1
             call_id, actual_prompt = self._reserve(key, owner, stage, target, timeout, unit_id, prompt)
             try:
                 async with asyncio.timeout(timeout):
@@ -348,6 +363,13 @@ class SummaryReviewService:
         return await self._run("documents", scope, sources, provider, evidence)
 
     async def _run(self, kind, scope, sources, provider, evidence, date=""):
+        token = self._slice.set(None if self.stage_call_limit is None else [self.stage_call_limit])
+        try:
+            return await self._run_claimed(kind, scope, sources, provider, evidence, date)
+        finally:
+            self._slice.reset(token)
+
+    async def _run_claimed(self, kind, scope, sources, provider, evidence, date=""):
         if not self.review.enabled:
             raise SummaryReviewPending()
         key, frozen, fingerprint = self._identity(kind, scope, sources, evidence, date)

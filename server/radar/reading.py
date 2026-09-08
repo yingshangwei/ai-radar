@@ -23,7 +23,7 @@ from .models import (
 from .page_parser import extract_page
 from .providers import make_provider
 from .summary_evidence import document_review_evidence, reserve_publication, review_evidence_fingerprint
-from .summary_review import SummaryReviewPending, SummaryReviewService
+from .summary_review import SummaryReviewPending, SummaryReviewService, SummaryReviewYield
 from .translation import cache_key
 from .web_reader import PageFetcher, PageUnavailable
 
@@ -154,6 +154,31 @@ class ReadingService:
         self.semaphore = asyncio.Semaphore(config.reading.concurrency)
         self.summary_reviews = SummaryReviewService(sessions, config)
 
+    def has_pending(self) -> bool:
+        """Read-only recovery signal for fetching or analysis, excluding translation."""
+        if not self.config.reading.enabled:
+            return False
+        reviewed = self.config.summary_review.enabled and self.config.provider.kind != "extractive"
+        now = now_iso()
+        with self.sessions() as session:
+            documents = session.scalars(select(WebDocument).join(ArticleDocument).join(Article)).unique().all()
+            for document in documents:
+                if document.retry_at <= now:
+                    return True
+                if not document.text:
+                    continue
+                key = analysis_key(session, document, self.config)
+                analysis = session.get(DocumentAnalysis, key)
+                if analysis and (analysis.status == "ready" or analysis.retry_at > now):
+                    continue
+                source = {"id": key, "url": document.final_url or document.url, "title": document.title,
+                          "text": document.text, "partial": document.partial}
+                if not reviewed or self.summary_reviews.can_analyze_documents(
+                    "document:" + key, [source], evidence=document_review_evidence([source]),
+                ):
+                    return True
+        return False
+
     async def fetch_one(self, key: str, fetcher: PageFetcher):
         async with self.semaphore:
             with self.sessions() as session:
@@ -215,9 +240,13 @@ class ReadingService:
                     row.message = exc.message if isinstance(exc, PageUnavailable) else "暂未取得可阅读正文，可能为失效链接、扫描件或动态页面。"
                     row.retry_at = (datetime.now(UTC) + timedelta(hours=6)).isoformat()
 
-    async def pending(self, *, force=False) -> dict:
+    async def pending(self, *, force=False, translate=True, limit: int | None = None) -> dict:
+        if limit is not None and (type(limit) is not int or limit < 1):
+            raise ValueError("网页处理数量必须为正整数。")
         if not self.config.reading.enabled:
             return {"enabled": False}
+        max_documents = min(limit, self.config.reading.max_documents) if limit is not None \
+            else self.config.reading.max_documents
         reviewed = self.config.summary_review.enabled and self.config.provider.kind != "extractive"
         source_documents = {}
         with self.sessions.begin() as session:
@@ -229,7 +258,7 @@ class ReadingService:
         fetched = set()
         # Two fixed phases: source/explicit targets first, source-body references second. No traversal loop.
         for _phase in range(2):
-            remaining = self.config.reading.max_documents - len(fetched)
+            remaining = max_documents - len(fetched)
             if remaining <= 0:
                 break
             with self.sessions.begin() as session:
@@ -248,6 +277,7 @@ class ReadingService:
             docs = session.scalars(select(WebDocument).join(ArticleDocument).join(Article).where(
                 WebDocument.text != "").order_by(Article.published_at.desc())).unique().all()
             payloads, seen = [], set()
+            selected_documents = set(fetched)
             for doc in docs:
                 key = analysis_key(session, doc, self.config)
                 doc.analysis_id = key
@@ -267,16 +297,25 @@ class ReadingService:
                     needs_analysis = self.summary_reviews.can_analyze_documents(
                         "document:" + key, [source], evidence=document_review_evidence([source]),
                     )
-                translation = session.get(Translation, cache_key(doc.title, doc.text, self.config.translation))
-                needs_translation = self.config.translation.enabled and (not translation or (
-                    translation.status != "ready" and (force or (translation.retry_at <= now_iso()
-                    and translation.attempts < self.config.translation.max_attempts))))
+                cached_translation = session.get(Translation, cache_key(doc.title, doc.text, self.config.translation))
+                # Match the durable translation queue before the reading limit:
+                # terminal review/unknown calls and live leases are not work.
+                # Fully saved receipts can still finalize without another call.
+                needs_translation = translate and self.config.translation.enabled and (not cached_translation or (
+                    cached_translation.status != "ready"
+                    and self.translations.can_progress(cached_translation, force=force)
+                    and (force or self.translations.can_finalize(cached_translation) or (
+                        cached_translation.retry_at <= now_iso()
+                        and cached_translation.attempts < self.config.translation.max_attempts))))
                 if not needs_analysis and not needs_translation:
                     continue
+                if limit is not None and doc.id not in selected_documents and len(selected_documents) >= max_documents:
+                    continue
+                selected_documents.add(doc.id)
                 source_documents[key] = doc.id
                 payloads.append(dict(source, needs_analysis=needs_analysis))
-        payloads = payloads[:self.config.reading.max_documents]
-        payloads = await self.translations.evidence(payloads, force=force)
+        payloads = payloads[:max_documents]
+        payloads = await self.translations.evidence(payloads, force=force, **({"translate": False} if not translate else {}))
         to_analyze = [{k: v for k, v in doc.items() if k != "needs_analysis"}
                       for doc in payloads if doc["needs_analysis"]]
         completed = 0
@@ -319,8 +358,10 @@ class ReadingService:
                         row = session.get(DocumentAnalysis, doc["id"])
                         if row is None or row.status == "ready":
                             continue
-                        row.status = "review_required" if isinstance(exc, SummaryReviewPending) else "error"
-                        row.retry_at = (datetime.now(UTC) + timedelta(minutes=30)).isoformat()
+                        row.status = ("pending" if isinstance(exc, SummaryReviewYield) else
+                                      "review_required" if isinstance(exc, SummaryReviewPending) else "error")
+                        row.retry_at = ("" if isinstance(exc, SummaryReviewYield) else
+                                        (datetime.now(UTC) + timedelta(minutes=30)).isoformat())
                         row.updated_at = now_iso()
         return {"enabled": True, "fetched": len(fetched), "summarized": completed}
 

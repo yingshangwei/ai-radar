@@ -258,21 +258,28 @@ async def test_cancellation_records_failed_attempt_and_restart_can_retry_after_d
 
 
 @pytest.mark.asyncio
-async def test_legacy_interrupted_running_job_is_recovered_by_normal_pipeline_startup(store, monkeypatch):
+async def test_constructing_pipeline_does_not_declare_unproven_legacy_job_dead(store, monkeypatch):
     clock, state, _, _, rebuild = harness(store, monkeypatch)
     with store.begin() as session:
         session.add(Job(id="interrupted", kind="daily", started_at=clock().isoformat()))
     _, schedule = rebuild()
     with store() as session:
-        assert session.get(Job, "interrupted").status == "failed"
+        assert session.get(Job, "interrupted").status == "running"
     assert await schedule.run() is None
     clock.advance(minutes=30)
-    assert await schedule.run()
-    assert len(state["digests"]) == 1
+    assert await schedule.run() is None
+    assert state["digests"] == []
 
 
 @pytest.mark.parametrize("enabled", [False, True])
 def test_api_registers_shared_cron_and_immediate_recovery_only_when_enabled(tmp_path, monkeypatch, enabled):
+    async def collect_without_network(self):
+        return 0
+
+    # Startup now also checks durable collection intent. This scheduler wiring
+    # test must never contact sources just because collection is initially due.
+    monkeypatch.setattr(pipeline_module.Pipeline, "collect", collect_without_network)
+
     class Scheduler:
         def __init__(self, **options):
             self.options, self.jobs, self.running = options, [], False

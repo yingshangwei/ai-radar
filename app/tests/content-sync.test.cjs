@@ -58,6 +58,12 @@ test("status revisions ignore polling metadata and order but track published con
   equivalent.sources[0].last_attempt_at = "later";
   equivalent.translation.resource_counts = { review_required: 34, ready: 13 };
   equivalent.jobs[0].message = "still running";
+  equivalent.server_now = "2026-09-08T02:00:00Z";
+  equivalent.jobs[0].heartbeat_at = "2026-09-08T02:00:00Z";
+  equivalent.jobs[0].progress_at = "2026-09-08T01:30:00Z";
+  equivalent.jobs[0].phase = "translate";
+  equivalent.jobs[0].attempt = 2;
+  equivalent.jobs[0].retry_at = "2026-09-08T03:00:00Z";
   equivalent.jobs.unshift({ id: "read", status: "running" });
   assert.equal(contentRevision(initial), contentRevision(equivalent));
   for (const change of [
@@ -67,6 +73,7 @@ test("status revisions ignore polling metadata and order but track published con
     (value) => (value.sources[0].last_success_at = "later"),
     (value) => (value.jobs[0].status = "completed"),
     (value) => (value.jobs[0].status = "failed"),
+    (value) => (value.jobs[0].status = "needs_attention"),
   ]) {
     const changed = structuredClone(initial);
     change(changed);

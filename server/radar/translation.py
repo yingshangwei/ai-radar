@@ -64,6 +64,10 @@ class TranslationLeaseError(RuntimeError):
     pass
 
 
+class TranslationYield(Exception):
+    """Yield only between fully persisted calls, never cancel an in-flight request."""
+
+
 VALIDATION_ERROR_TYPES = frozenset({
     "missing", "extra_forbidden", "string_type", "string_too_short", "string_too_long",
     "bool_type", "bool_parsing", "list_type", "too_short", "too_long", "model_type",
@@ -542,6 +546,7 @@ def translation_status(session, config: TranslationConfig) -> dict:
         "counts": counts,
         "resource_counts": resource_counts,
         "alert": balance_alert(session, config),
+        "queue": TranslationService(None, config).queue_state(session) if config.enabled else None,
     }
 
 
@@ -563,6 +568,45 @@ class TranslationService:
         self.semaphore = asyncio.Semaphore(config.concurrency)
         self.balance_blocked = False
         self._workflow_call = ContextVar("translation_workflow_call", default=None)
+        self._stage_budget = ContextVar("translation_stage_budget", default=None)
+
+    def queue_state(self, session):
+        """Read-only eligibility for current sources and safe retry times."""
+        sources = [(a.title, a.text) for a in session.scalars(select(Article))]
+        sources += [(d.title, d.text) for d in bound_resource_texts(session)]
+        keys = {cache_key(title, text, self.config) for title, text in sources}
+        rows = {r.id: r for r in session.scalars(select(Translation).where(Translation.id.in_(keys)))}
+        counts = Counter()
+        next_retry = []
+        at = now_iso()
+        for key in keys:
+            row = rows.get(key)
+            if row is None:
+                counts["runnable"] += 1
+            elif row.status == "ready":
+                continue
+            elif row.lease_until > at:
+                counts["active"] += 1
+            elif self.can_finalize(row):
+                counts["runnable"] += 1
+            elif self.can_progress(row, force=True) and row.attempts < self.config.max_attempts:
+                if row.retry_at > at or not self.can_progress(row):
+                    counts["retrying"] += 1
+                    retry = [row.retry_at]
+                    retry += [e.get("retry_at", "") for p in row.parts
+                              for e in workflow.events(p, RECHECK_POLICY) if e.get("kind") == "result"]
+                    next_retry.extend(value for value in retry if value > at)
+                else:
+                    counts["runnable"] += 1
+            else:
+                counts["needs_attention"] += 1
+        return {"counts": dict(counts), "next_retry_at": min(next_retry) if next_retry else None}
+
+    def has_pending(self):
+        if not self.config.enabled or not secret(self.config.api_key_env):
+            return False
+        with self.sessions() as session:
+            return self.queue_state(session)["counts"].get("runnable", 0) > 0
 
     async def _completion(self, payload: dict, *, system: str, model: str, stage: TranslationStage) -> str:
         from openai import AsyncOpenAI
@@ -846,6 +890,11 @@ class TranslationService:
             for p in row.parts)
 
     async def _invoke_stage(self, key, owner, parts, group, stage, invoke, apply, *, force=False, batch=False):
+        budget = self._stage_budget.get()
+        if budget is not None:
+            if budget[0] <= 0:
+                raise TranslationYield()
+            budget[0] -= 1
         call_id = str(uuid4())
         before = {p["id"]: workflow.target_for(p, stage) for p in group}
         for part in group:
@@ -998,7 +1047,17 @@ class TranslationService:
             async for _group, _result in self.audit_batches(key, owner, parts, audit_parts, force=force):
                 pass  # Each exact result and its candidate receipt is already durable.
 
-    async def translate_one(self, key: str, force=False, *, recheck=False, errors_only=False):
+    async def translate_one(self, key: str, force=False, *, recheck=False, errors_only=False,
+                            max_stage_calls=None):
+        if max_stage_calls is not None and (type(max_stage_calls) is not int or max_stage_calls < 1):
+            raise ValueError("Stage limit must be a positive integer")
+        token = self._stage_budget.set(None if max_stage_calls is None else [max_stage_calls])
+        try:
+            return await self._translate_one(key, force, recheck=recheck, errors_only=errors_only)
+        finally:
+            self._stage_budget.reset(token)
+
+    async def _translate_one(self, key: str, force=False, *, recheck=False, errors_only=False):
         if errors_only and recheck:
             raise ValueError("错误恢复不能与翻译复核合用。")
         async with self.semaphore:
@@ -1092,6 +1151,15 @@ class TranslationService:
                         row.status = "review_required"
                         row.retry_at = (datetime.now(UTC) + timedelta(minutes=30)).isoformat()
                     row.lease_until, row.owner, row.updated_at = "", "", now_iso()
+            except TranslationYield:
+                # Every preceding result is already durable. A cooperative slice
+                # is not a content failure and does not spend a retry attempt.
+                with self.sessions.begin() as session:
+                    session.execute(update(Translation).where(
+                        Translation.id == key, Translation.owner == owner,
+                        Translation.lease_until > now_iso(),
+                    ).values(status="pending", attempts=Translation.attempts - 1,
+                             retry_at="", owner="", lease_until="", updated_at=now_iso()))
             except BaseException as exc:
                 diagnostic = failure_diagnostic(key, progress["stage"], exc)
                 logger.warning("translation_failure %s", json.dumps(diagnostic, ensure_ascii=False, sort_keys=True))
@@ -1167,7 +1235,10 @@ class TranslationService:
                 changed.add(key)
         return changed
 
-    async def pending(self, force=False, *, errors_only=False, machine_only=False) -> dict:
+    async def pending(self, force=False, *, errors_only=False, machine_only=False,
+                      limit=None, max_stage_calls=None) -> dict:
+        if limit is not None and (type(limit) is not int or limit < 1):
+            raise ValueError("Translation batch limit must be a positive integer")
         if machine_only and (force or errors_only):
             raise ValueError("机器复检不能与强制翻译或错误恢复合用。")
         if not self.config.enabled:
@@ -1221,21 +1292,41 @@ class TranslationService:
                 eligible = {row.id for row in session.scalars(select(Translation).where(Translation.id.in_(query)))
                             if self.can_progress(row, force=force) and (force or self.can_finalize(row) or (
                                 row.retry_at <= now_iso() and row.attempts < self.config.max_attempts))}
-            keys = [k for k in keys if k in eligible and k not in reconciled][
-                :self.config.max_documents - len(reconciled)]
+            keys = [k for k in keys if k in eligible and k not in reconciled]
+            if limit is not None:
+                # Rotate saved work after a slice. New/older waiting documents
+                # cannot be perpetually displaced by one long recent document.
+                with self.sessions() as session:
+                    age = dict(session.execute(select(Translation.id, Translation.updated_at).where(
+                        Translation.id.in_(keys))).all())
+                keys.sort(key=lambda key: (age.get(key, ""), key))
+            keys = keys[:max(0, min(self.config.max_documents, limit or self.config.max_documents)
+                             - len(reconciled))]
+            options = {} if max_stage_calls is None else {"max_stage_calls": max_stage_calls}
             if errors_only:
-                await asyncio.gather(*(self.translate_one(key, force, errors_only=True) for key in keys))
+                await asyncio.gather(*(self.translate_one(key, force, errors_only=True, **options) for key in keys))
             else:
-                await asyncio.gather(*(self.translate_one(key, force) for key in keys))
+                await asyncio.gather(*(self.translate_one(key, force, **options) for key in keys))
         with self.sessions() as session:
             result = translation_status(session, self.config)
             if machine_only:
                 result["machine_revalidated"] = len(reconciled)
             return result
 
-    async def evidence(self, articles: list[dict], *, force=False) -> list[dict]:
+    async def evidence(self, articles: list[dict], *, force=False, translate=True) -> list[dict]:
         if not self.config.enabled:
             return articles
+        if not translate:
+            # Reading and digest lanes consume approved cache snapshots only.
+            # Translation has its own durable queue; a read must not start it.
+            with self.sessions() as session:
+                result = []
+                for article in articles:
+                    key = cache_key(article["title"], article["text"], self.config)
+                    row = session.get(Translation, key)
+                    result.append(dict(article, title_zh=row.title_zh, text_zh=row.text_zh)
+                                  if row is not None and row.status == "ready" else article)
+                return result
         configured = bool(secret(self.config.api_key_env))
         with self.sessions.begin() as session:
             keys = [(ensure_translation(session, a["title"], a["text"], self.config).id if configured

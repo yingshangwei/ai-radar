@@ -15,7 +15,9 @@ export function contentRevision(status: Status): string {
       .map((source) => [source.id, source.last_success_at || ""])
       .sort(([a], [b]) => a!.localeCompare(b!)),
     status.jobs
-      .filter((job) => ["completed", "failed"].includes(job.status))
+      .filter((job) =>
+        ["completed", "failed", "needs_attention"].includes(job.status),
+      )
       .map((job) => [job.id, job.status, job.finished_at || ""])
       .sort(([a], [b]) => a!.localeCompare(b!)),
   ]);

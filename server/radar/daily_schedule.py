@@ -26,8 +26,9 @@ def timestamp(value: str | None) -> datetime | None:
 
 
 class DailySchedule:
-    def __init__(self, pipeline: Pipeline, *, clock: Callable[[], datetime] | None = None):
+    def __init__(self, pipeline: Pipeline, *, clock: Callable[[], datetime] | None = None, submit=None):
         self.pipeline = pipeline
+        self.submit = submit
         self.clock = clock or (lambda: datetime.now(UTC))
         self.lock = asyncio.Lock()
 
@@ -44,7 +45,7 @@ class DailySchedule:
     async def run(self):
         # A later check will retry after active collection/manual work finishes.
         # Do not stack automatic runs behind the Pipeline's work queue.
-        if self.lock.locked() or self.pipeline.lock.locked():
+        if self.lock.locked() or (self.submit is None and self.pipeline.lock.locked()):
             return None
         async with self.lock:
             now = self.clock().astimezone(UTC)
@@ -59,7 +60,15 @@ class DailySchedule:
                     # one written by a manual operation or older configuration.
                     if session.get(Digest, day.isoformat()) is not None:
                         return None
-                    if session.scalar(select(Job.id).where(Job.status == "running").limit(1)):
+                    if self.submit is not None and session.scalar(select(Job.id).where(
+                        Job.kind.in_(("daily", "digest")), Job.status.in_(("queued", "retrying")),
+                    ).limit(1)):
+                        # Preserve an explicitly requested older date instead of
+                        # creating another same-kind pending request behind it.
+                        return None
+                    if self.submit is None and session.scalar(
+                        select(Job.id).where(Job.status == "running").limit(1)
+                    ):
                         return None
                     rows = session.scalars(select(Job).where(
                         or_(Job.id.in_(ids), Job.kind.in_(("daily", "digest"))),
@@ -74,6 +83,8 @@ class DailySchedule:
                             history.append(row)
                     if len(history) >= MAX_DAILY_ATTEMPTS:
                         return None
+                    if any(row.status in ("queued", "running", "retrying") for row in history):
+                        return None
                     if history:
                         finished = [timestamp(row.finished_at or row.started_at) for row in history]
                         if any(value is None for value in finished):
@@ -86,6 +97,11 @@ class DailySchedule:
                         return None
                     session.add(Job(
                         id=uid, kind="daily" if attempt == 1 else "digest",
+                        status="queued" if self.submit else "running",
+                        queued_at=now.isoformat() if self.submit else None,
+                        request_day=day.isoformat() if self.submit else None,
+                        phase="queued" if self.submit else "",
+                        max_attempts=1 if self.submit else 3,
                         started_at=now.isoformat(),
                         message=f"自动日报 {day.isoformat()}，本窗口第 {attempt}/{MAX_DAILY_ATTEMPTS} 次尝试。",
                     ))
@@ -93,6 +109,10 @@ class DailySchedule:
                 # The deterministic job ID is the durable claim if another
                 # scheduler checks this window concurrently.
                 return None
+            if self.submit is not None:
+                return self.submit(
+                    kind="daily" if attempt == 1 else "digest", day=day, force=False, job_id=uid,
+                )
             try:
                 return await self.pipeline.run(
                     kind="daily" if attempt == 1 else "digest", day=day, force=False, job_id=uid,

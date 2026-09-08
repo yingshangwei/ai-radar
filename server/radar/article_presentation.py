@@ -104,9 +104,9 @@ class ArticlePresentationService:
         self.sessions, self.config, self.provider_factory = sessions, config, provider_factory
         self.reviews = SummaryReviewService(sessions, config)
 
-    async def pending(self):
+    def _pending_items(self, limit=None):
         if not self.config.summary_review.enabled or self.config.provider.kind == "extractive":
-            return {"processed": 0, "ready": 0}
+            return []
         chosen = []
         with self.sessions() as session:
             cutoff = (datetime.now(UTC) - timedelta(hours=self.config.lookback_hours)).isoformat()
@@ -123,8 +123,15 @@ class ArticlePresentationService:
                     sources[0].update(title_zh=zh.title_zh, text_zh=zh.text_zh)
                 if self.reviews.can_analyze_documents("article:" + article.id, sources, evidence=evidence):
                     chosen.append((article.id, sources, evidence))
-                if len(chosen) == min(MAX_ARTICLES_PER_JOB, self.config.provider.max_items):
+                if len(chosen) == min(limit or MAX_ARTICLES_PER_JOB, self.config.provider.max_items):
                     break
+        return chosen
+
+    def has_pending(self):
+        return bool(self._pending_items(limit=1))
+
+    async def pending(self, *, limit=None):
+        chosen = self._pending_items(limit)
         if not chosen:
             return {"processed": 0, "ready": 0}
         provider = self.provider_factory(self.config.provider)

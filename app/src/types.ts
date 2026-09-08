@@ -98,6 +98,22 @@ export interface Source {
   message: string;
   last_success_at?: string;
 }
+export interface Job {
+  id: string;
+  kind: string;
+  status: string;
+  message: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  queued_at?: string | null;
+  phase?: string | null;
+  heartbeat_at?: string | null;
+  progress_at?: string | null;
+  retry_at?: string | null;
+  attempt?: number;
+  max_attempts?: number;
+  reason_code?: string | null;
+}
 export interface Status {
   timezone: string;
   daily_time: string;
@@ -105,11 +121,17 @@ export interface Status {
   model?: string;
   scheduler_enabled: boolean;
   article_count: number;
+  server_now?: string;
+  job_counts?: Record<string, number>;
   translation?: {
     enabled: boolean;
     configured: boolean;
     counts: Record<string, number>;
     resource_counts?: Record<string, number>;
+    queue?: {
+      counts: Record<string, number>;
+      next_retry_at?: string | null;
+    } | null;
     alert?: {
       code: "insufficient_balance";
       title: string;
@@ -118,14 +140,7 @@ export interface Status {
     } | null;
   };
   sources: Source[];
-  jobs: {
-    id: string;
-    kind: string;
-    status: string;
-    message: string;
-    started_at: string;
-    finished_at?: string | null;
-  }[];
+  jobs: Job[];
 }
 export interface Connection {
   url: string;

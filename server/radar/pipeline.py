@@ -93,6 +93,8 @@ class Pipeline:
     def __init__(self, sessions, config: RadarConfig):
         self.sessions, self.config = sessions, config
         self.lock = asyncio.Lock()
+        self.collect_lock = asyncio.Lock()
+        self.translate_lock = asyncio.Lock()
         self.translations = TranslationService(sessions, config.translation)
         self.reading = ReadingService(sessions, config, self.translations)
         self.summary_reviews = SummaryReviewService(sessions, config)
@@ -105,13 +107,6 @@ class Pipeline:
             for key, name, platform in sources:
                 if not session.get(SourceState, key):
                     session.add(SourceState(id=key, name=name, platform=platform))
-            # One worker is required. Jobs interrupted by a restart are visibly failed, not left running.
-            for job in session.scalars(select(Job).where(Job.status == "running")):
-                job.status, job.message, job.finished_at = (
-                    "failed",
-                    "服务重启中断任务，可以重新运行。",
-                    now_iso(),
-                )
             for article in session.scalars(select(Article)):
                 queue_article(session, article, config.translation)
 
@@ -180,7 +175,7 @@ class Pipeline:
                         session.get(SourceState, key).last_attempt_at = now_iso()
             return total
 
-    async def digest(self, day: date, force=False):
+    async def digest(self, day: date, force=False, *, translate=True):
         start, end = digest_window(day, self.config)
         if end > datetime.now(UTC):
             raise ValueError("日报统计窗口尚未结束")
@@ -227,7 +222,8 @@ class Pipeline:
         if reviewed:
             with self.sessions() as session:
                 evidence = digest_review_evidence(session, selected, self.config)
-        selected = await self.translations.evidence(selected)
+        selected = (await self.translations.evidence(selected) if translate else
+                    await self.translations.evidence(selected, translate=False))
         provider = make_provider(self.config.provider)
         if reviewed:
             result = await self.summary_reviews.generate_digest(
@@ -269,7 +265,67 @@ class Pipeline:
             else now.date()
         )
 
-    async def run(self, kind="collect", day=None, force=False, job_id=None):
+    def has_pending(self, kind):
+        if kind == "translate":
+            return self.translations.has_pending()
+        if kind == "read":
+            return self.reading.has_pending() or self.presentations.has_pending()
+        return False
+
+    async def _managed_run(self, kind, day, force, uid, phase_callback):
+        """Finish a bounded batch; services own the durable content checkpoints."""
+        with self.sessions() as session:
+            job = session.get(Job, uid)
+            if not job or job.status != "running" or not job.owner:
+                raise RuntimeError("任务尚未被执行器接管。")
+            owner = job.owner
+        lock = {"collect": self.collect_lock, "translate": self.translate_lock}.get(kind, self.lock)
+        async with lock:
+            message = ""
+            if kind in ("collect", "daily"):
+                await phase_callback("collect")
+                if kind == "daily":
+                    async with self.collect_lock:
+                        count = await self.collect()
+                else:
+                    count = await self.collect()
+                message = f"新增 {count} 条有效信息。"
+            if kind == "translate" and self.config.translation.enabled:
+                await phase_callback("translate")
+                await self.translations.pending(force=force, limit=2, max_stage_calls=2)
+                message = "本批翻译进度已保存，后续批次将自动继续。"
+            if kind == "read":
+                if self.config.reading.enabled:
+                    await phase_callback("read")
+                    self.reading.summary_reviews.stage_call_limit = 2
+                    try:
+                        reading = await self.reading.pending(force=force, translate=False, limit=1)
+                    finally:
+                        self.reading.summary_reviews.stage_call_limit = None
+                    message = (f"本轮处理 {reading['fetched']} 个直接来源，"
+                               f"完成 {reading['summarized']} 份网页解读。")
+                await phase_callback("presentation")
+                self.presentations.reviews.stage_call_limit = 2
+                try:
+                    await self.presentations.pending(limit=1)
+                finally:
+                    self.presentations.reviews.stage_call_limit = None
+            if kind in ("digest", "daily"):
+                await phase_callback("digest")
+                edition = await self.digest(day or self.latest_day(), force, translate=False)
+                message += f"已生成 {edition} 日报。"
+            more_pending = self.has_pending(kind)
+            with self.sessions.begin() as session:
+                job = session.get(Job, uid)
+                if not job or job.status != "running" or job.owner != owner:
+                    raise RuntimeError("任务执行状态已变更。")
+                job.status, job.message, job.finished_at = "completed", message, now_iso()
+                job.more_pending = more_pending
+            return uid
+
+    async def run(self, kind="collect", day=None, force=False, job_id=None, phase_callback=None):
+        if phase_callback is not None:
+            return await self._managed_run(kind, day, force, job_id, phase_callback)
         async with self.lock:
             with self.sessions.begin() as session:
                 job = session.get(Job, job_id) if job_id else Job(kind=kind)

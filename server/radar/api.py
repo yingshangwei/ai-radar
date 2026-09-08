@@ -1,4 +1,3 @@
-import asyncio
 import secrets
 from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime, timedelta
@@ -8,11 +7,12 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 
 from .config import Settings
 from .daily_schedule import DAILY_CHECK_MINUTES, DailySchedule
 from .db import database
+from .jobs import JobQueueConflict, JobSupervisor, job_counts, public_job
 from .models import Article, ArticleTranslation, Digest, Job, SourceState, Translation, Watch
 from .pipeline import Pipeline, as_dict, ingest
 from .schemas import Bookmark, ImportBatch, Toggle, WatchInput
@@ -24,18 +24,18 @@ def create_app(settings: Settings | None = None):
     config = settings.load()
     engine, sessions = database(settings.database_url)
     pipeline = Pipeline(sessions, config)
-    daily = DailySchedule(pipeline)
-    tasks = set()
+    supervisor = JobSupervisor(pipeline, automatic=settings.scheduler_enabled)
+    daily = DailySchedule(pipeline, submit=supervisor.submit)
 
     @asynccontextmanager
     async def lifespan(_app):
         scheduler = AsyncIOScheduler(timezone=config.timezone)
+        await supervisor.start()
         if settings.scheduler_enabled:
             scheduler.add_job(
-                pipeline.run,
+                supervisor.schedule_collect,
                 "interval",
                 minutes=config.collect_minutes,
-                kwargs={"kind": "collect"},
                 id="collect",
                 max_instances=1,
                 coalesce=True,
@@ -63,14 +63,12 @@ def create_app(settings: Settings | None = None):
         yield
         if scheduler.running:
             scheduler.shutdown(wait=False)
-        for task in tasks:
-            task.cancel()
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+        await supervisor.stop()
         engine.dispose()
 
     app = FastAPI(title="AI Radar", version="0.1.0", lifespan=lifespan)
     app.state.sessions, app.state.pipeline = sessions, pipeline
+    app.state.supervisor = supervisor
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -95,17 +93,7 @@ def create_app(settings: Settings | None = None):
             yield session
 
     def enqueue_reading():
-        # Pipeline's lock queues this behind an existing collection. A successful
-        # browser verification must not silently skip follow-up work when busy.
-        with sessions.begin() as session:
-            job = Job(kind="read")
-            session.add(job)
-            session.flush()
-            uid = job.id
-        task = asyncio.create_task(pipeline.run(kind="read", job_id=uid))
-        tasks.add(task)
-        task.add_done_callback(tasks.discard)
-        return uid
+        return supervisor.submit("read")
 
     from .browser_api import mount_browser
     mount_browser(app, settings, sessions, authenticated, admin, enqueue_reading)
@@ -118,6 +106,7 @@ def create_app(settings: Settings | None = None):
     @app.get("/v1/status", dependencies=[Depends(authenticated)])
     def status(session=Depends(session_dep)):
         return {
+            "server_now": datetime.now(UTC).isoformat(),
             "timezone": config.timezone,
             "daily_time": f"{config.daily_hour:02}:{config.daily_minute:02}",
             "provider": config.provider.kind,
@@ -127,8 +116,12 @@ def create_app(settings: Settings | None = None):
             "translation": translation_status(session, config.translation),
             "sources": [as_dict(s) for s in session.scalars(select(SourceState))],
             "jobs": [
-                as_dict(j) for j in session.scalars(select(Job).order_by(Job.started_at.desc()).limit(10))
+                public_job(j) for j in session.scalars(select(Job).order_by(
+                    case((Job.status.in_(("running", "queued", "retrying")), 0), else_=1),
+                    Job.started_at.desc(),
+                ).limit(10))
             ],
+            "job_counts": job_counts(session),
         }
 
     @app.get("/v1/articles", dependencies=[Depends(authenticated)])
@@ -249,14 +242,10 @@ def create_app(settings: Settings | None = None):
     async def import_articles(body: ImportBatch, session=Depends(session_dep)):
         count = ingest(session, body.articles, config)
         session.commit()
-        if (config.translation.enabled or config.reading.enabled) and not pipeline.lock.locked() and not tasks:
-            kind = "read" if config.reading.enabled else "translate"
-            job = Job(kind=kind)
-            session.add(job)
-            session.commit()
-            task = asyncio.create_task(pipeline.run(kind=kind, job_id=job.id))
-            tasks.add(task)
-            task.add_done_callback(tasks.discard)
+        if config.translation.enabled:
+            supervisor.submit("translate")
+        if config.reading.enabled:
+            supervisor.submit("read")
         return {"accepted": count, "received": len(body.articles)}
 
     @app.post("/v1/admin/jobs", status_code=202, dependencies=[Depends(admin)])
@@ -266,14 +255,10 @@ def create_app(settings: Settings | None = None):
         force: bool = False,
         session=Depends(session_dep),
     ):
-        if pipeline.lock.locked() or any(not task.done() for task in tasks):
-            raise HTTPException(409, "已有任务执行中")
-        job = Job(kind=kind)
-        session.add(job)
-        session.commit()
-        task = asyncio.create_task(pipeline.run(kind=kind, day=day, force=force, job_id=job.id))
-        tasks.add(task)
-        task.add_done_callback(tasks.discard)
-        return {"job_id": job.id}
+        try:
+            uid = supervisor.submit(kind, day=day, force=force)
+        except JobQueueConflict as exc:
+            raise HTTPException(409, str(exc)) from None
+        return {"job_id": uid}
 
     return app

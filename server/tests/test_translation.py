@@ -118,7 +118,7 @@ async def test_failed_review_resumes_draft_and_concurrent_workers_deduplicate(st
 
     async def flaky(parts, *, review):
         if review:
-            raise RuntimeError("private-key-never-expose")
+            raise httpx.ConnectError("private-key-never-expose")
         return await good(parts, review=review)
 
     service.request = flaky
@@ -139,7 +139,7 @@ async def test_failed_review_resumes_draft_and_concurrent_workers_deduplicate(st
 
     service.request = slow
     first = asyncio.create_task(service.translate_one(key, force=True))
-    await entered.wait()
+    await asyncio.wait_for(entered.wait(), timeout=5)
     other, other_calls = fake_service(store, config)
     await other.translate_one(key, force=True)
     release.set()

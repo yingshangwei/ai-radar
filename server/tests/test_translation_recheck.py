@@ -129,7 +129,8 @@ async def test_cli_orchestrator_uses_real_recheck_audit_path(store, monkeypatch)
     again = await rechecks.recheck_translations(store, config, article_ids=[article])
     assert again["skipped"] == 1 and len(calls) == 1 and snapshot(store, key) == completed
     forced = await rechecks.recheck_translations(store, config, article_ids=[article], force=True)
-    assert forced["status"] == "completed" and len(calls) == 2
+    assert forced["status"] == "completed" and len(calls) == 1
+    assert snapshot(store, key) == completed  # Force cannot resample an already approved exact candidate.
     with store() as session:
         assert not rechecks.has_editorial_provenance(session.get(Translation, key))
 

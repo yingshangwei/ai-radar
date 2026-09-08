@@ -201,7 +201,7 @@ async def test_ready_recheck_cas_lease_deduplicates_independent_workers(setup):
     await pending
     assert calls == ["first"]
     await second.translate_one(key, force=True, recheck=True)
-    assert calls == ["first", "second"]
+    assert calls == ["first"]  # Exact successful receipt is reused, even with force.
 
 
 @pytest.mark.asyncio
@@ -280,7 +280,7 @@ async def test_failed_legacy_recheck_resumes_retained_machine_candidate(setup):
     async def audit(parts):
         calls.append(parts[0]["candidate"])
         if len(calls) == 1:
-            raise RuntimeError("Transient provider failure")
+            raise TimeoutError("Transient provider failure")
         return approve(parts)
 
     service.request, service.audit = no_draft, audit
@@ -289,7 +289,7 @@ async def test_failed_legacy_recheck_resumes_retained_machine_candidate(setup):
         row = session.get(Translation, key)
         assert row.status == "error" and row.parts[0]["recheck_pending"]
         assert row.parts[0]["draft"] == GOOD
-    await service.translate_one(key, recheck=True)
+    await service.translate_one(key, force=True, recheck=True)
     assert calls == [GOOD, GOOD]
     with sessions() as session:
         row = session.get(Translation, key)

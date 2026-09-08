@@ -10,6 +10,7 @@ import json
 import logging
 import re
 from collections import Counter
+from contextvars import ContextVar
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from time import monotonic
@@ -21,6 +22,7 @@ from openai import APIConnectionError, APIStatusError, APITimeoutError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import func, select, update
 
+from . import translation_workflow as workflow
 from .config import TranslationConfig, TranslationStage, secret
 from .models import (
     Article,
@@ -553,6 +555,7 @@ class TranslationService:
         self.sessions, self.config = sessions, config
         self.semaphore = asyncio.Semaphore(config.concurrency)
         self.balance_blocked = False
+        self._workflow_call = ContextVar("translation_workflow_call", default=None)
 
     async def _completion(self, payload: dict, *, system: str, model: str, stage: TranslationStage) -> str:
         from openai import AsyncOpenAI
@@ -618,7 +621,23 @@ class TranslationService:
         output: type[BaseModel], validate_literals=None,
     ):
         for attempt in range(2):
-            content = await self._completion(payload, system=system, model=model, stage=stage)
+            context = self._workflow_call.get()
+            request_id = str(uuid4())
+            if context:
+                key, owner, parts, group, call_id = context
+                self._record(parts=group, kind="request_reserved", call_id=call_id,
+                             request_id=request_id, stage=stage, sdk_request_upper_bound=2)
+                self.save_parts(key, owner, parts)
+            try:
+                content = await self._completion(payload, system=system, model=model, stage=stage)
+            except BaseException:
+                # The enclosing logical result classifies known failures. A
+                # process death leaves the reservation visibly unresolved.
+                raise
+            if context:
+                self._record(parts=group, kind="request_returned", call_id=call_id,
+                             request_id=request_id, stage=stage)
+                self.save_parts(key, owner, parts)
             try:
                 result = output.model_validate_json(content)
             except ValidationError as exc:
@@ -716,37 +735,41 @@ class TranslationService:
             raise TranslationValidationError("audit_part_mismatch")
         return byid
 
-    async def audit_batches(self, key, owner, parts, audit_parts):
-        """Recover a malformed batch by strictly auditing each original item.
-
-        Yield each successful response before issuing the next request, so the
-        caller can persist its existing quality checks even if a later call fails.
-        Never relabel an output or reuse approvals from an ambiguous batch.
-        """
+    async def audit_batches(self, key, owner, parts, audit_parts, *, force=False):
         groups = []
         for group in batches(audit_parts):
-            # Persisted transport strategy prevents a resumed job from repeating
-            # a batch whose item correspondence already failed.
-            if any(p.get("audit_mode") == "individual" for p in group):
-                groups.extend([p] for p in group)
-            else:
-                groups.append(group)
+            groups.extend([[p] for p in group] if any(p.get("audit_mode") == "individual" for p in group)
+                          else [group])
         for group in groups:
-            payload = [{"id": p["id"], "source": p["source"], "candidate": p["draft"]} for p in group]
-            self.save_parts(key, owner, parts)
             try:
-                result = await self.audit(payload)
+                result = await self._audit_group(key, owner, parts, group, force=force)
             except TranslationValidationError as exc:
                 if exc.code != "audit_part_mismatch" or len(group) == 1:
                     raise
                 for part in group:
                     part["audit_mode"] = "individual"
                 self.save_parts(key, owner, parts)
-                for part, item in zip(group, payload, strict=True):
-                    self.save_parts(key, owner, parts)
-                    yield [part], await self.audit([item])
+                for part in group:
+                    yield [part], await self._audit_group(key, owner, parts, [part], force=force)
             else:
                 yield group, result
+
+    async def _audit_group(self, key, owner, parts, group, *, force):
+        payload = [{"id": p["id"], "source": p["source"], "candidate": p["draft"]} for p in group]
+
+        def apply(result):
+            for part in group:
+                audited = result[part["id"]]
+                self._apply_audit(part, {
+                    "policy": RECHECK_POLICY, "model": self.config.audit_model or self.config.review_model,
+                    "fingerprint": candidate_fingerprint(part["source"], part["draft"]),
+                    "approved": audited.approved,
+                    "issues": audited.issues or ([] if audited.approved else ["独立语义审计未通过"]),
+                    "at": now_iso(),
+                }, fresh=True)
+
+        return await self._invoke_stage(key, owner, parts, group, "audit", lambda: self.audit(payload),
+                                        apply, force=force, batch=len(group) > 1)
 
     async def auxiliary(self, parts: list[dict]) -> dict[str, str]:
         """Optional administrator-configured LibreTranslate; never a public fallback."""
@@ -775,15 +798,114 @@ class TranslationService:
             return {}
 
     def save_parts(self, key, owner, parts):
+        # The owner AND its unexpired lease are checked by the write itself.
+        now = now_iso()
         with self.sessions.begin() as session:
-            row = session.get(Translation, key)
-            if row.owner != owner:
+            changed = session.execute(update(Translation).where(
+                Translation.id == key, Translation.owner == owner, Translation.lease_until > now,
+            ).values(parts=deepcopy(parts), updated_at=now,
+                     lease_until=(datetime.now(UTC) + timedelta(
+                         seconds=self.config.timeout_seconds * 4 + 60)).isoformat()))
+            if changed.rowcount != 1:
                 raise TranslationLeaseError("Translation lease lost")
-            row.parts = json.loads(json.dumps(parts))
-            row.updated_at = now_iso()
-            row.lease_until = (
-                datetime.now(UTC) + timedelta(seconds=self.config.timeout_seconds * 4 + 60)
-            ).isoformat()
+
+    def _record(self, parts, kind, **values):
+        for part in parts:
+            part.setdefault("workflow_history", []).append(workflow.event(
+                part, RECHECK_POLICY, kind, at=now_iso(), **deepcopy(values)))
+
+    def can_finalize(self, row):
+        return bool(row.parts) and row.status != "ready" and all(
+            part_audited(p) and not workflow.blocked(p, RECHECK_POLICY) for p in row.parts
+        ) and any(workflow.events(p, RECHECK_POLICY) for p in row.parts)
+
+    def can_progress(self, row, *, force=False, recheck=False):
+        """Read only; used before the queue limit and again inside the claim."""
+        if row.lease_until and row.lease_until >= now_iso():
+            return False
+        history = any(workflow.events(p, RECHECK_POLICY) for p in row.parts)
+        if not history and row.status in {"running", "error"}:
+            # Legacy crashes/errors do not have a trustworthy completed failure
+            # receipt. A force flag is not evidence of a safe network recovery.
+            return False
+        if self.can_finalize(row):
+            return True  # Receipts committed before a crash; finish with zero model calls.
+        editorial = "editorial" in (row.review_model or "").lower() or any(
+            any(name.startswith("editorial_") for name in p) for p in row.parts)
+        if recheck and editorial and not history:
+            return True
+        return any(not part_audited(p) and workflow.next_stage(
+            p, RECHECK_POLICY, self.config.review_max_rounds, now_iso(), force=force)
+            for p in row.parts)
+
+    async def _invoke_stage(self, key, owner, parts, group, stage, invoke, apply, *, force=False, batch=False):
+        call_id = str(uuid4())
+        before = {p["id"]: workflow.target_for(p, stage) for p in group}
+        for part in group:
+            if not workflow.permitted(part, stage, RECHECK_POLICY, now_iso(), force=force,
+                                      individual=part.get("audit_mode") == "individual"):
+                raise TranslationLeaseError("Translation workflow does not permit a new call")
+            self._record([part], "reserved", call_id=call_id, stage=stage, target=before[part["id"]])
+        self.save_parts(key, owner, parts)
+        token = self._workflow_call.set((key, owner, parts, group, call_id))
+        try:
+            result = await invoke()
+        except BaseException as exc:
+            diagnostic = failure_diagnostic(key, stage, exc)
+            status = diagnostic["http_status"]
+            outcome = ("known_balance" if status == 402 else "known_transport" if
+                       status == 429 or (status is not None and status >= 500) or
+                       isinstance(exc, (APITimeoutError, httpx.TimeoutException, TimeoutError,
+                                        APIConnectionError, httpx.TransportError)) else
+                       "batch_mismatch" if isinstance(exc, TranslationValidationError) and
+                       exc.code == "audit_part_mismatch" and batch else
+                       "invalid_output" if isinstance(exc, (TranslationValidationError, ValidationError)) else
+                       "unknown")
+            for part in group:
+                previous = sum(e.get("outcome") == "known_transport" and e.get("stage") == stage
+                               and e.get("target") == before[part["id"]]
+                               for e in workflow.events(part, RECHECK_POLICY))
+                self._record([part], "result", call_id=call_id, stage=stage, target=before[part["id"]],
+                             outcome=outcome, code=diagnostic["code"], http_status=status,
+                             retry_at=(datetime.now(UTC) + timedelta(seconds=60 if previous == 0 else 300)).isoformat())
+            # A stale owner must never overwrite a replacement owner's state.
+            try:
+                self.save_parts(key, owner, parts)
+            except TranslationLeaseError:
+                pass
+            raise
+        finally:
+            self._workflow_call.reset(token)
+        # Response application and the completed receipt share one transaction.
+        # Death before this write leaves an unknown reservation, never a false
+        # completion that would lose a candidate and invite a duplicate call.
+        apply(result)
+        for part in group:
+            self._record([part], "result", call_id=call_id, stage=stage, target=before[part["id"]],
+                         outcome="completed", candidate_fingerprint=workflow.target_for(part, "audit"),
+                         result=result[part["id"]].model_dump())
+        self.save_parts(key, owner, parts)
+        return result
+
+    def _apply_audit(self, part, receipt, *, fresh=False):
+        receipt = deepcopy(receipt)
+        target = candidate_fingerprint(part["source"], part["draft"])
+        reviews = list(workflow.receipts(part, "correction", RECHECK_POLICY, target))
+        review = next((r for r in reviews if workflow.rejected(r)), reviews[-1] if reviews else {})
+        correction_issues = review.get("issues", []) or (
+            [] if not review or review.get("approved") else ["校对未批准候选译文"])
+        machine_issues = quality_issues(part["source"], part["draft"])
+        # Historical model issues are not edited, filtered or approved by this
+        # scheduler. Machine-only recovery remains a separate explicit helper.
+        audit_issues = receipt.get("issues", []) or (
+            [] if receipt.get("approved") else ["独立语义审计未通过"])
+        retained = [] if fresh else receipt.get("machine_issues", []) + receipt.get("correction_issues", [])
+        issues = list(dict.fromkeys(machine_issues + correction_issues + audit_issues + retained))
+        part.update(zh=part["draft"], ok=not issues, issues=issues, correction_required=bool(issues))
+        if fresh:
+            receipt.update(machine_issues=machine_issues, correction_issues=correction_issues)
+            part.setdefault("quality_history", []).append({"kind": "audit", **receipt})
+        part["audit"] = receipt
 
     def prepare_recheck(self, row, parts, provenance):
         editorial_row = "editorial" in (row.review_model or "").lower()
@@ -791,7 +913,7 @@ class TranslationService:
         for part in parts:
             if part.get("recheck_pending"):
                 continue  # Resume the persisted machine candidate and completed review stage.
-            previous = {k: v for k, v in part.items() if k != "review_history"}
+            previous = deepcopy({k: v for k, v in part.items() if k != "review_history"})
             part.setdefault("review_history", []).append({
                 "policy": RECHECK_POLICY, "at": now_iso(), "previous": previous,
                 "row_provenance": provenance,
@@ -814,65 +936,60 @@ class TranslationService:
             if not needs_translation(part["source"]) and not editorial:
                 part.update(zh=part["source"], draft=part["source"], ok=True)
 
-    async def review_parts(self, key, owner, parts, progress=None):
+    async def review_parts(self, key, owner, parts, progress=None, *, force=False):
         progress = progress if progress is not None else {}
-        rounds = Counter()
         while True:
-            progress["stage"] = "correction" if any(p.get("correction_required") for p in parts) else "audit"
-            pending = [part for part in parts if not part_audited(part)]
-            if not pending:
-                return
-            corrections = [p for p in pending if p.get("correction_required")
-                           and rounds[p["id"]] < self.config.review_max_rounds]
+            for part in parts:
+                if not part_audited(part) and workflow.next_stage(
+                        part, RECHECK_POLICY, self.config.review_max_rounds, now_iso(), force=force) == "receipt":
+                    self._apply_audit(part, workflow.audit_receipt(part, RECHECK_POLICY))
+                    self.save_parts(key, owner, parts)
+            pending = [p for p in parts if not part_audited(p)]
+            corrections = [p for p in pending if workflow.next_stage(
+                p, RECHECK_POLICY, self.config.review_max_rounds, now_iso(), force=force) == "correction"]
             for group in batches(corrections):
                 progress["stage"] = "correction"
-                self.save_parts(key, owner, parts)
-                result = await self.request([
-                    {"id": p["id"], "source": p["source"], "draft": p["draft"],
-                     "checks": list(dict.fromkeys(quality_issues(p["source"], p["draft"])
-                                                  + p.get("issues", [])))}
-                    for p in group
-                ], review=True)
-                for part in group:
-                    reviewed = result[part["id"]]
-                    rounds[part["id"]] += 1
-                    part.update(zh=reviewed.zh, draft=reviewed.zh, ok=False, correction_required=False)
-                    part["review"] = {
-                        "model": self.config.review_model, "policy": RECHECK_POLICY,
-                        "fingerprint": candidate_fingerprint(part["source"], reviewed.zh),
-                        "approved": reviewed.approved, "issues": reviewed.issues,
-                        "round": rounds[part["id"]], "at": now_iso(),
-                    }
-                    part.setdefault("quality_history", []).append({"kind": "correction", **part["review"]})
-                self.save_parts(key, owner, parts)
-            audit_parts = [p for p in pending if not p.get("correction_required")]
-            if not audit_parts:
-                return  # Bounded repairs are exhausted; preserve draft and explicit issues.
+                before = {p["id"]: workflow.target_for(p, "correction") for p in group}
+                seen = {p["id"]: workflow.seen_candidates(p, RECHECK_POLICY) for p in group}
+                rounds = {p["id"]: workflow.correction_rounds(p, RECHECK_POLICY) + 1 for p in group}
+                inputs = [{"id": p["id"], "source": p["source"], "draft": p["draft"],
+                           "checks": list(dict.fromkeys(quality_issues(p["source"], p["draft"])
+                                                        + p.get("issues", [])))} for p in group]
+
+                def apply(result, group=group, before=before, seen=seen, rounds=rounds):
+                    for part in group:
+                        reviewed = result[part["id"]]
+                        target = candidate_fingerprint(part["source"], reviewed.zh)
+                        previously_denied = workflow.denied(part, RECHECK_POLICY, target)
+                        cycle = target != before[part["id"]] and target in seen[part["id"]]
+                        part.update(zh=reviewed.zh, draft=reviewed.zh, ok=False, correction_required=False)
+                        part["review"] = {
+                            "model": self.config.review_model, "policy": RECHECK_POLICY,
+                            "fingerprint": target, "approved": reviewed.approved, "issues": reviewed.issues,
+                            "round": rounds[part["id"]], "at": now_iso(),
+                        }
+                        part.setdefault("quality_history", []).append({"kind": "correction", **part["review"]})
+                        if previously_denied or cycle:
+                            # Keep the actual returned candidate/decision, but do
+                            # not sample a new verdict for an old rejected claim.
+                            self._record([part], "stop", code="candidate_cycle" if cycle else "candidate_already_rejected")
+                            part["correction_required"] = True
+                            part["issues"] = list(dict.fromkeys(reviewed.issues + part.get("issues", []))) or [
+                                "候选译文未发生有效修订，已停止重复审阅"]
+                        else:
+                            # An old candidate's audit cannot stand in for the
+                            # freshly changed text. History is retained intact.
+                            part.pop("audit", None)
+
+                await self._invoke_stage(key, owner, parts, group, "correction",
+                                         lambda inputs=inputs: self.request(inputs, review=True), apply, force=force)
+            audit_parts = [p for p in parts if not part_audited(p) and workflow.next_stage(
+                p, RECHECK_POLICY, self.config.review_max_rounds, now_iso(), force=force) == "audit"]
+            if not corrections and not audit_parts:
+                return
             progress["stage"] = "audit"
-            async for group, result in self.audit_batches(key, owner, parts, audit_parts):
-                for part in group:
-                    audited = result[part["id"]]
-                    fingerprint = candidate_fingerprint(part["source"], part["draft"])
-                    review = part.get("review", {})
-                    correction_issues = []
-                    if review.get("fingerprint") == fingerprint:
-                        correction_issues = review.get("issues", []) or (
-                            [] if review.get("approved") else ["校对未批准候选译文"]
-                        )
-                    machine_issues = quality_issues(part["source"], part["draft"])
-                    audit_issues = audited.issues or ([] if audited.approved else ["独立语义审计未通过"])
-                    issues = list(dict.fromkeys(machine_issues + correction_issues + audit_issues))
-                    part.update(zh=part["draft"], ok=not issues, issues=issues,
-                                correction_required=bool(issues))
-                    part["audit"] = {
-                        "policy": RECHECK_POLICY,
-                        "model": self.config.audit_model or self.config.review_model,
-                        "fingerprint": fingerprint, "approved": audited.approved,
-                        "issues": audit_issues, "machine_issues": machine_issues,
-                        "correction_issues": correction_issues, "at": now_iso(),
-                    }
-                    part.setdefault("quality_history", []).append({"kind": "audit", **part["audit"]})
-                self.save_parts(key, owner, parts)
+            async for _group, _result in self.audit_batches(key, owner, parts, audit_parts, force=force):
+                pass  # Each exact result and its candidate receipt is already durable.
 
     async def translate_one(self, key: str, force=False, *, recheck=False, errors_only=False):
         if errors_only and recheck:
@@ -883,8 +1000,11 @@ class TranslationService:
             owner = str(uuid4())
             now = now_iso()
             with self.sessions.begin() as session:
-                row = session.get(Translation, key)
-                if row is None or (recheck and not force and not needs_recheck(row)):
+                if session.bind.dialect.name == "sqlite":
+                    session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+                row = session.scalar(select(Translation).where(Translation.id == key).with_for_update())
+                if (row is None or not self.can_progress(row, force=force, recheck=recheck)
+                        or (recheck and not force and not needs_recheck(row))):
                     return
                 provenance = {column.name: getattr(row, column.name)
                               for column in row.__table__.columns if column.name != "parts"}
@@ -898,7 +1018,8 @@ class TranslationService:
                     claim = claim.where(Translation.status == "error")
                 elif not recheck:
                     claim = claim.where(Translation.status != "ready")
-                if not force and not recheck:
+                finalize = self.can_finalize(row)
+                if not force and not recheck and not finalize:
                     claim = claim.where(
                         Translation.retry_at <= now, Translation.attempts < self.config.max_attempts
                     )
@@ -906,7 +1027,7 @@ class TranslationService:
                     claim.values(
                         owner=owner,
                         status="running",
-                        attempts=Translation.attempts + 1,
+                        attempts=Translation.attempts + (0 if finalize else 1),
                         lease_until=(
                             datetime.now(UTC) + timedelta(seconds=self.config.timeout_seconds * 4 + 60)
                         ).isoformat(),
@@ -915,32 +1036,43 @@ class TranslationService:
                 if changed.rowcount != 1:
                     return
                 parts = json.loads(json.dumps(row.parts))
-                if recheck:
+                for part in parts:
+                    if not workflow.events(part, RECHECK_POLICY) and not part_audited(part):
+                        self._record([part], "baseline", correction_rounds=workflow.legacy_rounds(part))
+                if recheck and not finalize:
                     self.prepare_recheck(row, parts, provenance)
                 for part in parts:
                     if not part_audited(part):
                         part["ok"] = False
-                        part.setdefault("correction_required", not bool(part.get("zh")))
+                        receipt = workflow.audit_receipt(part, RECHECK_POLICY)
+                        part.setdefault("correction_required", bool(receipt and workflow.rejected(receipt, audit=True))
+                                        or not bool(part.get("zh")))
                 row.parts = json.loads(json.dumps(parts))
             progress = {"stage": "draft"}
             try:
-                for group in batches([p for p in parts if not p.get("draft")]):
-                    self.save_parts(key, owner, parts)
+                for group in batches([p for p in parts if not p.get("draft") and workflow.next_stage(
+                        p, RECHECK_POLICY, self.config.review_max_rounds, now_iso(), force=force) == "draft"]):
                     auxiliary = await self.auxiliary(group)
-                    inputs = [
-                        {"id": p["id"], "source": p["source"], "auxiliary_draft": auxiliary.get(p["id"])}
-                        for p in group
-                    ]
-                    result = await self.request(inputs, review=False)
-                    for part in group:
-                        part["draft"] = result[part["id"]].zh
-                        part["initial_draft"] = result[part["id"]].zh
-                        part["correction_required"] = True
-                    self.save_parts(key, owner, parts)
-                await self.review_parts(key, owner, parts, progress=progress)
+                    inputs = [{"id": p["id"], "source": p["source"], "auxiliary_draft": auxiliary.get(p["id"])}
+                              for p in group]
+
+                    def apply(result, group=group):
+                        for part in group:
+                            part["draft"] = result[part["id"]].zh
+                            part["initial_draft"] = result[part["id"]].zh
+                            part["correction_required"] = True
+
+                    await self._invoke_stage(key, owner, parts, group, "draft",
+                                             lambda inputs=inputs: self.request(inputs, review=False), apply, force=force)
+                await self.review_parts(key, owner, parts, progress=progress, force=force)
                 with self.sessions.begin() as session:
-                    row = session.get(Translation, key)
-                    if row.owner != owner:
+                    if session.bind.dialect.name == "sqlite":
+                        session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+                    row = session.scalar(select(Translation).where(
+                        Translation.id == key, Translation.owner == owner,
+                        Translation.lease_until > now_iso(),
+                    ).with_for_update())
+                    if row is None:
                         return
                     row.issues = [issue for p in parts for issue in p.get("issues", [])][:30]
                     row.model, row.review_model = self.config.model, self.config.review_model
@@ -960,6 +1092,8 @@ class TranslationService:
                 if insufficient:
                     self.balance_blocked = True
                 with self.sessions.begin() as session:
+                    if session.bind.dialect.name == "sqlite":
+                        session.connection().exec_driver_sql("BEGIN IMMEDIATE")
                     if insufficient:
                         session.merge(
                             TranslationAccountState(
@@ -968,8 +1102,11 @@ class TranslationService:
                                 observed_at=now_iso(),
                             )
                         )
-                    row = session.get(Translation, key)
-                    if row.owner == owner:
+                    row = session.scalar(select(Translation).where(
+                        Translation.id == key, Translation.owner == owner,
+                        Translation.lease_until > now_iso(),
+                    ).with_for_update())
+                    if row is not None:
                         row.status = "insufficient_balance" if insufficient else "error"
                         # Provider exception strings may contain keys or source contents.
                         stage_name = {"draft": "初稿生成", "correction": "修订校对", "audit": "独立审计"}[
@@ -1074,11 +1211,9 @@ class TranslationService:
                     Translation.status == "error" if errors_only else Translation.status != "ready",
                     Translation.lease_until < now_iso(),
                 )
-                if not force:
-                    query = query.where(
-                        Translation.retry_at <= now_iso(), Translation.attempts < self.config.max_attempts
-                    )
-                eligible = set(session.scalars(query))
+                eligible = {row.id for row in session.scalars(select(Translation).where(Translation.id.in_(query)))
+                            if self.can_progress(row, force=force) and (force or self.can_finalize(row) or (
+                                row.retry_at <= now_iso() and row.attempts < self.config.max_attempts))}
             keys = [k for k in keys if k in eligible and k not in reconciled][
                 :self.config.max_documents - len(reconciled)]
             if errors_only:

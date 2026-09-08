@@ -189,8 +189,12 @@ async def test_fallback_saves_each_passing_part_and_resumes_only_remaining_part(
     resumed._completion = recovered
     await resumed.translate_one(key, force=True)
     row = row_snapshot(sessions, key)
-    assert row["status"] == "ready" and row["parts"][0] == saved_title
-    assert calls == expected + [["body-0"]]
+    assert row["parts"][0] == saved_title
+    if failure in {"wrong_id", "schema"}:
+        # The one strict individual/format recovery was already exhausted.
+        assert row["status"] == "error" and calls == expected
+    else:
+        assert row["status"] == "ready" and calls == expected + [["body-0"]]
 
 
 @pytest.mark.asyncio
@@ -240,8 +244,10 @@ async def test_individual_strategy_survives_restart_with_multiple_unfinished_par
         assert all(set(part) == {"id", "source", "candidate"} for part in parts)
         ids = [part["id"] for part in parts]
         calls.append(ids)
-        if len(ids) > 1 or ids == ["body-0"]:
+        if len(ids) > 1:
             return audit_response([{"id": "unknown"}])
+        if ids == ["body-0"]:
+            raise TimeoutError("Known terminated transport failure after strategy fallback")
         return audit_response(parts)
 
     service._completion = completion
@@ -309,8 +315,10 @@ async def test_single_fallback_retains_all_quality_gates_and_bounded_repairs(set
 
     service._completion = completion
     await service.translate_one(key)
-    assert len(corrections) == config.review_max_rounds == 2
-    assert audits == [["title", "body-0"], ["title"], ["body-0"], ["body-0"], ["body-0"]]
+    # The saved first correction counts toward the durable two-round budget.
+    # Returning its rejected candidate unchanged cannot request another verdict.
+    assert len(corrections) == config.review_max_rounds - 1 == 1
+    assert audits == [["title", "body-0"], ["title"], ["body-0"]]
     row = row_snapshot(sessions, key)
     assert row["status"] == "review_required" and row["issues"]
     assert not row["text_zh"] and not row["title_zh"]

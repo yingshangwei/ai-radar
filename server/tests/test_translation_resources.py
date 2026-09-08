@@ -122,12 +122,27 @@ async def test_force_resumes_exhausted_web_draft_without_repeating_approved_part
     with store.begin() as session:
         row = ensure_translation(session, text, text, config)
         key = row.id
-        row.status, row.attempts = "error", config.max_attempts
-        row.retry_at = (datetime.now(UTC)+timedelta(hours=1)).isoformat()
         row.parts = [copy.deepcopy(audited), {
             "id": "body-1", "source": OTHER, "draft": CHINESE[OTHER], "zh": CHINESE[OTHER],
             "ok": False, "correction_required": False,
         }]
+    failed = TranslationService(store, config)
+    failed_calls = []
+
+    async def ended_timeout(parts):
+        failed_calls.extend(part["source"] for part in parts)
+        raise TimeoutError("synthetic completed audit timeout")
+
+    failed.audit = ended_timeout
+    await failed.translate_one(key)
+    assert failed_calls == [OTHER]
+    with store.begin() as session:
+        row = session.get(Translation, key)
+        assert row.status == "error" and row.parts[0] == audited
+        # Exhaust only the older document-level limit. The actual completed
+        # failure receipt, not the status string, authorizes bounded recovery.
+        row.attempts = config.max_attempts
+        row.retry_at = (datetime.now(UTC)+timedelta(hours=1)).isoformat()
     service = TranslationService(store, config)
     calls = model_responses(service)
     await service.pending()

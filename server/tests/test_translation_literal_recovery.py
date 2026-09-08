@@ -198,7 +198,7 @@ async def test_literal_recovery_does_not_bypass_review_audit_or_machine_gates(se
     await service.translate_one(key)
     expected = ["draft", "draft", "review", "audit"]
     if outcome != "ready":
-        expected += ["review", "audit"]
+        expected += ["review"]  # Unchanged rejected candidate must not get a second audit.
     assert calls == expected
     with sessions() as session:
         row = session.get(Translation, key)

@@ -190,7 +190,7 @@ async def test_valid_review_rejection_is_not_format_retried_and_cannot_publish(s
 
     service._completion = completion
     await service.translate_one(key)
-    assert calls == ["draft", "review", "audit", "review", "audit"]
+    assert calls == ["draft", "review", "audit", "review"]  # No repeated same-candidate verdict.
     with sessions() as session:
         row = session.get(Translation, key)
         assert row.status == "review_required" and not row.text_zh and row.issues

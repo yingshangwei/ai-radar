@@ -1,3 +1,4 @@
+import asyncio
 import copy
 import json
 import sys
@@ -6,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy import event, select
 
-from radar import cli
+from radar import cli, translation
 from radar.config import RadarConfig, TranslationConfig
 from radar.db import database
 from radar.models import Article, ArticleDocument, ArticleTranslation, Job, Translation, WebDocument
@@ -59,6 +60,36 @@ def document(session, config, name, parent, *, status="error", text=None, bound=
     return row
 
 
+async def record_retryable_errors(sessions, config, keys, monkeypatch):
+    """Create completed transport failures through the real durable workflow."""
+    earlier = datetime.now(UTC) - timedelta(hours=2)
+
+    class EarlierDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return earlier.astimezone(tz) if tz else earlier.replace(tzinfo=None)
+
+    async def timeout(parts, *, review):
+        raise TimeoutError("synthetic completed timeout")
+
+    # These are initial fixtures, not unknown production failures being reopened.
+    with sessions.begin() as session:
+        for key in dict.fromkeys(keys):
+            session.get(Translation, key).status = "pending"
+    with monkeypatch.context() as clock:
+        clock.setattr(translation, "datetime", EarlierDateTime)
+        clock.setattr(translation, "now_iso", lambda: earlier.isoformat())
+        service = TranslationService(sessions, config)
+        service.request = timeout
+        for key in dict.fromkeys(keys):
+            await service.translate_one(key)
+    with sessions() as session:
+        for key in dict.fromkeys(keys):
+            row = session.get(Translation, key)
+            assert row.status == "error" and not row.owner and not row.lease_until
+            assert row.parts[0]["workflow_history"][-1]["outcome"] == "known_transport"
+
+
 @pytest.fixture
 def model(monkeypatch):
     calls = []
@@ -78,7 +109,7 @@ def model(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_errors_only_preserves_nonerror_unbound_stale_and_missing_caches(store, model):
+async def test_errors_only_preserves_nonerror_unbound_stale_and_missing_caches(store, model, monkeypatch):
     config = TranslationConfig(enabled=True, max_documents=100)
     with store.begin() as session:
         main = article(session, config, "main", status="ready")
@@ -96,6 +127,7 @@ async def test_errors_only_preserves_nonerror_unbound_stale_and_missing_caches(s
         stale_doc.title = stale_doc.text = "AI supports changed discoveries."
         current_key = cache_key(current.title, current.text, config)
         source = current.text
+    await record_retryable_errors(store, config, [current_key], monkeypatch)
     before = snapshot(store, Translation)
     originals = {kind: snapshot(store, kind) for kind in [Article, WebDocument, ArticleTranslation, ArticleDocument]}
     config_before = config.model_dump()
@@ -114,7 +146,7 @@ async def test_errors_only_preserves_nonerror_unbound_stale_and_missing_caches(s
 
 
 @pytest.mark.asyncio
-async def test_main_priority_and_shared_key_dedup_before_limiting(store, model):
+async def test_main_priority_and_shared_key_dedup_before_limiting(store, model, monkeypatch):
     config = TranslationConfig(enabled=True)
     with store.begin() as session:
         main = article(session, config, "main", hour=10)
@@ -124,6 +156,9 @@ async def test_main_priority_and_shared_key_dedup_before_limiting(store, model):
         page = document(session, config, "b-page", recent)
         document(session, config, "c-later", recent)
         expected = [main.text, page.text]
+    with store() as session:
+        keys = list(session.scalars(select(Translation.id).where(Translation.status == "error")))
+    await record_retryable_errors(store, config, keys, monkeypatch)
     result = await translate_limited(store, config, limit=2, errors_only=True)
     assert result["status"] == "completed"
     assert [source for stage, source in model if stage == "draft"] == expected
@@ -133,18 +168,20 @@ async def test_main_priority_and_shared_key_dedup_before_limiting(store, model):
 
 
 @pytest.mark.asyncio
-async def test_eligible_before_limit_and_force_keeps_lease_gate(store, model):
+async def test_eligible_before_limit_and_force_keeps_lease_gate(store, model, monkeypatch):
     config = TranslationConfig(enabled=True)
     with store.begin() as session:
         main = article(session, config, "main", status="review_required")
         docs = [document(session, config, name, main)
                 for name in ["a-leased", "b-exhausted", "c-backoff", "d-eligible"]]
         keys = [cache_key(doc.title, doc.text, config) for doc in docs]
+        sources = [doc.text for doc in docs]
+    await record_retryable_errors(store, config, keys, monkeypatch)
+    with store.begin() as session:
         session.get(Translation, keys[0]).lease_until = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
         session.get(Translation, keys[0]).owner = "other-worker"
         session.get(Translation, keys[1]).attempts = config.max_attempts
         session.get(Translation, keys[2]).retry_at = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
-        sources = [doc.text for doc in docs]
     before = snapshot(store, Translation)
 
     await translate_limited(store, config, limit=1, errors_only=True)
@@ -161,11 +198,12 @@ async def test_eligible_before_limit_and_force_keeps_lease_gate(store, model):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("new_status", ["pending", "review_required", "ready"])
-async def test_atomic_claim_rechecks_error_status_after_read(store, model, new_status):
+async def test_atomic_claim_rechecks_error_status_after_read(store, model, new_status, monkeypatch):
     config = TranslationConfig(enabled=True)
     with store.begin() as session:
         main = article(session, config, "main")
         key = cache_key(main.title, main.text, config)
+    await record_retryable_errors(store, config, [key], monkeypatch)
     before = snapshot(store, Translation)[key]
     engine = store.kw["bind"]
     raced = []
@@ -204,6 +242,7 @@ async def test_semantic_rejection_is_preserved_and_not_retried_by_next_error_bat
     with store.begin() as session:
         main = article(session, config, "main")
         key = cache_key(main.title, main.text, config)
+    await record_retryable_errors(store, config, [key], monkeypatch)
 
     async def reject(service, parts):
         return {part["id"]: AuditedPart(id=part["id"], approved=False, issues=["候选含义与原文不一致"])
@@ -256,6 +295,8 @@ def test_cli_errors_only_uses_formal_job_and_no_pipeline(store, model, monkeypat
         article(session, config.translation, "semantic", status="review_required")
         main = article(session, config.translation, "technical")
         source = main.text
+        key = cache_key(main.title, main.text, config.translation)
+    asyncio.run(record_retryable_errors(store, config.translation, [key], monkeypatch))
 
     class Configured:
         database_url = str(store.kw["bind"].url)

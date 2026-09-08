@@ -131,10 +131,21 @@ async def test_force_resumes_exhausted_draft_but_keeps_live_lease_and_ready_cach
         leased.lease_until = (datetime.now(UTC) + timedelta(minutes=5)).isoformat()
         leased.owner = "another-worker"
         row = session.get(Translation, keys[SECOND])
-        row.status, row.attempts = "error", config.max_attempts
-        row.retry_at = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
         row.parts = [{"id": "body-0", "source": SECOND, "draft": ZH[SECOND], "zh": ZH[SECOND],
                       "ok": False, "correction_required": False}]
+
+    async def timeout(parts):
+        raise TimeoutError("synthetic completed audit timeout")
+
+    failure_service = TranslationService(store, config)
+    failure_service.audit = timeout
+    await failure_service.translate_one(keys[SECOND])
+    with store.begin() as session:
+        row = session.get(Translation, keys[SECOND])
+        assert row.status == "error"
+        assert row.parts[0]["workflow_history"][-1]["outcome"] == "known_transport"
+        row.attempts = config.max_attempts
+        row.retry_at = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
     before = snapshot(store, Translation)
     unforced = await translate_limited(store, config, limit=1)
     assert model == [] and unforced["resource_counts"] == {"pending": 1, "error": 1}

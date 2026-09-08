@@ -65,13 +65,13 @@ async def test_all_audit_issues_reach_correction_without_format_retry_and_remain
     service._completion = completion
     await service.translate_one(key)
 
-    assert calls == ["audit", "correction", "audit"]
+    assert calls == ["audit", "correction"]  # Same rejected candidate is never sampled again.
     with sessions() as session:
         row = session.get(Translation, key)
-        assert row.status == "ready" and row.text_zh == CANDIDATE and row.original_text == SOURCE
+        assert row.status == "review_required" and row.text_zh == "" and row.original_text == SOURCE
         part = row.parts[0]
-        assert part_audited(part) and row.issues == []
-        assert [entry["kind"] for entry in part["quality_history"]] == ["audit", "correction", "audit"]
+        assert not part_audited(part) and row.issues == AUDIT_ISSUES[:30]
+        assert [entry["kind"] for entry in part["quality_history"]] == ["audit", "correction"]
         assert part["quality_history"][0]["issues"] == AUDIT_ISSUES
         assert not part["quality_history"][0]["approved"]
 
@@ -99,10 +99,9 @@ async def test_large_issue_lists_remain_rejected_and_all_repairs_are_bounded(set
     service._completion = completion
     await service.translate_one(key)
 
-    assert calls == ["audit", "correction", "audit", "correction", "audit"]
-    assert len(correction_checks) == config.review_max_rounds == 2
+    assert calls == ["audit", "correction"]
+    assert len(correction_checks) == 1 < config.review_max_rounds
     assert correction_checks[0] == AUDIT_ISSUES
-    assert correction_checks[1] == CORRECTION_ISSUES + AUDIT_ISSUES
     with sessions() as session:
         row = session.get(Translation, key)
         assert row.status == "review_required" and row.original_text == SOURCE
@@ -110,7 +109,7 @@ async def test_large_issue_lists_remain_rejected_and_all_repairs_are_bounded(set
         part = row.parts[0]
         assert part["draft"] == CANDIDATE and not part_audited(part)
         assert part["audit"]["approved"] is approved and part["review"]["approved"] is approved
-        assert part["review"]["round"] == 2
+        assert part["review"]["round"] == 1
         assert part["review"]["issues"] == CORRECTION_ISSUES
         assert part["audit"]["issues"] == AUDIT_ISSUES
         assert part["issues"] == CORRECTION_ISSUES + AUDIT_ISSUES

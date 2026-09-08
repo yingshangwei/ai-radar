@@ -96,6 +96,40 @@ class DiscoveryCall(Base):
     completed_at: Mapped[str] = mapped_column(String(40), default="")
 
 
+class AgentSession(Base):
+    """One role/configuration-bound conversation; auth stays in the provider's home."""
+    __tablename__ = "agent_sessions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    scope: Mapped[str] = mapped_column(String(80), index=True)
+    configuration: Mapped[str] = mapped_column(String(64))
+    cli_session_id: Mapped[str] = mapped_column(String(100), default="")
+    status: Mapped[str] = mapped_column(String(30), default="idle", index=True)
+    batch_id: Mapped[str] = mapped_column(String(36), default="")
+    turns: Mapped[int] = mapped_column(Integer, default=0)
+    close_reason: Mapped[str] = mapped_column(String(80), default="")
+    created_at: Mapped[str] = mapped_column(String(40), default=now_iso)
+    updated_at: Mapped[str] = mapped_column(String(40), default=now_iso)
+
+
+class AgentBatch(Base):
+    """Frozen, accounted candidate set for exactly one model turn."""
+    __tablename__ = "agent_batches"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    session_id: Mapped[str] = mapped_column(ForeignKey("agent_sessions.id"), index=True)
+    scope: Mapped[str] = mapped_column(String(80), index=True)
+    owner: Mapped[str] = mapped_column(String(36))
+    status: Mapped[str] = mapped_column(String(30), default="reserved", index=True)
+    members: Mapped[list] = mapped_column(JSON)
+    prompt: Mapped[str] = mapped_column(Text)
+    request_fingerprint: Mapped[str] = mapped_column(String(64), default="")
+    workdir: Mapped[str] = mapped_column(Text)
+    result: Mapped[dict] = mapped_column(JSON, default=dict)
+    error_code: Mapped[str] = mapped_column(String(80), default="")
+    lease_until: Mapped[str] = mapped_column(String(40))
+    created_at: Mapped[str] = mapped_column(String(40), default=now_iso, index=True)
+    completed_at: Mapped[str] = mapped_column(String(40), default="")
+
+
 class DiscoveryEntity(Base):
     __tablename__ = "discovery_entities"
     id: Mapped[str] = mapped_column(String(160), primary_key=True)

@@ -104,3 +104,37 @@ def validate_decision(text, candidate_id, payload):
             raise ValueError("Discovery name evidence does not match")
         names.add(entity.name)
     return result
+
+
+class DiscoveryBatchDecision(Contract):
+    batch_id: str = Field(pattern=r"^[a-f0-9-]{36}$")
+    decisions: list[DiscoveryDecision] = Field(min_length=1, max_length=4)
+
+
+def batch_prompt(batch_id, members):
+    data = []
+    for member in members:
+        payload = member["payload"]
+        data.append({"candidate_id": member["candidate_id"],
+            **{key: payload[key] for key in ("title", "text", "published_at", "url", "author")},
+            "accounts": payload.get("entities", []), "observed_metrics": member["metrics"],
+            "references": payload.get("references", [])})
+    return (INSTRUCTIONS + "\n本会话持续处理发现判断，但本轮仅处理 CURRENT_BATCH。"
+        "历史轮次的候选、结论和引文不能作为本轮证据。每个候选独立核验，只引用该候选自己的原文。"
+        "必须为本批每个 candidate_id 恰好返回一条判断，不能遗漏、重复或返回历史候选。"
+        "无价值的候选也返回否定判断。batch_id 必须与本轮输入一致。\nJSON_SCHEMA:\n"
+        + json.dumps(DiscoveryBatchDecision.model_json_schema(), ensure_ascii=False)
+        + "\nCURRENT_BATCH:\n" + json.dumps({"batch_id": batch_id, "candidates": data}, ensure_ascii=False))
+
+
+def validate_batch(text, batch_id, members):
+    if not isinstance(text, str) or len(text.encode("utf-8")) > 400_000:
+        raise ValueError("Discovery batch response size is invalid")
+    result = DiscoveryBatchDecision.model_validate_json(text)
+    expected = {member["candidate_id"]: member["payload"] for member in members}
+    ids = [decision.candidate_id for decision in result.decisions]
+    if result.batch_id != batch_id or len(ids) != len(expected) or set(ids) != set(expected):
+        raise ValueError("Discovery batch membership does not match")
+    for decision in result.decisions:
+        validate_decision(decision.model_dump_json(), decision.candidate_id, expected[decision.candidate_id])
+    return result

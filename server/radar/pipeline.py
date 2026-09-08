@@ -365,7 +365,7 @@ class Pipeline:
             message = ""
             if kind == "discover":
                 await phase_callback("discover")
-                discovered = await self.discovery.pending(limit=2)
+                discovered = await self.discovery.pending()
                 message = (f"本批检查 {discovered['processed']} 个发现候选，"
                            f"保存 {discovered['judged']} 份判断，应用 {discovered['applied']} 份结果。")
             if kind in ("collect", "daily"):
@@ -421,7 +421,7 @@ class Pipeline:
             try:
                 message = ""
                 if kind == "discover":
-                    discovered = await self.discovery.pending(limit=2)
+                    discovered = await self.discovery.pending()
                     message = (f"本批检查 {discovered['processed']} 个发现候选，"
                                f"保存 {discovered['judged']} 份判断，应用 {discovered['applied']} 份结果。")
                 if kind in ("collect", "daily"):

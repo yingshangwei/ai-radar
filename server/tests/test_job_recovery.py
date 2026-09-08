@@ -257,6 +257,29 @@ async def test_periodic_eligibility_does_not_enqueue_noop_or_duplicate_running_w
     assert len(rows(store)) == 1 and rows(store)[0].kind == "translate"
 
 
+def test_discovery_supervisor_failure_rechecks_durable_queue_after_backoff(store):
+    clock = Clock()
+    pipeline = FakePipeline(store)
+    pipeline.config.discovery.session_reuse = True
+    pipeline.pending.add("discover")
+    service = JobSupervisor(pipeline, clock=clock, automatic=False)
+    service.stopping = True
+    with store.begin() as session:
+        session.add(Job(id="interrupted-batch", kind="discover", status="needs_attention",
+            reason_code="task_error", finished_at=clock().isoformat(), queued_at=clock().isoformat()))
+    service._enqueue_eligible()
+    assert len(rows(store)) == 1
+    clock.advance(899)
+    service._enqueue_eligible()
+    assert len(rows(store)) == 1
+    clock.advance(1)
+    service._enqueue_eligible()
+    service._enqueue_eligible()
+    assert len(rows(store)) == 2
+    assert row(store, "interrupted-batch").status == "needs_attention"
+    assert sum(job.status == "queued" for job in rows(store)) == 1
+
+
 async def test_conflicting_digest_dates_are_not_silently_overwritten(supervisor, store):
     supervisor.stopping = True
     uid = supervisor.submit("digest", day=date(2026, 9, 7))

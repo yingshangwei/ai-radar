@@ -177,10 +177,31 @@ class DiscoveryService:
     def has_pending(self):
         if not self.settings.enabled:
             return False
+        now = now_iso()
+        oldest = datetime.now(UTC) - timedelta(hours=self.settings.max_age_hours)
         with self.sessions() as session:
-            return any(self._eligible(session, row, now_iso()) for row in session.scalars(
-                select(DiscoveryCandidate).where(DiscoveryCandidate.status.in_(("accepted", "pending", "retry_wait")))
-            ))
+            from .discovery_sessions import DiscoverySessions
+
+            if DiscoverySessions(self).has_recovery(session):
+                return True
+            for row in session.scalars(select(DiscoveryCandidate).where(
+                DiscoveryCandidate.status.in_(("accepted", "pending", "retry_wait", "reserved")),
+            )):
+                if row.status == "reserved" and any(call.provider.get("batch_id") for call in session.scalars(
+                    select(DiscoveryCall).where(DiscoveryCall.candidate_id == row.id),
+                )):
+                    continue  # Persistent batches have their own recovery/eligibility contract.
+                if row.status == "reserved":
+                    if row.lease_until <= now:
+                        return True
+                    continue
+                if row.status in ("pending", "retry_wait") and (
+                    datetime.fromisoformat(row.payload["published_at"]) < oldest
+                ):
+                    return True  # Schedule a database-only expiry pass, even without new input.
+                if self._eligible(session, row, now):
+                    return True
+            return False
 
     def status(self, session=None):
         if session is None:
@@ -205,26 +226,49 @@ class DiscoveryService:
                 "calls_today": calls, "call_limit": call_limit,
                 "candidate_limit_reached": candidates >= candidate_limit,
                 "call_limit_reached": calls >= call_limit}
+        from .discovery_sessions import DiscoverySessions
+
         return {"enabled": self.settings.enabled, "counts": counts, "errors": errors, "calls_today": self._calls(session),
+                "sessions": DiscoverySessions(self).status(session),
                 "pools": pools,
                 "max_calls_per_day": self.settings.max_calls_per_day, "candidates_today": daily,
                 "candidate_limit_reached": daily >= self.settings.max_candidates_per_day,
                 "pending_limit_reached": sum(counts.get(s, 0) for s in OPEN) >= self.settings.max_pending,
                 "max_pending": self.settings.max_pending, "max_candidates_per_day": self.settings.max_candidates_per_day}
 
-    def recover(self):
+    def _recover_legacy(self):
         recovered = 0
+        now = now_iso()
+        oldest = datetime.now(UTC) - timedelta(hours=self.settings.max_age_hours)
         with self._transaction() as session:
             for row in session.scalars(select(DiscoveryCandidate).where(
-                DiscoveryCandidate.status == "reserved", DiscoveryCandidate.lease_until <= now_iso(),
+                DiscoveryCandidate.status.in_(("pending", "retry_wait", "reserved")),
             )):
-                row.status, row.error_code, row.updated_at = "unknown", "outcome_unknown", now_iso()
-                for call in session.scalars(select(DiscoveryCall).where(
-                    DiscoveryCall.candidate_id == row.id, DiscoveryCall.status == "reserved",
-                )):
-                    call.status, call.error_code, call.completed_at = "unknown", "outcome_unknown", now_iso()
+                calls = list(session.scalars(select(DiscoveryCall).where(DiscoveryCall.candidate_id == row.id)))
+                if any(call.provider.get("batch_id") for call in calls):
+                    continue
+                if row.status == "reserved":
+                    if row.lease_until > now:
+                        continue
+                    row.status, row.error_code = "unknown", "outcome_unknown"
+                    for call in calls:
+                        if call.status == "reserved":
+                            call.status, call.error_code, call.completed_at = "unknown", "outcome_unknown", now
+                else:
+                    if datetime.fromisoformat(row.payload["published_at"]) >= oldest:
+                        continue
+                    row.status, row.error_code = "expired", "source_expired"
+                row.owner, row.lease_until, row.retry_at, row.updated_at = "", "", "", now
                 recovered += 1
         return recovered
+
+    def recover(self):
+        from .discovery_sessions import DiscoverySessions
+
+        coordinator = DiscoverySessions(self)
+        with self.sessions() as session:
+            has_batches = coordinator.has_recovery(session)
+        return self._recover_legacy() + (coordinator.recover() if has_batches else 0)
 
     def _owned(self, session, candidate_id, owner):
         row = session.get(DiscoveryCandidate, candidate_id)
@@ -320,6 +364,11 @@ class DiscoveryService:
         result = {"processed": 0, "judged": 0, "applied": 0, "failed": 0}
         if not self.settings.enabled:
             return {**result, "more_pending": False}
+        self.recover()
+        if self.settings.session_reuse and self.provider_config.kind == "codex":
+            from .discovery_sessions import DiscoverySessions
+
+            return await DiscoverySessions(self).pending(limit)
         limit = min(2, self.settings.batch_size, limit if limit is not None else self.settings.batch_size)
         with self.sessions() as session:
             rows = session.scalars(select(DiscoveryCandidate).where(

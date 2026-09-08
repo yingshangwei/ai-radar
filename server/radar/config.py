@@ -67,6 +67,10 @@ class DiscoveryConfig(BaseModel):
     max_calls_per_day: int = Field(default=20, strict=True, ge=1, le=100)
     max_calls_per_candidate: int = Field(default=2, strict=True, ge=1, le=3)
     batch_size: int = Field(default=2, strict=True, ge=1, le=4)
+    session_reuse: bool = False
+    session_directory: str = "./data/agent-sessions"
+    session_max_turns: int = Field(default=32, strict=True, ge=1, le=100)
+    session_max_age_hours: int = Field(default=168, strict=True, ge=1, le=720)
     hot_engagement: int = Field(default=100, strict=True, ge=1)
     early_score_min: int = Field(default=75, strict=True, ge=0, le=100)
     early_confidence_min: int = Field(default=75, strict=True, ge=0, le=100)

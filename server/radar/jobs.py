@@ -317,6 +317,16 @@ class JobSupervisor:
                 blocked = last and last.status == "needs_attention" and last.reason_code in (
                     "task_error", "retry_exhausted",
                 )
+                discovery = getattr(getattr(self.pipeline, "config", None), "discovery", None)
+                if blocked and kind == "discover" and getattr(discovery, "session_reuse", False):
+                    # The batch ledger reconciles receipts/unknown calls before selecting fresh work.
+                    # A supervisor failure must not permanently poison unrelated queued candidates.
+                    try:
+                        finished = datetime.fromisoformat(last.finished_at or last.started_at)
+                        if finished.tzinfo and self._now() - finished >= timedelta(minutes=15):
+                            blocked = False
+                    except (ValueError, TypeError):
+                        pass
             if not blocked and not self._active(kind) and check(kind):
                 self.submit(kind)
 

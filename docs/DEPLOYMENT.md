@@ -1,5 +1,17 @@
 # 腾讯云部署
 
+## Article layout 0.7.0: one-shot deployment waiting for idle
+
+Target source `227c43315c19358e69f08f158865582a68271c9d`; archive 157241 bytes, 56 files, 7 chunks, SHA `8f6fd9a78f590378f79f5bef1bc8c50f79c13d310937869528b48bde1c30b9aa`. All uploads succeeded. The 84 original deployment guards and 14 waiter tests passed, preserving 16 tables and 12 history groups.
+
+Preflight `inv-m8dj9fg3jp` exited before backup/receipt creation because jobs were running. Immutable waiter, preflight and activation staging succeeded: `inv-e8djt6gk9m`, `inv-m8dju0ggra`, `inv-n8djutgbn6`. One-time start **`inv-n8djvi0m1q` SUCCESS / 0**.
+
+Read-only **`inv-m8djvx0st0` SUCCESS / 0** confirms unit `ai-radar-article-presentation-227c433-once` active/running, PID1977053, status waiting at 05:40:53 UTC: jobs11 / leases2 / interactive0, attempted_phases empty. Production is still `8d5753d`; this is NOT completed activation evidence.
+
+The waiter checks every45s for at most6h, then executes the unchanged SHA-bound preflight and activation once. Error, timeout or script failure is terminal. It does not cancel jobs, rewrite business rows, call models, or retry deployment. Existing submissions must only be observed, never restarted.
+
+Only read `dist/cloud/verify-article-presentation-wait.sh` for future state. Binding: `dist/cloud/article-presentation-wait-binding.json`; first observation: `article-presentation-wait-first-status.txt`; server result: `/var/lib/ai-radar/article-presentation-once-227c433/attempt.json`.
+
 目标实例：`lhins-e5gcg722`，`ap-seoul`，公网 `43.155.203.253`，Ubuntu Server 24.04 LTS，2 核 4 GB。
 
 ## 当前部署状态 · 2026-09-08

@@ -4,7 +4,17 @@
 
 ## 当前部署状态 · 2026-09-08
 
-当前运行 `/opt/ai-radar/releases/20260908-28301b6`。新增[摘要事实审核](SUMMARY-REVIEW.md)，候选、证据、有限修订和独立审核进度均由服务器持久管理，只有当前候选完整通过才可发布。私有生产配置未改动，新配置默认启用审核并沿用既有 Codex Provider；未包含暂缓发布的 AI 筛选和中文语言规则。
+当前运行 `/opt/ai-radar/releases/20260908-8d5753d`，仅更新 `translation.py` 并增加 `translation_workflow.py`。服务端保存调用预留、完成结果和累计预算，阻止同稿反复抽审及未知请求重投；正常修订、余额恢复和已完成审核的零模型发布恢复均有回归。全套 1006 passed / 6 skipped，Ruff 与独立审查通过；58 项部署保护测试通过。
+
+归档 155,292 字节、55 文件、7 分片，SHA-256 `954666aedc3990789895f8c19ae6bf6e4e1ac358b6a5c2ec552431d53f4daeb8`，每份文件均与提交 `8d5753d` 一致。修正版预检 `inv-e8deq9geun` SUCCESS / 0，初始备份 `/var/lib/ai-radar/backups/radar-translation-workflow-20260908T024437Z.db`；七分片上传成功，激活 **`inv-n8des00x53` SUCCESS / 0**。16 张业务表逐行不变，包含已有 `summary_reviews`；十一组历史及权限、私有配置、现有日报、X 进度、Caddy 和原 8080 服务保持，`zero_job_activation=true`。未执行生产翻译或摘要重审。
+
+首次预检 `inv-m8dehfg2gn` 在切换前因旧合成任务的提交状态检查失败。只读诊断 `inv-n8dekw038a` 确认旧 v2 为 `unknown`、v3 为 `submitted`，当前服务仍正常，预检收据尚未写入。修复只让旧 v2 在既有 CHDIR / 200、入口及数据库不存在、v3 绑定的零执行证明全部通过时接受原状态；没有修改其提交记录或重启任务。失败备份 `/var/lib/ai-radar/backups/radar-translation-workflow-20260908T023721Z.db` 也纳入后续哈希与权限保护。原失败脚本和新 `translation-workflow-preflight-fix1.sh` 均保留。
+
+02:48:19 UTC 公网核验健康、401/403 权限隔离、调度器正常，无运行任务或余额告警；主消息 46 ready，网页 14 ready / 33 review_required。证据为 `dist/cloud/translation-workflow-activation-final.txt`、`translation-workflow-local-validation.json` 和 `supplemental-digest-public-20260908T024819459529Z.json`。本次没有修改 App，无需新安装包。
+
+## 历史：28301b6 摘要事实审核
+
+此前运行 `/opt/ai-radar/releases/20260908-28301b6`。新增[摘要事实审核](SUMMARY-REVIEW.md)，候选、证据、有限修订和独立审核进度均由服务器持久管理，只有当前候选完整通过才可发布。私有生产配置未改动，新配置默认启用审核并沿用既有 Codex Provider；未包含暂缓发布的 AI 筛选和中文语言规则。
 
 预检 `inv-n8dcimgw97`、七个分片上传及激活 `inv-e8dcp0gr5f` 均 SUCCESS / 0。归档 151,770 字节、54 文件，SHA-256 `4f915ea4d4171f18e895694d6a2403b5249e99f726b9f945d0bd5eeba33911a0`；源码清单 SHA-256 `1549f33094f758e5242d6a48528517a16a61d63bf925214c18c6197f13b47002`。完整测试 978 passed / 6 skipped，45 项部署保护测试及独立审查通过。新部署记录采用原子写入，冻结失败保留完整旧记录；任何新任务或审核记录都会阻止按旧基线回滚，部署不回写数据库。
 

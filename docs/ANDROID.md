@@ -1,12 +1,22 @@
 # Android 构建与签名
 
-## 当前版本：0.7.0 / code 8
+## 当前版本：0.8.0 / code 9
+
+交付包 `dist/ai-radar-0.8.0-android.apk`，69,640,562 字节，SHA-256 `c5d5cb134765825aff0281b2cc7f75ede8ed06cb59a0350749f3a0683a8997c9`，源码 `f185060336a54f69730c69c85782dbe0cf4694fd`。使用仓库 `scripts/build-android.py` 完成正式签名构建，最低 API 24、目标 API 36；沿用签名证书 SHA-256 `b166858aae76fd673083b3fe3860ede1a1732d03d1995e671aa751008f0c89e9`。Expo、Android 与 iOS 工程版本均为 0.8.0 / build 9；本轮只生成 Android APK，没有新 iOS 安装包。
+
+0.8 增加中文任务状态、执行与排队数量、最近进展及服务响应时间，区分自动重试和需要处理的任务；补译队列单独显示可执行、处理中、重试及待处理数量。离线明确显示上次状态，心跳变化不会反复刷新正文。新字段兼容旧服务；自动恢复的实际能力仍取决于服务器版本，当前发布状态见 [验证记录](VALIDATION.md)。
+
+专用 Android API 36 模拟器 `5560` 已完成 0.7 → 0.8 覆盖安装，演示首页和设置页检查通过，观察到的运行时错误为 0，随后停止该模拟器。升级前基线是登录页，**本轮没有验证登录保留**，不能沿用此前升级的结论。证据：`dist/android-v0.8-verification.json`、`dist/android-v0.8-before.xml`、`dist/android-v0.8-after.xml`、`dist/android-v0.8-demo.xml`、`dist/android-v0.8-settings.png` / `.xml`。App 测试 34 通过、1 项既有跳过，TypeScript 与 Prettier 检查通过。
+
+安装包直接通过对话链接交付，不操作微信。
+
+## 历史版本：0.7.0 / code 8
 
 交付包 `dist/ai-radar-0.7.0-android.apk`，69,635,814 字节，SHA-256 `c486959d9bf19edbdd0fabce36b1d96558725aba3838cefe2488a992d5ce6060`。本地正式签名构建成功，沿用 0.6 的签名证书、四种 ABI、最低 API 24 和目标 API 36；扫描 1,165 个包内文件，五个已知私密值均未检出。核验记录为 `dist/android-v0.7-verification.json`。
 
 0.7 调整雷达列表、文章详情及中英文正文的阅读排版。已在专用 Android 模拟器完成 0.6 → 0.7 覆盖升级并保留 reader 连接，再使用演示内容验证雷达、中文详情和英文原文切换；没有修改生产内容。原生截图及检查位于 `dist/article-layout-qa/`，另有 390 / 320 px 布局检查。此次未实测管理令牌保留，也未进行 iOS 原生运行验证。
 
-本次尝试通过微信发送安装包时，微信安全提示要求重新登录，0.7 安装包尚未发送。
+历史上曾尝试通过微信发送 0.7 安装包，但因安全提示要求重新登录而未发送。之后用户明确禁止微信操作，后续不再尝试。
 
 ## 历史版本：0.6.0 / code 7
 
@@ -94,7 +104,7 @@ adb install -r app/android/app/build/outputs/apk/release/app-release.apk
 adb shell am start -n cn.yswdra.airadar/.MainActivity
 ```
 
-早期版本已在 Android 16/API 36 ARM64 模拟器完成安装、云端读取、历史日报、文章详情、收藏和取消、覆盖更新保留登录，以及断网冷启动缓存阅读。当前交付包为本文开头的 `dist/ai-radar-0.7.0-android.apk`，本次升级验收范围见当前版本段落。此前 0.2.1 / code 3 包及其余额告警验收保留为历史记录；0.2.0 的中文正文、原文切换与离线中英阅读验收同样保留。
+早期版本已在 Android 16/API 36 ARM64 模拟器完成安装、云端读取、历史日报、文章详情、收藏和取消、覆盖更新保留登录，以及断网冷启动缓存阅读。当前交付包为本文开头的 `dist/ai-radar-0.8.0-android.apk`，本次升级验收范围见当前版本段落；这些历史验证不构成本轮登录保留证明。此前 0.2.1 / code 3 包及其余额告警验收保留为历史记录；0.2.0 的中文正文、原文切换与离线中英阅读验收同样保留。
 
 余额告警在独立本地 API 中用真实 SDK 模拟 402，验证首页、详情和设置的提示及调用恢复后自动清除。为访问本地 HTTP，测试包临时允许明文连接，Hermes bundle 与最终交付包完全一致；该测试包不对外交付。交付包使用原来的生产网络配置，只连接 HTTPS 云端。详细校验记录见 [VALIDATION.md](VALIDATION.md)。尚未在用户手机上安装，也没有提交应用商店。
 

@@ -1,6 +1,20 @@
 # 腾讯云部署
 
-## Article layout 0.7.0: one-shot deployment waiting for idle
+## Background queue recovery 0.8.0 — active
+
+Release `20260908-f185060`, source `f185060336a54f69730c69c85782dbe0cf4694fd`. Archive: 166128 bytes / 7 parts / SHA `a4c5e4c4738277daeb4c2a954a0b8ee7745f3cdf23b37e1815f256283802ec3e`. All uploads succeeded; `inv-j8dm8cgtcv` staged the dedicated runtime and verified jobs-only migration on a consistent database copy, preserving all 15 non-job tables without model calls.
+
+Handoff **`inv-m8dm9q0t90` SUCCESS / 0**, active at **2026-09-08 06:48:03 UTC**. The bounded coordinator waited for all translation/summary owners and leases to release, then fixed the old API PID with pidfd, froze it, and rechecked under a SQLite write lock. It ended that process at the saved checkpoint, verified the unit/cgroup stopped, backed up through a separate read connection, and called the tested synchronous `recover_interrupted(recover_legacy=True)` as the service account. No Pipeline/model construction occurred during metadata migration.
+
+The 11 old running-as-queued read jobs became one restored intent plus 10 preserved `coalesced` historical records. The 15 content tables and original Job identities matched the frozen backup after migration; only Job controls/state were migrated. Existing config, original source manifests, paused waiter receipts, Caddy and service units matched their fingerprints. The browser service was not restarted. Receipt: `/var/lib/ai-radar/job-recovery-f185060/receipt.json`; backup: `before.db` in that private operation directory.
+
+Read-only **`inv-e8dmw1gxn4` SUCCESS / 0** verified API/browser/Caddy active and the new authenticated status contract. Restored read job `e60837cc-54ba-4fd3-abdd-981ce2ef01d0` completed at 06:48:39 UTC, followed automatically by another read batch; a separate translation job was already running with fresh heartbeats. At 06:49:42, current translation eligibility was 35 needing attention, 1 active, 2 runnable; these are current deduplicated caches, not all historical rows. Normal content processing resumes after migration, so subsequent model-driven changes are expected.
+
+A single normal, non-forced collection was submitted through the existing admin API: **`inv-m8dmwrgcxd` SUCCESS / 0**, Job `ef273267-780d-4497-9afd-54bafd50561e`. The durable submission receipt is `collect-verification.json`; do not resubmit if its outcome is unknown. Read-only public observation confirmed actual execution from 06:50:27.756 to 06:50:31.631 UTC: completed in about 4 seconds with 3 new items, while translation Job `25061598-83ac-4c13-a573-20991664a353` remained independently running. Evidence: `dist/cloud/job-recovery-concurrency.json`.
+
+The previous 227 layout waiter is superseded. `inv-n8dkb3g7fb` stopped only its waiting PID and wrote a separate pause receipt, retaining original attempt/submission bytes. `inv-n8dm7h0ajp` proved MainPID=0 / Restart=no / SubState=exited; RemainAfterExit explains its active unit label. An initial new staging check rejected that label before extraction (`inv-j8dm2v0psb` FAILED / 1); the corrected check used the actual process/restart state. Do not restart the old waiter or activate the old 227 archive. This release includes those layout server changes.
+
+## Historical article layout 0.7.0: waiter now paused
 
 Target source `227c43315c19358e69f08f158865582a68271c9d`; archive 157241 bytes, 56 files, 7 chunks, SHA `8f6fd9a78f590378f79f5bef1bc8c50f79c13d310937869528b48bde1c30b9aa`. All uploads succeeded. The 84 original deployment guards and 14 waiter tests passed, preserving 16 tables and 12 history groups.
 

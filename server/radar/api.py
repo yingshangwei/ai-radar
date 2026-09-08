@@ -12,6 +12,7 @@ from sqlalchemy import case, func, or_, select
 from .config import Settings
 from .daily_schedule import DAILY_CHECK_MINUTES, DailySchedule
 from .db import database
+from .discovery_watches import discovery_status, list_entities, on_watch_toggle, watch_metadata
 from .jobs import JobQueueConflict, JobSupervisor, job_counts, public_job
 from .models import Article, ArticleTranslation, Digest, Job, SourceState, Translation, Watch
 from .pipeline import Pipeline, as_dict, ingest
@@ -114,6 +115,7 @@ def create_app(settings: Settings | None = None):
             "scheduler_enabled": settings.scheduler_enabled,
             "article_count": session.scalar(select(func.count()).select_from(Article)),
             "translation": translation_status(session, config.translation),
+            "discovery": discovery_status(session, config),
             "sources": [as_dict(s) for s in session.scalars(select(SourceState))],
             "jobs": [
                 public_job(j) for j in session.scalars(select(Job).order_by(
@@ -128,7 +130,7 @@ def create_app(settings: Settings | None = None):
     def articles(
         q: str = Query(default="", max_length=200),
         platform: str | None = None,
-        topic: Literal["模型", "产品", "技术", "开源", "观点", "产业", "学界"] | None = None,
+        topic: Literal["模型", "产品", "技术", "开源", "观点", "产业", "学界", "前瞻"] | None = None,
         saved: bool = False,
         priority: bool = False,
         sort: Literal["score", "latest"] = "score",
@@ -215,7 +217,12 @@ def create_app(settings: Settings | None = None):
 
     @app.get("/v1/watches", dependencies=[Depends(authenticated)])
     def watches(session=Depends(session_dep)):
-        return {"items": [as_dict(w) for w in session.scalars(select(Watch))]}
+        return {"items": [{**as_dict(w), **({"discovery": metadata} if (metadata := watch_metadata(session, w)) else {})}
+                          for w in session.scalars(select(Watch))]}
+
+    @app.get("/v1/discovery/entities", dependencies=[Depends(authenticated)])
+    def discovery_entities(limit: int = Query(default=50, ge=1, le=100), session=Depends(session_dep)):
+        return {"items": list_entities(session, limit=limit)}
 
     @app.post("/v1/watches", dependencies=[Depends(authenticated)])
     def add_watch(body: WatchInput, session=Depends(session_dep)):
@@ -234,6 +241,7 @@ def create_app(settings: Settings | None = None):
         row = session.get(Watch, uid)
         if not row:
             raise HTTPException(404, "账号不存在")
+        on_watch_toggle(session, row, body.enabled)
         row.enabled = body.enabled
         session.commit()
         return as_dict(row)
@@ -246,11 +254,13 @@ def create_app(settings: Settings | None = None):
             supervisor.submit("translate")
         if config.reading.enabled:
             supervisor.submit("read")
+        if pipeline.discovery.has_pending():
+            supervisor.submit("discover")
         return {"accepted": count, "received": len(body.articles)}
 
     @app.post("/v1/admin/jobs", status_code=202, dependencies=[Depends(admin)])
     async def start_job(
-        kind: Literal["collect", "digest", "daily", "translate", "read"] = "daily",
+        kind: Literal["collect", "digest", "daily", "translate", "read", "discover"] = "daily",
         day: date | None = None,
         force: bool = False,
         session=Depends(session_dep),

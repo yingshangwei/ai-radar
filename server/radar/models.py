@@ -55,6 +55,73 @@ class XCollectionState(Base):
     updated_at: Mapped[str] = mapped_column(String(40), default=now_iso)
 
 
+class DiscoveryCandidate(Base):
+    __tablename__ = "discovery_candidates"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    article_key: Mapped[str] = mapped_column(String(64), index=True)
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    payload: Mapped[dict] = mapped_column(JSON)
+    latest_metrics: Mapped[dict] = mapped_column(JSON, default=dict)
+    source_priority: Mapped[bool] = mapped_column(Boolean, default=False)
+    seed_qualified: Mapped[bool] = mapped_column(Boolean, default=False)
+    low_engagement: Mapped[bool] = mapped_column(Boolean, default=False)
+    initial_engagement: Mapped[int] = mapped_column(Integer, default=0)
+    latest_engagement: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(40), default="pending", index=True)
+    result: Mapped[dict] = mapped_column(JSON, default=dict)
+    policy: Mapped[str] = mapped_column(String(100), default="discovery-v1")
+    provider_identity: Mapped[dict] = mapped_column(JSON, default=dict)
+    owner: Mapped[str] = mapped_column(String(100), default="")
+    lease_until: Mapped[str] = mapped_column(String(40), default="")
+    retry_at: Mapped[str] = mapped_column(String(40), default="")
+    error_code: Mapped[str] = mapped_column(String(80), default="")
+    judged_at: Mapped[str] = mapped_column(String(40), default="")
+    applied_at: Mapped[str] = mapped_column(String(40), default="")
+    published_article_id: Mapped[str] = mapped_column(String(64), default="", index=True)
+    created_at: Mapped[str] = mapped_column(String(40), default=now_iso)
+    updated_at: Mapped[str] = mapped_column(String(40), default=now_iso)
+
+
+class DiscoveryCall(Base):
+    __tablename__ = "discovery_calls"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    candidate_id: Mapped[str] = mapped_column(ForeignKey("discovery_candidates.id"), index=True)
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    owner: Mapped[str] = mapped_column(String(100))
+    status: Mapped[str] = mapped_column(String(30), default="reserved")
+    provider: Mapped[dict] = mapped_column(JSON, default=dict)
+    result: Mapped[dict] = mapped_column(JSON, default=dict)
+    error_code: Mapped[str] = mapped_column(String(80), default="")
+    created_at: Mapped[str] = mapped_column(String(40), default=now_iso, index=True)
+    completed_at: Mapped[str] = mapped_column(String(40), default="")
+
+
+class DiscoveryEntity(Base):
+    __tablename__ = "discovery_entities"
+    id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(30), default="unknown")
+    name: Mapped[str] = mapped_column(String(160))
+    handle: Mapped[str] = mapped_column(String(120), default="")
+    profile: Mapped[dict] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(40), default="candidate", index=True)
+    confidence: Mapped[int] = mapped_column(Integer, default=0)
+    reason_zh: Mapped[str] = mapped_column(Text, default="")
+    evidence: Mapped[list] = mapped_column(JSON, default=list)
+    first_seen_at: Mapped[str] = mapped_column(String(40), default=now_iso)
+    updated_at: Mapped[str] = mapped_column(String(40), default=now_iso)
+
+
+class DiscoveryWatch(Base):
+    __tablename__ = "discovery_watches"
+    watch_id: Mapped[str] = mapped_column(ForeignKey("watches.id"), primary_key=True)
+    entity_id: Mapped[str] = mapped_column(ForeignKey("discovery_entities.id"), index=True)
+    managed: Mapped[bool] = mapped_column(Boolean, default=True)
+    status: Mapped[str] = mapped_column(String(40), default="trial")
+    created_at: Mapped[str] = mapped_column(String(40), default=now_iso)
+    expires_at: Mapped[str] = mapped_column(String(40))
+    evidence: Mapped[list] = mapped_column(JSON, default=list)
+
+
 class Translation(Base):
     """Content-addressed, durable translations; independent of mutable social metrics."""
     __tablename__ = "translations"

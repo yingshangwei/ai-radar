@@ -9,6 +9,9 @@ from sqlalchemy import select
 from .article_presentation import ArticlePresentationService
 from .config import RadarConfig
 from .digest_selection import mark_supplemental_stories, select_digest_articles
+from .discovery import DiscoveryService, queue_candidate
+from .discovery_watches import apply_candidate, article_signal, maintain_watches
+from .discovery_watches import approved_signal as validate_approved_signal
 from .models import Article, ArticleReading, Digest, Job, SourceState, Watch, now_iso
 from .providers import make_provider
 from .ranking import article_id, canonicalize, classify, engagement, rank
@@ -53,7 +56,8 @@ def merge_research_item(session, item, existing):
                                           "references": list(references.values())[:30]})
 
 
-def ingest(session, items: list[IncomingArticle], config: RadarConfig, authority: float = 0) -> int:
+def ingest(session, items: list[IncomingArticle], config: RadarConfig, authority: float = 0, *,
+           approved_signal: str | None = None, queue_discovery: bool = True) -> int:
     handles = {w.handle.lower() for w in session.scalars(select(Watch).where(Watch.enabled.is_(True)))}
     now = datetime.now(UTC)
     cutoff = now - timedelta(hours=config.lookback_hours)
@@ -64,18 +68,26 @@ def ingest(session, items: list[IncomingArticle], config: RadarConfig, authority
         uid = article_id(item)
         existing = session.get(Article, uid)
         item = merge_research_item(session, item, existing)
+        item_authority = max(authority, 1.5) if item.source_id == "hf-papers" else authority
+        priority = item.handle.lower() in handles or item_authority >= 1.5
+        if queue_discovery:
+            queue_candidate(session, item, config, source_priority=priority)
         topics = classify(item)
         if not topics:
             continue
-        item_authority = max(authority, 1.5) if item.source_id == "hf-papers" else authority
-        priority = item.handle.lower() in handles or item_authority >= 1.5
+        verified_signal = bool(approved_signal and validate_approved_signal(session, item, approved_signal, config))
+        existing_signal = bool(existing and article_signal(session, existing) and all(
+            getattr(existing, key) == (item.published_at.isoformat() if key == "published_at" else getattr(item, key))
+            for key in ("title", "text", "url", "published_at", "author", "handle")
+        ))
         if (
             item.platform in ("x", "facebook")
             and not priority
+            and not (verified_signal or existing_signal)
             and engagement(item.metrics) < config.min_engagement
         ):
             continue
-        values = item.model_dump(exclude={"published_at", "references"})
+        values = item.model_dump(exclude={"published_at", "references", "entities", "author_external_id"})
         values.update(
             id=uid,
             published_at=item.published_at.isoformat(),
@@ -92,6 +104,8 @@ def ingest(session, items: list[IncomingArticle], config: RadarConfig, authority
             session.add(existing)
             accepted += 1
         session.flush()
+        if verified_signal or article_signal(session, existing):
+            existing.topics = ["前瞻", *[topic for topic in topics if topic != "前瞻"]]
         queue_article(session, existing, config.translation)
         remember_references(session, existing, [r.model_dump(mode="json") for r in item.references])
         if config.reading.enabled:
@@ -124,10 +138,18 @@ class Pipeline:
         self.lock = asyncio.Lock()
         self.collect_lock = asyncio.Lock()
         self.translate_lock = asyncio.Lock()
+        self.discover_lock = asyncio.Lock()
         self.translations = TranslationService(sessions, config.translation)
         self.reading = ReadingService(sessions, config, self.translations)
         self.summary_reviews = SummaryReviewService(sessions, config)
         self.presentations = ArticlePresentationService(sessions, config, lambda value: make_provider(value))
+        self.discovery = DiscoveryService(sessions, config, lambda session, candidate: apply_candidate(
+            session, candidate, config,
+            lambda session, item, decision_id: ingest(
+                session, [item], config, approved_signal=decision_id, queue_discovery=False,
+            ),
+        ))
+        self.discovery.recover()
         with sessions.begin() as session:
             sources = [("x", "X / Twitter", "x"), ("facebook", "Facebook", "facebook")]
             sources += [(f.id, f.name, "rss") for f in config.feeds]
@@ -152,7 +174,8 @@ class Pipeline:
             return datetime.fromisoformat(state.last_attempt_at) <= datetime.now(UTC) - timedelta(hours=hours)
 
     async def collect(self):
-        with self.sessions() as session:
+        with self.sessions.begin() as session:
+            maintain_watches(session, self.config)
             handles = list(session.scalars(select(Watch.handle).where(
                 Watch.enabled.is_(True), Watch.platform == "x",
             )))
@@ -321,6 +344,8 @@ class Pipeline:
         )
 
     def has_pending(self, kind):
+        if kind == "discover":
+            return self.discovery.has_pending()
         if kind == "translate":
             return self.translations.has_pending()
         if kind == "read":
@@ -334,9 +359,15 @@ class Pipeline:
             if not job or job.status != "running" or not job.owner:
                 raise RuntimeError("任务尚未被执行器接管。")
             owner = job.owner
-        lock = {"collect": self.collect_lock, "translate": self.translate_lock}.get(kind, self.lock)
+        lock = {"collect": self.collect_lock, "translate": self.translate_lock,
+                "discover": self.discover_lock}.get(kind, self.lock)
         async with lock:
             message = ""
+            if kind == "discover":
+                await phase_callback("discover")
+                discovered = await self.discovery.pending(limit=2)
+                message = (f"本批检查 {discovered['processed']} 个发现候选，"
+                           f"保存 {discovered['judged']} 份判断，应用 {discovered['applied']} 份结果。")
             if kind in ("collect", "daily"):
                 await phase_callback("collect")
                 if kind == "daily":
@@ -381,7 +412,7 @@ class Pipeline:
     async def run(self, kind="collect", day=None, force=False, job_id=None, phase_callback=None):
         if phase_callback is not None:
             return await self._managed_run(kind, day, force, job_id, phase_callback)
-        async with self.lock:
+        async with self.discover_lock if kind == "discover" else self.lock:
             with self.sessions.begin() as session:
                 job = session.get(Job, job_id) if job_id else Job(kind=kind)
                 session.add(job)
@@ -389,9 +420,13 @@ class Pipeline:
                 uid = job.id
             try:
                 message = ""
+                if kind == "discover":
+                    discovered = await self.discovery.pending(limit=2)
+                    message = (f"本批检查 {discovered['processed']} 个发现候选，"
+                               f"保存 {discovered['judged']} 份判断，应用 {discovered['applied']} 份结果。")
                 if kind in ("collect", "daily"):
                     message = f"新增 {await self.collect()} 条有效信息。"
-                if self.config.translation.enabled:
+                if self.config.translation.enabled and kind != "discover":
                     translated = await self.translations.pending(force=force if kind == "translate" else False)
                     counts = translated.get("counts", {})
                     message += f"主消息中文版本 {counts.get('ready', 0)} 条"
@@ -403,7 +438,7 @@ class Pipeline:
                     message += (
                         f"，{resource_waiting} 份仍在等待翻译或校对。" if resource_waiting else "。"
                     )
-                if self.config.reading.enabled and kind != "translate":
+                if self.config.reading.enabled and kind not in ("translate", "discover"):
                     reading = await self.reading.pending(force=force if kind == "read" else False)
                     message += f"本轮处理 {reading['fetched']} 个直接来源，完成 {reading['summarized']} 份网页解读。"
                 if kind in ("collect", "read", "digest", "daily"):

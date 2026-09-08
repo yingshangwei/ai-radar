@@ -48,6 +48,9 @@ def test_add_review_table_and_restart_preserve_old_published_data(tmp_path):
                 actual = {row[0] for row in connection.execute(
                     "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
                 )}
-                assert actual == OLD_TABLES | {"summary_reviews"}
+                discovery = {"discovery_candidates", "discovery_calls", "discovery_entities", "discovery_watches"}
+                assert actual == OLD_TABLES | {"summary_reviews"} | discovery
+                for table in discovery:
+                    assert connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
         finally:
             upgraded.dispose()

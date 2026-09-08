@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Literal
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class DirectReference(BaseModel):
@@ -30,6 +30,26 @@ class DirectReference(BaseModel):
         return value.astimezone(UTC) if value is not None else None
 
 
+class AssociatedEntity(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    platform: Literal["x"] = "x"
+    external_id: str = Field(min_length=1, max_length=100, pattern=r"^[0-9]+$")
+    handle: str = Field(min_length=1, max_length=15, pattern=r"^[A-Za-z0-9_]+$")
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=1000)
+    followers_count: int = Field(strict=True, ge=0)
+    url: str = Field(max_length=100)
+    relation: Literal["mention", "quote", "reply"]
+    matched_text: str | None = Field(default=None, max_length=300)
+
+    @model_validator(mode="after")
+    def canonical_profile_url(self):
+        if self.url != f"https://x.com/{self.handle}":
+            raise ValueError("Associated account URL must match its X handle")
+        return self
+
+
 class IncomingArticle(BaseModel):
     platform: Literal["x", "facebook", "rss", "web"]
     external_id: str = Field(min_length=1, max_length=200)
@@ -43,6 +63,8 @@ class IncomingArticle(BaseModel):
     metrics: dict[str, int] = Field(default_factory=dict)
     source_id: str = Field(default="import", max_length=100)
     references: list[DirectReference] = Field(default_factory=list, max_length=30)
+    entities: list[AssociatedEntity] = Field(default_factory=list, max_length=30)
+    author_external_id: str = Field(default="", max_length=100)
 
     @field_validator("url")
     @classmethod

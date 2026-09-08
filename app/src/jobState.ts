@@ -14,6 +14,7 @@ const kindLabels: Record<string, string> = {
   translate: "中文翻译",
   digest: "日报生成",
   daily: "采集与日报",
+  discover: "关联发现与潜力判断",
 };
 const phaseLabels: Record<string, string> = {
   queued: "等待执行",
@@ -21,6 +22,7 @@ const phaseLabels: Record<string, string> = {
   translate: "翻译与校对",
   read: "读取与分析网页",
   presentation: "整理消息标题",
+  discover: "关联发现与潜力判断",
   digest: "生成与审核日报",
   completed: "处理完成",
   retry_wait: "等待重试",

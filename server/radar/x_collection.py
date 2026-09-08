@@ -20,7 +20,7 @@ from sqlalchemy import text
 
 from .config import RadarConfig, secret
 from .models import XCollectionState
-from .sources import SourceUnavailable, get_json, x_page_items
+from .sources import X_EXPANSIONS, X_TWEET_FIELDS, X_USER_FIELDS, SourceUnavailable, get_json, x_page_items
 
 ENDPOINT = "https://api.x.com/2/tweets/search/recent"
 CONTROL = "control"
@@ -216,9 +216,9 @@ class XCollector:
             row.data, row.updated_at = data, stamp(now)
             params = {"query": data["query"], "max_results": window["page_size"],
                       "start_time": window["start"], "end_time": window["end"], "sort_order": "recency",
-                      "tweet.fields": "created_at,public_metrics,author_id,note_tweet,referenced_tweets,entities",
-                      "expansions": "author_id,referenced_tweets.id,referenced_tweets.id.author_id",
-                      "user.fields": "name,username"}
+                      "tweet.fields": X_TWEET_FIELDS,
+                      "expansions": X_EXPANSIONS,
+                      "user.fields": X_USER_FIELDS}
             if window["next_token"]:
                 params["next_token"] = window["next_token"]
             return window["id"], params

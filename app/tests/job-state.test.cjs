@@ -178,3 +178,23 @@ test("offline snapshots never claim current liveness or an upcoming automatic re
     1,
   );
 });
+
+test("discovery task and phase have clear labels without invented prediction percentages", () => {
+  const view = jobView(
+    job("discover", "running", { kind: "discover", phase: "discover" }),
+    false,
+  );
+  assert.equal(view.title, "关联发现与潜力判断 · 执行中");
+  assert.equal(view.message, "当前阶段：关联发现与潜力判断。");
+  assert.doesNotMatch(JSON.stringify(view), /%|必火|概率/);
+  const offline = jobView(
+    job("discover", "running", {
+      kind: "discover",
+      phase: "discover",
+      message: "已保存判断。",
+    }),
+    true,
+  );
+  assert.equal(offline.title, "关联发现与潜力判断 · 上次状态：执行中");
+  assert.equal(offline.phase, "上次阶段：关联发现与潜力判断");
+});

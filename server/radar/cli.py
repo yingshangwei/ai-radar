@@ -39,7 +39,7 @@ def _translation_diagnostic_logging(enabled):
 
 def main():
     parser = argparse.ArgumentParser(description="AI Radar server operations")
-    parser.add_argument("action", choices=["init", "collect", "digest", "daily", "import", "translate", "read"])
+    parser.add_argument("action", choices=["init", "collect", "digest", "daily", "import", "translate", "read", "discover"])
     parser.add_argument("--date", type=date.fromisoformat)
     parser.add_argument("--file", type=Path)
     parser.add_argument("--force", action="store_true")

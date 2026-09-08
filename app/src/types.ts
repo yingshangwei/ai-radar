@@ -40,6 +40,19 @@ export interface Article {
       published_at: string | null;
     } | null;
   };
+  discovery?: {
+    kind: "early_signal";
+    label: "潜力预判";
+    reason_zh: string;
+    uncertainty_zh: string;
+    confidence: number;
+    potential_impact: number;
+    novelty: number;
+    judged_at: string;
+    initial_engagement: number;
+    current_engagement: number;
+    outcome: "pending" | "gaining_attention";
+  };
 }
 export interface ReadResource {
   id: string;
@@ -89,6 +102,12 @@ export interface Watch {
   organization: string;
   role: string;
   enabled: boolean;
+  discovery?: {
+    origin: "automatic";
+    status: "trial" | "retained" | "expired" | "user_stopped";
+    expires_at: string;
+    reason_zh: string;
+  };
 }
 export interface Source {
   id: string;
@@ -123,6 +142,16 @@ export interface Status {
   article_count: number;
   server_now?: string;
   job_counts?: Record<string, number>;
+  discovery?: {
+    enabled: boolean;
+    pending: number;
+    unknown: number;
+    error: number;
+    calls_today: number;
+    daily_call_limit: number;
+    active_trials: number;
+    entities_pending: number;
+  };
   translation?: {
     enabled: boolean;
     configured: boolean;

@@ -458,6 +458,7 @@ def queue_article(session, article: Article, config: TranslationConfig):
 
 def present_articles(session, articles, config: TranslationConfig, *, full_resources=False,
                      presentation_config=None) -> list[dict]:
+    from .discovery_watches import article_signal
     from .reading import resource_views
 
     articles = list(articles)
@@ -474,6 +475,7 @@ def present_articles(session, articles, config: TranslationConfig, *, full_resou
         row = translations.get(key)
         ready = row is not None and row.status == "ready"
         item.update(
+            discovery=article_signal(session, article),
             resources=resources[article.id],
             presentation=presentations.get(article.id, {"status": "pending", "title_zh": None}),
             social=social[article.id],

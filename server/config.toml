@@ -60,6 +60,18 @@ revision = "reading-zh-v1"
 # [reading.mention_catalog]
 # "An explicitly named app" = "https://its-verified-official-site.example/"
 
+[discovery]
+enabled = true
+max_candidates_per_day = 60
+max_calls_per_day = 20
+max_calls_per_candidate = 2
+batch_size = 2
+max_auto_watches = 6
+max_new_watches_per_day = 2
+trial_days = 7
+# Inherits [provider]; override via [discovery.provider] to change the model/CLI.
+# Predictions retain original engagement and are labelled separately from popularity.
+
 [research]
 hf_enabled = true
 arxiv_enabled = true

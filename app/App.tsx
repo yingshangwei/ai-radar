@@ -46,6 +46,11 @@ import {
 } from "./src/contentSync";
 import { sourceConnected, sourceStatusLabel } from "./src/sourceState";
 import { jobSummary, jobView, visibleJobs } from "./src/jobState";
+import {
+  earlySignalView,
+  trialWatchView,
+  discoveryStatusView,
+} from "./src/discoveryView";
 import appManifest from "./app.json";
 import { demoArticles, demoDigest, demoStatus, demoWatches } from "./src/demo";
 import type {
@@ -80,6 +85,75 @@ const T = ({
     {children}
   </Text>
 );
+function EarlySignal({
+  article,
+  detail = false,
+  offline = false,
+}: {
+  article: Article;
+  detail?: boolean;
+  offline?: boolean;
+}) {
+  const signal = earlySignalView(article.discovery, offline);
+  if (!signal) return null;
+  const badge = (
+    <View
+      style={[
+        s.row,
+        {
+          gap: 4,
+          backgroundColor: "#ECF0E6",
+          borderRadius: 5,
+          paddingHorizontal: 7,
+          paddingVertical: 2,
+        },
+      ]}
+    >
+      <Icon name="trending-up" size={11} color={C.green} />
+      <T
+        style={{
+          color: C.green,
+          fontSize: 10,
+          lineHeight: 17,
+          fontWeight: "600",
+        }}
+      >
+        {signal.label}
+      </T>
+    </View>
+  );
+  if (!detail)
+    return (
+      <View style={[s.row, { marginTop: 12, gap: 8 }]}>
+        {badge}
+        <T
+          numberOfLines={1}
+          style={[s.muted, { flex: 1, fontSize: 11, lineHeight: 19 }]}
+        >
+          {signal.reason}
+        </T>
+      </View>
+    );
+  return (
+    <View style={[s.note, { marginBottom: 22, padding: 17 }]}>
+      <View style={[s.row, { marginBottom: 9 }]}>{badge}</View>
+      <T style={{ fontSize: 14, lineHeight: 24 }}>{signal.reason}</T>
+      <T style={[s.muted, { fontSize: 12, lineHeight: 21, marginTop: 8 }]}>
+        不确定点：{signal.uncertainty}
+      </T>
+      {signal.attention && (
+        <T
+          style={{ color: C.green, fontSize: 12, lineHeight: 21, marginTop: 8 }}
+        >
+          {signal.attention}
+        </T>
+      )}
+      <T style={[s.muted, { fontSize: 11, lineHeight: 19, marginTop: 9 }]}>
+        {signal.disclaimer}
+      </T>
+    </View>
+  );
+}
 const shortDate = (value: string) => {
   const date = new Date(value);
   return `${date.getMonth() + 1}月${date.getDate()}日`;
@@ -605,6 +679,7 @@ function Reader({
           </T>
         </View>
         <ArticleBody article={a} preview />
+        <EarlySignal article={a} />
         {!chineseReady(a) && !!translationNote(a) && (
           <T style={[s.muted, { fontSize: 10, marginTop: 10 }]}>
             {translationNote(a)}
@@ -927,6 +1002,10 @@ function Reader({
           </View>
           {watches.data?.items.map((w) => {
             const enabled = demo ? !demoDisabled.includes(w.id) : w.enabled;
+            const trial = trialWatchView(
+              w.discovery,
+              !!status.data?.offline || !!watches.error,
+            );
             return (
               <View
                 key={w.id}
@@ -959,6 +1038,23 @@ function Reader({
                   <T style={{ fontSize: 15, fontWeight: "600" }}>{w.name}</T>
                   <T style={[s.muted, { fontSize: 11 }]}>@{w.handle}</T>
                   <T style={[s.muted, { fontSize: 10 }]}>{w.role}</T>
+                  {trial && (
+                    <View style={{ marginTop: 5 }}>
+                      <T
+                        style={{ color: C.green, fontSize: 10, lineHeight: 18 }}
+                      >
+                        {trial.label}
+                      </T>
+                      {!!trial.reason && (
+                        <T
+                          numberOfLines={2}
+                          style={[s.muted, { fontSize: 10, lineHeight: 18 }]}
+                        >
+                          {trial.reason}
+                        </T>
+                      )}
+                    </View>
+                  )}
                 </View>
                 <Pressable
                   accessibilityRole="switch"
@@ -1042,25 +1138,31 @@ function Reader({
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={{ gap: 8, paddingBottom: 16 }}
               >
-                {["全部", "模型", "产品", "技术", "开源", "观点", "产业"].map(
-                  (t) => (
-                    <Pressable
-                      key={t}
-                      onPress={() => {
-                        setTopic(t);
-                      }}
-                      accessibilityRole="button"
-                      accessibilityState={{ selected: topic === t }}
-                      style={[s.pill, topic === t && s.pillActive]}
-                    >
-                      <T
-                        style={[s.pillText, topic === t && { color: C.paper }]}
-                      >
-                        {t}
-                      </T>
-                    </Pressable>
-                  ),
-                )}
+                {[
+                  "全部",
+                  "前瞻",
+                  "学界",
+                  "模型",
+                  "产品",
+                  "技术",
+                  "开源",
+                  "观点",
+                  "产业",
+                ].map((t) => (
+                  <Pressable
+                    key={t}
+                    onPress={() => {
+                      setTopic(t);
+                    }}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: topic === t }}
+                    style={[s.pill, topic === t && s.pillActive]}
+                  >
+                    <T style={[s.pillText, topic === t && { color: C.paper }]}>
+                      {t}
+                    </T>
+                  </Pressable>
+                ))}
               </ScrollView>
               <View
                 style={[
@@ -1267,6 +1369,13 @@ function Reader({
                     {displayHeadline(currentArticle).text}
                   </T>
                 </View>
+                <EarlySignal
+                  article={currentArticle}
+                  detail
+                  offline={
+                    !!articleDetails.data?.offline || !!status.data?.offline
+                  }
+                />
                 <View
                   style={[
                     s.spread,
@@ -1596,6 +1705,14 @@ function Reader({
               : "自动任务未开启，需在服务器配置中启用"}
           </T>
         </View>
+        {state?.discovery && (
+          <View style={{ marginBottom: 23 }}>
+            <T style={s.sectionTitle}>关联发现与潜力判断</T>
+            <T style={[s.muted, { marginTop: 7, fontSize: 12 }]}>
+              {discoveryStatusView(state.discovery, !!status.data?.offline)}
+            </T>
+          </View>
+        )}
         <T style={s.sectionTitle}>后台任务</T>
         <T style={[s.muted, { marginTop: 7, marginBottom: 12 }]}>
           {status.data?.offline ? "离线 · 上次状态：" : ""}

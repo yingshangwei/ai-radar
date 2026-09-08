@@ -57,6 +57,26 @@ class ResearchConfig(BaseModel):
     arxiv_candidates: int = Field(default=60, strict=True, ge=1, le=200)
 
 
+class DiscoveryConfig(BaseModel):
+    enabled: bool = False
+    provider: ProviderConfig | None = None
+    policy: str = "discovery-v1"
+    max_age_hours: int = Field(default=48, strict=True, ge=1, le=168)
+    max_candidates_per_day: int = Field(default=60, strict=True, ge=1, le=500)
+    max_pending: int = Field(default=120, strict=True, ge=1, le=1000)
+    max_calls_per_day: int = Field(default=20, strict=True, ge=1, le=100)
+    max_calls_per_candidate: int = Field(default=2, strict=True, ge=1, le=3)
+    batch_size: int = Field(default=2, strict=True, ge=1, le=4)
+    hot_engagement: int = Field(default=100, strict=True, ge=1)
+    early_score_min: int = Field(default=75, strict=True, ge=0, le=100)
+    early_confidence_min: int = Field(default=75, strict=True, ge=0, le=100)
+    watch_confidence_min: int = Field(default=85, strict=True, ge=0, le=100)
+    auto_watch: bool = True
+    max_auto_watches: int = Field(default=6, strict=True, ge=0, le=20)
+    max_new_watches_per_day: int = Field(default=2, strict=True, ge=0, le=10)
+    trial_days: int = Field(default=7, strict=True, ge=1, le=30)
+
+
 TranslationStage = Literal["draft", "correction", "audit"]
 TranslationTokenLimit = Annotated[int, Field(strict=True, ge=256, le=65536)]
 TRANSLATION_RESERVED_OPTIONS = frozenset({
@@ -155,6 +175,7 @@ class RadarConfig(BaseModel):
     translation: TranslationConfig = Field(default_factory=TranslationConfig)
     reading: ReadingConfig = Field(default_factory=ReadingConfig)
     research: ResearchConfig = Field(default_factory=ResearchConfig)
+    discovery: DiscoveryConfig = Field(default_factory=DiscoveryConfig)
 
     @field_validator("timezone")
     @classmethod

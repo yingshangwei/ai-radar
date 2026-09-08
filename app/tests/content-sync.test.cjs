@@ -129,7 +129,9 @@ test("real QueryClient refreshes active content once, leaves status and other se
         calls.get(JSON.stringify(queryKey)) || 0,
         queryKey[0] === "server" &&
           queryKey[1] === "live" &&
-          ["articles", "article", "digest", "editions"].includes(queryKey[2])
+          ["articles", "article", "digest", "editions", "watches"].includes(
+            queryKey[2],
+          )
           ? 1
           : 0,
       );
@@ -150,6 +152,57 @@ test("real QueryClient refreshes active content once, leaves status and other se
     );
   } finally {
     unsubscribe.forEach((stop) => stop());
+    client.clear();
+  }
+});
+
+test("discover completion refreshes an active watch list without new articles or repeated polling fetches", async () => {
+  const client = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, staleTime: Infinity, gcTime: Infinity },
+    },
+  });
+  const queryKey = ["server", "live", "watches"];
+  const otherKey = ["other", "live", "watches"];
+  const statusKey = ["server", "live", "status"];
+  const manual = { id: "manual", handle: "existing", enabled: true };
+  const discovered = {
+    id: "discovered",
+    handle: "newresearcher",
+    enabled: true,
+    discovery: { origin: "automatic", state: "trial" },
+  };
+  const initial = status();
+  initial.jobs = [{ id: "discover-1", kind: "discover", status: "running" }];
+  client.setQueryData(queryKey, snapshot([manual]));
+  client.setQueryData(otherKey, snapshot([manual]));
+  client.setQueryData(statusKey, snapshot(initial));
+  let calls = 0;
+  const observer = new QueryObserver(client, {
+    queryKey,
+    queryFn: async () => {
+      calls++;
+      return snapshot([manual, discovered]);
+    },
+  });
+  const unsubscribe = observer.subscribe(() => {});
+  const observe = contentRefreshTracker(client, ["server", "live"]);
+  try {
+    assert.equal(await observe(snapshot(initial)), false);
+    assert.equal(calls, 0);
+    const completed = structuredClone(initial);
+    completed.jobs[0].status = "completed";
+    completed.jobs[0].finished_at = "2026-09-08T01:05:00Z";
+    assert.equal(await observe(snapshot(completed)), true);
+    assert.deepEqual(client.getQueryData(queryKey).data, [manual, discovered]);
+    assert.deepEqual(client.getQueryData(otherKey).data, [manual]);
+    assert.equal(client.getQueryState(otherKey).isInvalidated, false);
+    assert.equal(client.getQueryState(statusKey).isInvalidated, false);
+    for (let poll = 0; poll < 10; poll++)
+      assert.equal(await observe(snapshot(structuredClone(completed))), false);
+    assert.equal(calls, 1);
+  } finally {
+    unsubscribe();
     client.clear();
   }
 });

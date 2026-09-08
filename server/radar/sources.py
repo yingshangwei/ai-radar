@@ -9,7 +9,13 @@ from bs4 import BeautifulSoup
 
 from .config import FeedConfig, RadarConfig, secret
 from .links import html_references
-from .schemas import IncomingArticle
+from .schemas import AssociatedEntity, IncomingArticle
+
+X_TWEET_FIELDS = "created_at,public_metrics,author_id,note_tweet,referenced_tweets,entities,in_reply_to_user_id"
+X_EXPANSIONS = ("author_id,referenced_tweets.id,referenced_tweets.id.author_id,"
+                "entities.mentions.username,in_reply_to_user_id")
+X_USER_FIELDS = "id,name,username,description,public_metrics,url,protected"
+X_HANDLE = re.compile(r"[A-Za-z0-9_]{1,15}")
 
 
 class SourceUnavailable(Exception):
@@ -132,11 +138,108 @@ def x_references(post: dict, referenced: dict, users: dict | None = None) -> lis
     return replies + list(refs.values())[:30 - len(replies)]
 
 
+def _mention_text(text, mention) -> str | None:
+    """Preserve only the literal mention span, never infer a surrounding quote."""
+    start, end, username = mention.get("start"), mention.get("end"), mention.get("username")
+    if (not isinstance(text, str) or not isinstance(username, str)
+            or type(start) is not int or type(end) is not int or start < 0 or end <= start):
+        return None
+    choices = [text[start:end]]
+    try:
+        choices.append(text.encode("utf-16-le")[start * 2:end * 2].decode("utf-16-le"))
+    except UnicodeError:
+        pass
+    return next((value for value in choices if value.casefold() == ("@" + username).casefold()), None)
+
+
+def extract_x_entities(post: dict, referenced: dict, users: list[dict]) -> list[AssociatedEntity]:
+    """Resolve direct relations against supplied real profiles without extra API calls."""
+    profiles, ambiguous_ids, handles = {}, set(), {}
+    for user in users:
+        if not isinstance(user, dict):
+            continue
+        uid, username = user.get("id"), user.get("username")
+        if not isinstance(uid, str) or not uid.isascii() or not uid.isdigit():
+            continue
+        if not isinstance(username, str) or not X_HANDLE.fullmatch(username):
+            continue
+        if uid in profiles and profiles[uid] != user:
+            ambiguous_ids.add(uid)
+        profiles[uid] = user
+        handles.setdefault(username.casefold(), set()).add(uid)
+    selected = {}
+
+    def add(uid, relation, *, username=None, matched_text=None):
+        if not isinstance(uid, str) or uid == post.get("author_id") or uid in selected or uid in ambiguous_ids:
+            return
+        profile = profiles.get(uid)
+        if profile is None or len(handles[profile["username"].casefold()]) != 1:
+            return
+        if username is not None and profile["username"].casefold() != username.casefold():
+            return
+        metrics = profile.get("public_metrics")
+        if not isinstance(metrics, dict):
+            return
+        name, description = profile.get("name"), profile.get("description", "")
+        if not isinstance(name, str) or not name.strip() or not isinstance(description, str):
+            return
+        try:
+            entity = AssociatedEntity(
+                external_id=uid, handle=profile["username"], name=name[:120], description=description[:1000],
+                followers_count=metrics.get("followers_count"), url="https://x.com/" + profile["username"],
+                relation=relation, matched_text=matched_text,
+            )
+        except ValueError:
+            return
+        if len(selected) < 30:
+            selected[uid] = entity
+
+    # note_tweet entities belong to the same main post, not to an expanded quote.
+    for content in (post, post.get("note_tweet")):
+        if not isinstance(content, dict) or not isinstance(content.get("entities"), dict):
+            continue
+        mentions = content["entities"].get("mentions", [])
+        if not isinstance(mentions, list):
+            continue
+        for mention in mentions:
+            if not isinstance(mention, dict) or not isinstance(mention.get("username"), str):
+                continue
+            if not X_HANDLE.fullmatch(mention["username"]):
+                continue
+            add(mention.get("id"), "mention", username=mention["username"],
+                matched_text=_mention_text(content.get("text"), mention))
+
+    reply_author = post.get("in_reply_to_user_id")
+    references = post.get("referenced_tweets", [])
+    for relation in references if isinstance(references, list) else []:
+        if not isinstance(relation, dict) or relation.get("type") not in {"quoted", "replied_to"}:
+            continue
+        uid = relation.get("id")
+        parent = referenced.get(uid, {}) if isinstance(uid, str) else {}
+        if not isinstance(parent, dict):
+            continue
+        author_id = parent.get("author_id")
+        if relation["type"] == "quoted":
+            add(author_id, "quote")
+        elif reply_author is None:
+            reply_author = author_id
+        elif author_id is not None and author_id != reply_author:
+            reply_author = ""
+    if reply_author:
+        add(reply_author, "reply")
+    return list(selected.values())
+
+
 def x_page_items(body: dict) -> list[IncomingArticle]:
     if not isinstance(body.get("data", []), list):
         raise ValueError("Invalid X page structure")
-    users = {user["id"]: user for user in body.get("includes", {}).get("users", [])}
-    referenced = {post["id"]: post for post in body.get("includes", {}).get("tweets", [])}
+    includes = body.get("includes") if isinstance(body.get("includes"), dict) else {}
+    raw_users = includes.get("users") if isinstance(includes.get("users"), list) else []
+    raw_tweets = includes.get("tweets") if isinstance(includes.get("tweets"), list) else []
+    users = {user["id"]: user for user in raw_users
+             if isinstance(user, dict) and isinstance(user.get("id"), str)}
+    referenced = {post["id"]: post for post in raw_tweets
+                  if isinstance(post, dict) and isinstance(post.get("id"), str)}
     items = {}
     for post in body.get("data", []):
         content = x_text_with_quotes(post, referenced, users)
@@ -151,6 +254,9 @@ def x_page_items(body: dict) -> list[IncomingArticle]:
             author=author.get("name", handle), handle=handle,
             published_at=post["created_at"], metrics=post.get("public_metrics", {}),
             references=x_references(post, referenced, users),
+            entities=extract_x_entities(post, referenced, raw_users),
+            author_external_id=post["author_id"] if isinstance(post.get("author_id"), str)
+            and len(post["author_id"]) <= 100 else "",
         )
     return list(items.values())
 
@@ -176,9 +282,9 @@ async def fetch_x(
             "query": query,
             "max_results": config.x_page_size,
             "start_time": start,
-            "tweet.fields": "created_at,public_metrics,author_id,note_tweet,referenced_tweets,entities",
-            "expansions": "author_id,referenced_tweets.id,referenced_tweets.id.author_id",
-            "user.fields": "name,username",
+            "tweet.fields": X_TWEET_FIELDS,
+            "expansions": X_EXPANSIONS,
+            "user.fields": X_USER_FIELDS,
         }
         for _ in range(config.x_max_pages):
             try:

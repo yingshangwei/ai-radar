@@ -51,7 +51,7 @@ def add(sessions, config, *, refs=None, **kwargs):
     incoming = paper(**kwargs)
     with sessions.begin() as session:
         article = Article(id="paper", canonical_url=incoming.url,
-                          **incoming.model_dump(exclude={"references", "published_at"}),
+                          **incoming.model_dump(exclude={"references", "published_at", "entities", "author_external_id"}),
                           published_at=incoming.published_at.isoformat())
         session.add(article)
         session.flush()
@@ -149,7 +149,7 @@ def test_cache_helper_requires_narrow_official_abstract_contract(harness, change
     with sessions.begin() as session:
         incoming = paper(**change)
         article = Article(id="invalid", canonical_url=incoming.url,
-                          **incoming.model_dump(exclude={"references", "published_at"}),
+                          **incoming.model_dump(exclude={"references", "published_at", "entities", "author_external_id"}),
                           published_at=incoming.published_at.isoformat())
         session.add(article)
         session.flush()

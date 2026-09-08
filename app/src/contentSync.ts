@@ -1,7 +1,13 @@
 import type { QueryClient } from "@tanstack/react-query";
 import type { Article, Status } from "./types";
 
-const CONTENT_QUERIES = new Set(["articles", "article", "digest", "editions"]);
+const CONTENT_QUERIES = new Set([
+  "articles",
+  "article",
+  "digest",
+  "editions",
+  "watches",
+]);
 const counts = (value?: Record<string, number>) =>
   Object.entries(value || {}).sort(([a], [b]) => a.localeCompare(b));
 

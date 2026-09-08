@@ -18,7 +18,7 @@ App 在前台每 30 秒检查服务状态。任务结束、消息数量、中文
 
 ## 缓存与中文
 
-URL 归一化后共享正文，默认 24 小时内不重复下载；支持 ETag / Last-Modified。正文内容哈希与解读规则版本共同决定摘要缓存；正文不变时不会重复总结。全文翻译复用已有 DeepSeek 分段翻译、校对及持久化机制。相同正文被不同消息引用、修改热度、再次生成日报都不会重复翻译。
+URL 归一化后共享正文，默认 24 小时内不重复下载；支持 ETag / Last-Modified。新的解读缓存绑定正文内容、来源 URL 和解读规则版本；同一来源不变时复用处理进度，不同来源不会仅因正文相同而继承批准。全文翻译复用已有 DeepSeek 分段翻译、校对及持久化机制。相同正文被不同消息引用、修改热度、再次生成日报都不会重复翻译。
 
 日报复用已保存的中文解读，并将引用归到所属原消息，区分资源作者与转发者；抓取时间不能作为文章发布时间。历史日报不会自动改写，管理员可按需指定日期强制重新生成。
 
@@ -56,11 +56,11 @@ refresh_hours = 24
 revision = "reading-zh-v1"
 ```
 
-`max_documents` 限制每轮下载及待处理文档数，积压在后续任务继续。普通采集 / 日报任务自动处理；管理员可调用 `POST /v1/admin/jobs?kind=read` 只补读已有消息，避免再次请求 X。`force=true` 允许失败读取、解读和未通过校对的全文译文立即重试；已成功且仍在缓存期的正文、解读和译文不会重做。普通任务遵循重试时间及次数。
+`max_documents` 限制每轮下载及待处理文档数，积压在后续任务继续。普通采集 / 日报任务自动处理；管理员可调用 `POST /v1/admin/jobs?kind=read` 只补读已有消息，避免再次请求 X。`force=true` 可提前重试既有失败读取和翻译队列，但不清除新摘要审核的调用预算、未知结果或最终否决；已成功且仍在缓存期的正文、解读和译文不会重做。普通任务遵循重试时间及次数。
 
 如果正文已经保存，只需补齐中文，可使用 `radar translate --force` 或 `POST /v1/admin/jobs?kind=translate&force=true`。统一翻译队列覆盖仍绑定消息的已保存网页，复用草稿及已审段落，不重新抓网页或生成摘要。`translation.resource_counts` 与任务消息单独报告网页中文进度，主消息全部有中文不等于网页全文全部完成。
 
-摘要使用现有可替换 Provider 配置（Codex / Claude / 自定义 CLI / SDK），翻译独立使用 Translation 配置。原消息、原文和收藏保持不变；开发者仅改进服务器逻辑，由正式服务器流程负责生成与纠错，详见 [翻译职责与重审说明](TRANSLATION.md)。
+摘要使用现有可替换 Provider 配置（Codex / Claude / 自定义 CLI / SDK），翻译独立使用 Translation 配置。新增摘要事实审核、私有候选与有界修订说明见 [摘要审核流程](SUMMARY-REVIEW.md)。原消息、原文和收藏保持不变；开发者仅改进服务器逻辑，由正式服务器流程负责生成与纠错，详见 [翻译职责与重审说明](TRANSLATION.md)。
 
 X 展开链接依据：[官方 Post Lookup](https://docs.x.com/x-api/posts/lookup/introduction) 与 [数据字典](https://docs.x.com/x-api/fundamentals/data-dictionary)。
 

@@ -1,8 +1,24 @@
 # 验证记录 · 2026-09-08
 
-## 当前上线：复用已有模型审核的机器复检
+## 当前上线：摘要事实审核
 
-当前服务器为 `20260908-a510803`，激活 `inv-e8dau3gp1m` **SUCCESS / 0**。隔离发布范围 **856 passed、6 skipped**，Ruff 通过；归档 139,433 字节、51 文件、6 分片，SHA-256 `84b750b9552d686ec20bfda970d428161a901d931c491e73c41ceea2900e27ed`。预检 `inv-n8dar20mcd` 与六分片上传成功；激活保留 15 张表、X 进度、三份配置、九组历史和其他服务，复用已经完成的 9 月 8 日到期日报，`zero_job_activation=true`。证据 `dist/cloud/machine-revalidation-release.json`、`machine-revalidation-activation-final.txt` / `machine-revalidation-activation.json`。
+隔离分支 `codex/summary-fact-review` 的 `28301b6` 新增持久化摘要事实审核，流程见 [SUMMARY-REVIEW.md](SUMMARY-REVIEW.md)。最终完整测试 **978 passed、6 skipped**，1 条既有依赖警告，Ruff 通过；没有包含暂缓的 AI 筛选或中文输出规则。新增回归覆盖：44 项纯协议、27 项原始证据、36 项持久审核服务、14 项发布流程，以及旧 15 张表升级到新增空私有审核表的兼容性。
+
+测试使用合成数据与模拟 Provider，验证错误数字必须被审核、修订后重新审核，候选不对手机公开，未知调用不重投，租约、预算和重启缓存保留，来源或已有日报在生成期间变化时不覆盖新进度。独立复查发现并修复了格式反馈未真正传入生成器、并发日报覆盖和同正文不同 URL 共享审核的问题。这些测试不能证明真实模型的事实判断一定正确。
+
+正式激活 `inv-e8dcp0gr5f` SUCCESS / 0：原 15 张表与既有日报、X 进度、三份配置、十组历史、其他服务保持不变，新私有审核表为空，启动没有新增任务。45 项部署测试通过，归档与提交的 54 份文件逐一一致；证据 `ai-radar-summary-review-check/dist/cloud/summary-review-activation-final.txt`。01:39:04 UTC 公网检查健康、401/403 隔离和调度器正常，无业务任务运行，主消息 46 ready / 网页 14 ready、33 review_required。真实 Codex 合成错例验收另行记录，不能把部署成功当作实际事实审核通过。
+
+首次合成验收仅启动一次：`inv-n8dctw08tw` 创建隔离服务后在 systemd CHDIR / 200 阶段失败。只读 `inv-j8dd08gijh` 确认测试入口标记、数据库及结果均不存在，尚未执行模型；原因为 `umask 077` 将 root 拥有的目录和元数据收紧，工作用户无法访问。旧指针、元数据、脚本及失败记录保持不变，没有重启原任务。开发修复仅增加明确的目录和文件权限，并用真实 umask 回归；只有严格证明此前零执行，才允许独立的一次恢复操作，不能用于重复抽审或掩盖模型否决。
+
+修正版 v3 的 53 项运维测试、实际服务账号路径检查及独立审查通过。上传 `inv-m8dd8mgacq`、一次性恢复启动 `inv-m8dda8grdb` 成功，固定服务为 `ai-radar-summary-synthetic-9dd8d5bc2d5c42adbc3bc1bc0a50b24a`，独立目录 `/var/lib/ai-radar/summary-review-synthetic-v3/9dd8d5bc2d5c42adbc3bc1bc0a50b24a/`。只读验收 **`inv-j8ddcdg5su` SUCCESS / 0**：任务正常结束、`completion_verified=true`。虚构来源明确为 5，固定错误候选写成 500；真实 Codex 首次审核拒绝该候选，由服务器自动修订并对新候选复审，已知错误数字不再保留，最终 ready。
+
+历史记录有 3 次审核、1 次修订尝试，另 1 次初稿由固定合成生成器提供；这些计数不是 CLI 内部请求数或计费次数。创建新的服务实例再次处理同一缓存，`cache_reused=true`、新增调用为 0。测试只创建独立的 `summary_reviews` 表，生产数据库及 WAL/SHM 由 systemd 禁止访问，配置与旧失败证据保持；未修改任何生产原文、译文或候选。实际输出 `ai-radar-summary-review-check/dist/cloud/summary-review-synthetic-v3-final.txt`。此验收证明一份已知合成错例的服务器流程，不证明所有生产内容绝对准确；模型语义否决或结果未知时也不允许照此重复运行。
+
+合成验收后 **01:59:08 UTC** 公网只读检查仍健康，401/403 隔离正常，主消息 46 ready、网页 14 ready / 33 review_required，无业务任务运行或余额告警，调度器开启；X partial、Facebook auth_required、六个官方来源 healthy。证据在主仓库 `dist/cloud/supplemental-digest-public-20260908T015908520888Z.json`。本次仅服务端开发，无需重新安装 App。
+
+## 此前上线：复用已有模型审核的机器复检
+
+当时服务器为 `20260908-a510803`，激活 `inv-e8dau3gp1m` **SUCCESS / 0**。隔离发布范围 **856 passed、6 skipped**，Ruff 通过；归档 139,433 字节、51 文件、6 分片，SHA-256 `84b750b9552d686ec20bfda970d428161a901d931c491e73c41ceea2900e27ed`。预检 `inv-n8dar20mcd` 与六分片上传成功；激活保留 15 张表、X 进度、三份配置、九组历史和其他服务，复用已经完成的 9 月 8 日到期日报，`zero_job_activation=true`。证据 `dist/cloud/machine-revalidation-release.json`、`machine-revalidation-activation-final.txt` / `machine-revalidation-activation.json`。
 
 复检仅处理当前绑定缓存中旧机器检查产生的疑点，要求既有修订、独立审计均明确通过且原文 / 候选指纹及审核策略仍一致；模型否决、指纹变化、活动租约和未解决检查均不能放行。正式 CLI 不接收替换文本，不需要模型密钥，不启动普通模型 Pipeline。22 项独立运维合成回归验证正式命令、禁网、未知提交不重投、未选缓存和模型审核记录逐字保留，以及部分段落恢复不等于整篇 ready。生产提交 `inv-j8daw70e48` 成功；正式任务 `a45264c1-5dcc-420d-9fa7-8645b621d576` 于 2026-09-08 00:34:25.355768–00:34:25.672992 UTC completed，实际选择 2 份、更新 2 份，其中 1 ready、1 review_required。
 
@@ -37,6 +53,8 @@
 已发布的 `c95c8d4` 同时包含提示契约：补充材料必须保留真实发布时间与作者，不能称为当天新发布，展示标签仍由服务器按引用添加。该版本不包含下面仍待诊断的中文语言门禁或 AI 筛选规则。
 
 ## 暂缓发布：中文输出门禁
+
+暂缓的 AI 与中文规则共七个文件已逐字保全到独立工作区 `ai-radar-pending-content-gates`，分支 `codex/pending-content-gates`、基线 `950905d`，仍未提交。主分支已干净快进至摘要审核代码 `28301b6`，没有混入这些规则。七份文件 SHA 与权限均保持；旧 providers 改动与新的解析提取存在冲突，后续不能机械回放旧补丁。保全清单为主仓库 `dist/backups/held-content-gates-20260908T015352926094Z-b491441d/manifest.json`。
 
 语言规则独立复核发现的两个合成问题已修复：中文标签掩盖多个英文短句，以及公式 `I(X; Y)` 被误认为英文代词。新规则冻结 SHA-256 为 `9b729422d09b1966a8a047e6acb1f4aa65c4af44a3959a1c0fff984376a4459d`，目标测试 **106 passed**。这仅验证通用输出语言契约，不代表事实、归属或翻译准确性获得审核通过。
 

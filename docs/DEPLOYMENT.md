@@ -4,7 +4,17 @@
 
 ## 当前部署状态 · 2026-09-08
 
-当前运行 `/opt/ai-radar/releases/20260908-a510803`。新增机器校验复检，仅复用当前策略及精确原文 / 候选指纹一致的既有模型修订和独立审计，保留原始正文、候选和审核记录，不调用模型。正式入口为 `radar translate --revalidate-machine --limit N`，普通补译也使用同一严格检查；不接受替换文字或强制批准。未包含暂缓发布的 AI 筛选、中文语言门禁或尚未集成的摘要审计模块。
+当前运行 `/opt/ai-radar/releases/20260908-28301b6`。新增[摘要事实审核](SUMMARY-REVIEW.md)，候选、证据、有限修订和独立审核进度均由服务器持久管理，只有当前候选完整通过才可发布。私有生产配置未改动，新配置默认启用审核并沿用既有 Codex Provider；未包含暂缓发布的 AI 筛选和中文语言规则。
+
+预检 `inv-n8dcimgw97`、七个分片上传及激活 `inv-e8dcp0gr5f` 均 SUCCESS / 0。归档 151,770 字节、54 文件，SHA-256 `4f915ea4d4171f18e895694d6a2403b5249e99f726b9f945d0bd5eeba33911a0`；源码清单 SHA-256 `1549f33094f758e5242d6a48528517a16a61d63bf925214c18c6197f13b47002`。完整测试 978 passed / 6 skipped，45 项部署保护测试及独立审查通过。新部署记录采用原子写入，冻结失败保留完整旧记录；任何新任务或审核记录都会阻止按旧基线回滚，部署不回写数据库。
+
+原 15 张表、X 分页进度、9 月 8 日已发布日报、三份私有配置、十组历史记录、Caddy 和原 8080 服务均保持，新增第 16 张 `summary_reviews` 表为空，`zero_job_activation=true`。实际证据位于隔离发布工作区 `ai-radar-summary-review-check/dist/cloud/summary-review-activation-final.txt`。01:39:04 UTC 公网检查健康和 401/403 权限隔离正常：46 份主消息中文 ready，网页全文 14 ready / 33 review_required，余额告警为空、调度器开启、无业务任务运行；六个官方来源正常，X partial、Facebook auth_required。上线不改写此前已发布内容，也不表示积压翻译全部完成。
+
+随后完成独立数据库的真实 Codex 合成错例验收，`inv-j8ddcdg5su` SUCCESS / 0，错误候选被拒绝、自动修订并复审通过，重新创建处理服务实例后复用缓存、零新增调用。首次测试在模型执行前因权限失败，严格证明零调用后才用新目录恢复；旧指针与失败记录未改动。合成测试服务禁止访问生产数据库，仅使用原有 Codex 授权，未复制登录凭据。完整证据和局限见 [验证记录](VALIDATION.md)。
+
+## 历史：a510803 机器复检
+
+此前运行 `/opt/ai-radar/releases/20260908-a510803`。新增机器校验复检，仅复用当前策略及精确原文 / 候选指纹一致的既有模型修订和独立审计，保留原始正文、候选和审核记录，不调用模型。正式入口为 `radar translate --revalidate-machine --limit N`，普通补译也使用同一严格检查；不接受替换文字或强制批准。
 
 归档 139,433 字节、51 份已提交文件、6 分片，SHA-256 `84b750b9552d686ec20bfda970d428161a901d931c491e73c41ceea2900e27ed`。隔离发布范围 **856 passed、6 skipped**，Ruff 通过；正式复检运维脚本另有 22 项合成回归。预检 `inv-n8dar20mcd`、六个分片上传和激活 `inv-e8dau3gp1m` 均成功，激活退出 0。15 张表、已有 X 进度、三份私有配置、九组历史、浏览器、Caddy 及原 8080 服务保持，`zero_job_activation=true`。激活基线在自然日报完成后冻结，9 月 8 日到期日报复用，没有把合法的自然任务更新误判为数据变更。证据 `dist/cloud/machine-revalidation-release.json`、`machine-revalidation-activation-final.txt` 和 `machine-revalidation-activation.json`。
 

@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 .venv/
+.browser-venv/
 __pycache__/
 .pytest_cache/
 .ruff_cache/
@@ -20,6 +21,10 @@ Pods/
 *.xcuserstate
 *.keystore
 !debug.keystore
+*.jks
+*.p12
+*.p8
+*.mobileprovision
 credentials/
 credentials.json
 secrets/

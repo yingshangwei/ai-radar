@@ -263,6 +263,8 @@ class Browser:
                     "access_restricted": "网站暂时限制服务器访问，后台将在冷却后复查，也可在手机读取。",
                     "rate_limited": "网站限制访问频率，将在冷却后重试。",
                 }[status]}
+            if 400 <= self.last_status < 600:
+                return {"status": "unavailable", "message": "目标网页返回错误状态，未保存错误页面内容。"}
             if login_target(final) or await self.page.locator('input[type="password"]:visible').count():
                 return {"status": "auth_required", "message": "页面仍在要求登录，未保存登录页面内容。"}
             title = (await self.page.title()).lower()

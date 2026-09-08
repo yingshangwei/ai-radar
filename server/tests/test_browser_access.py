@@ -553,6 +553,42 @@ async def test_challenges_and_login_are_never_article_evidence(monkeypatch, titl
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("http_status,status", [
+    (404, "unavailable"), (410, "unavailable"), (503, "unavailable"),
+    (401, "auth_required"), (403, "access_restricted"), (429, "rate_limited"),
+])
+@pytest.mark.parametrize("extractor", ["crawl4ai", "trafilatura"])
+async def test_http_error_body_is_never_article_evidence(http_status, status, extractor, browser_content_ready):
+    from radar.browser_worker import Browser
+
+    class Page:
+        url = "https://example.org/article"
+
+        def locator(self, _selector):
+            return self
+
+        async def count(self):
+            return 0
+
+        async def title(self):
+            return "An informative but unsuccessful publisher response"
+
+        async def content(self):
+            pytest.fail("An HTTP error page cannot be sent to either article extractor")
+
+    class Rules:
+        async def check_robots(self, _url):
+            pass
+
+    browser = Browser()
+    browser.extractor = extractor
+    browser.page, browser.last_status, browser.robots = Page(), http_status, Rules()
+    result = await browser.capture(Page.url)
+    assert result["status"] == status
+    assert "document" not in result
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("redirect,robots_status,expected", [
     (False, "", "unavailable"), (True, "restricted", "restricted"), (True, "blocked", "blocked"),
 ])

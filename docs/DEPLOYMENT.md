@@ -1,5 +1,19 @@
 # 腾讯云部署
 
+## 当前：Crawl4AI 浏览器正文提取 · 2026-09-09
+
+当前 release `20260909-1a0b133`，基线源码 `1a0b1330e56cef02f25db92371bee5c17550abc5`，正文解析补丁 `7f9c736848371d22280956918cc451c9ddc108e5` 已激活。Crawl4AI 0.9.3 与 Playwright 1.62.0 使用独立 `.browser-venv`；主 API 依赖锁逐字未变。无需重装 App，现有 0.9.0 继续使用。接入及六站实测见 [Crawl4AI](CRAWL4AI.md)。
+
+基线归档 332,027 字节、14 分片，SHA256 `75aaeb6e7c55456fc931129bd4779afeeee9d04cbd77c564c3de6212f0eaabf2`。Stage `inv-n8ebrn0vjk`、交接 `inv-m8ebtng1s8`、上线验证 `inv-e8ebx104q6` 均 SUCCESS / 0。交接等待翻译 owner 清空，固定 PID 并在数据库写锁内验证；22 张表及原 schema 在新进程启动前完全不变，无迁移。只更新专用浏览器 unit 的 PATH、ExecStart 和提取引擎环境选项；既有授权/profile、Caddy、8080 服务及私有环境配置保留。
+
+一致性备份及回执：`/var/lib/ai-radar/crawl-20260909-1a0b133/`。交接前识别并保留了已存在的完整 Caddy 配置，精确 SHA `5a35c9fce4b9aa13494d8f8add3902198f348a17668a0aa8cb8a0cc83b3d55a5`，通过官方 Caddy adapt/validate 及公网路由验证；没有恢复旧 fragment 或改写 Caddy。空闲检查允许已核实的唯一 Playwright driver 子进程，仍拒绝有 Chromium/交互窗口的情形。
+
+正文清理补丁 `inv-e8ecca0b92` SUCCESS / 0，使用独立候选包和真实生产路径各验证三个离线 fixture 后生效；没有读取文章库、调用模型、重启服务或修改父进程接口。保留原模块/manifest 及阶段回执于 `/var/lib/ai-radar/crawl-adapter-7f9c736/`。最终 manifest SHA `35c8e939796479017668785194fa0f1219cc3549867ea5a3776e6511c15ea656`，67 份源码文件与保护文件均在 `inv-n8ece6023s` 复验通过。后续部署应以此 base + patch 为基线；不要重跑旧交接或旧 manifest 断言。
+
+初次 `a5da7d7` 仅完成暂存，未激活；正式基线追加了 404/410/5xx 错误页保护。全部变更只影响通用服务代码，测试不写生产文章、译文或摘要。
+
+以下记录为此前部署历史。
+
 ## 动态发现 0.9.0：已上线
 
 源码 `327c6fa30f7f6c3c38cdfaa672d563753e40c314`，release `20260908-327c6fa`。归档 184442 字节、8 分片，SHA `79e1659e81ef08c746f445ebc00cdd27771000bf524caea6b5feff2d87276754`。全部上传回执 SUCCESS；暂存 `inv-j8e3p30xen` 成功，独立运行环境及真实数据库副本 16→20 表迁移验证通过，未调用模型。

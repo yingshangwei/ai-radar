@@ -1,6 +1,18 @@
 # 腾讯云部署
 
-## Background queue recovery 0.8.0 — active
+## 动态发现 0.9.0：已上线
+
+源码 `327c6fa30f7f6c3c38cdfaa672d563753e40c314`，release `20260908-327c6fa`。归档 184442 字节、8 分片，SHA `79e1659e81ef08c746f445ebc00cdd27771000bf524caea6b5feff2d87276754`。全部上传回执 SUCCESS；暂存 `inv-j8e3p30xen` 成功，独立运行环境及真实数据库副本 16→20 表迁移验证通过，未调用模型。
+
+交接 `inv-m8e3r0g981` SUCCESS / 0，于 2026-09-08 14:42:13 UTC 激活。检查点无运行任务及模型 owner；固定旧 PID 后在 SQLite 写锁内复核，保留 15 张非 jobs 业务表、原表结构及全部任务身份，新增四张发现表初始为空。旧翻译、摘要及未知调用历史保持。原 Caddy、浏览器服务和 8080 服务受 PID/文件指纹保护；没有重启它们。
+
+私有配置只增加 `[discovery]` 和固定 `x_request_budget=3`；现场旧代码实际计算的原预算就是 3，其他模型、授权、翻译、学界与来源配置逐项比较相同。正式启动后只读验证 `inv-m8e3s209tc` SUCCESS：API/浏览器/Caddy active，新发现接口正常，OpenAI Tibo 保持开启、旧 maker 保持关闭。
+
+备份及回执：`/var/lib/ai-radar/discovery-20260908-327c6fa/` 内 `before.db`、`config.before.toml`、`receipt.json`。交接已完成，不可重跑脚本或恢复旧等待器。新日常采集只有一次正式提交：`inv-n8e3sngxqn`，Job `8e4a7552-bb46-43c7-8605-97c2bd3753c8`；最终处理结果见发现与验证说明。
+
+控制保护补丁 `2df1d4e` 已通过 `inv-n8e43ng23w` SUCCESS / 0 于 14:56:47 UTC 激活，仍使用同一 release。等待翻译 owner 释放后只替换 `discovery_watches.py` 及 source manifest；重启前全部 20 张表和 schema 相同，无迁移、无模型调用。备份及回执保存在 `/var/lib/ai-radar/discovery-watch-guard-2df1d4e/`。最终只读验证 `inv-e8e47c0a00` SUCCESS，公网同样确认发现仍为 10 done / 10 completed calls，重启没有重投，正常翻译队列继续。
+
+## Historical background queue recovery 0.8.0
 
 Release `20260908-f185060`, source `f185060336a54f69730c69c85782dbe0cf4694fd`. Archive: 166128 bytes / 7 parts / SHA `a4c5e4c4738277daeb4c2a954a0b8ee7745f3cdf23b37e1815f256283802ec3e`. All uploads succeeded; `inv-j8dm8cgtcv` staged the dedicated runtime and verified jobs-only migration on a consistent database copy, preserving all 15 non-job tables without model calls.
 

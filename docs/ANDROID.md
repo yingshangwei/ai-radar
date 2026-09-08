@@ -1,6 +1,14 @@
 # Android 构建与签名
 
-## 当前版本：0.8.0 / code 9
+## 当前版本：0.9.0 / code 10
+
+交付包 `dist/ai-radar-0.9.0-android.apk`，69,644,350 字节，SHA-256 `7f57b28c92bc854886ba15618c36e4e70b7b8f58852753e0f79c9470515976f7`；源码 `327c6fa30f7f6c3c38cdfaa672d563753e40c314`。沿用原应用 ID、签名证书、四 ABI、最低 API 24 和目标 API 36。正式签名、ZIP 完整性和 APK 内 Hermes bundle 与本次生成 bundle 一致性均通过，记录 `dist/android-v0.9-verification.json`。
+
+增加潜力预判标识、依据与不确定点、真实互动升温观察、自动试关注期限及状态；雷达新增「前瞻」「学界」筛选，后台发现完成后自动刷新关注列表。App 40 项测试通过、1 项既有跳过，类型检查通过。Expo、Android、iOS 工程版本均更新为 0.9.0 / build 10；本轮没有新 iOS 安装包。
+
+最后一次正式构建在同一规范环境中完成，56 秒成功；此前一次 packageRelease 增量打包失败，追加 stacktrace 后重跑通过，未更改源码或清理缓存，不能臆断其根因。本轮未在用户设备或模拟器安装 0.9.0，不能声明已实测登录保留。直接在对话交付，禁止操作微信。
+
+## 历史版本：0.8.0 / code 9
 
 交付包 `dist/ai-radar-0.8.0-android.apk`，69,640,562 字节，SHA-256 `c5d5cb134765825aff0281b2cc7f75ede8ed06cb59a0350749f3a0683a8997c9`，源码 `f185060336a54f69730c69c85782dbe0cf4694fd`。使用仓库 `scripts/build-android.py` 完成正式签名构建，最低 API 24、目标 API 36；沿用签名证书 SHA-256 `b166858aae76fd673083b3fe3860ede1a1732d03d1995e671aa751008f0c89e9`。Expo、Android 与 iOS 工程版本均为 0.8.0 / build 9；本轮只生成 Android APK，没有新 iOS 安装包。
 
@@ -104,7 +112,7 @@ adb install -r app/android/app/build/outputs/apk/release/app-release.apk
 adb shell am start -n cn.yswdra.airadar/.MainActivity
 ```
 
-早期版本已在 Android 16/API 36 ARM64 模拟器完成安装、云端读取、历史日报、文章详情、收藏和取消、覆盖更新保留登录，以及断网冷启动缓存阅读。当前交付包为本文开头的 `dist/ai-radar-0.8.0-android.apk`，本次升级验收范围见当前版本段落；这些历史验证不构成本轮登录保留证明。此前 0.2.1 / code 3 包及其余额告警验收保留为历史记录；0.2.0 的中文正文、原文切换与离线中英阅读验收同样保留。
+早期版本已在 Android 16/API 36 ARM64 模拟器完成安装、云端读取、历史日报、文章详情、收藏和取消、覆盖更新保留登录，以及断网冷启动缓存阅读。当前交付包为本文开头的 `dist/ai-radar-0.9.0-android.apk`，本次升级验收范围见当前版本段落；这些历史验证不构成本轮登录保留证明。此前 0.2.1 / code 3 包及其余额告警验收保留为历史记录；0.2.0 的中文正文、原文切换与离线中英阅读验收同样保留。
 
 余额告警在独立本地 API 中用真实 SDK 模拟 402，验证首页、详情和设置的提示及调用恢复后自动清除。为访问本地 HTTP，测试包临时允许明文连接，Hermes bundle 与最终交付包完全一致；该测试包不对外交付。交付包使用原来的生产网络配置，只连接 HTTPS 云端。详细校验记录见 [VALIDATION.md](VALIDATION.md)。尚未在用户手机上安装，也没有提交应用商店。
 

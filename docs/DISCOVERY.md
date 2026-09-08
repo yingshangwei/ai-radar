@@ -42,3 +42,9 @@ trial_days = 7
 接口：现有 `/v1/status` 增加发现状态；`/v1/articles` 和详情增加可选 discovery；`/v1/watches` 增加可选试关注信息；认证后的 `GET /v1/discovery/entities?limit=50` 提供关联依据；管理员正式任务支持 `kind=discover`。无需手工触发，正式采集后自动入队。
 
 官方字段依据：[X Expansions](https://docs.x.com/x-api/fundamentals/expansions)、[X Fields](https://docs.x.com/x-api/fundamentals/fields)、[Recent Search](https://docs.x.com/x-api/posts/search-recent-posts)。使用展开资料减少额外逐账号请求，但用户资源计费仍以 X 的实际规则为准。
+
+## 2026-09-08 实际运行
+
+`20260908-327c6fa` 于 14:42:13 UTC 上线。一次正式采集 Job `8e4a7552-bb46-43c7-8605-97c2bd3753c8` 新增 5 条常规信息，同时保存 10 个发现候选（低热度 4、热门/已关注来源 6）。后台自动分五批处理，14:48:53 UTC 全部 done，10 份 completed 模型回执，unknown/error 均为 0；无需人工逐批提交。
+
+本轮低热度候选没有满足所有前瞻入选条件，前瞻文章和自动关注均为 0；保留 7 个来源明确提到、但没有核实账号的名称，状态 identity_unresolved。不能把它们宣称为已添加关注，也不为了展示功能降低门槛或改写文章。公网认证接口已回读队列、前瞻筛选和关联实体，后续按原定时采集自动运行。

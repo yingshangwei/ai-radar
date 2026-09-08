@@ -224,3 +224,23 @@ async def test_reading_uses_cached_partial_evidence_never_fetches_root_even_when
     assert calls == ["ReadingOutput", "SummaryAuditOutput"]
     assert seen[0]["text"] == ABSTRACT and seen[0]["partial"] is True
     assert service.has_pending() is False
+
+
+def test_hf_paper_page_is_reference_metadata_not_paper_evidence(harness):
+    sessions, config = harness
+    refs = [
+        {"url": "https://huggingface.co/papers/2609.01234", "label": "社区讨论"},
+        {"url": "https://huggingface.co/papers", "label": "论文索引"},
+        {"url": "https://github.com/example/project", "label": "代码"},
+        {"url": "https://huggingface.co/spaces/example/project", "label": "应用"},
+    ]
+    article_id, root_id = add(sessions, config, refs=refs)
+    with sessions() as session:
+        from radar.models import ArticleReading
+        assert session.get(ArticleReading, article_id).references == refs
+        bound = session.scalars(select(WebDocument).join(ArticleDocument).where(
+            ArticleDocument.article_id == article_id)).all()
+        assert {doc.url for doc in bound} == {
+            PAPER_URL, "https://github.com/example/project", "https://huggingface.co/spaces/example/project",
+        }
+        assert all(not doc.url.startswith("https://huggingface.co/papers") for doc in bound)

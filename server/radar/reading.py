@@ -92,6 +92,12 @@ def research_reference(url: str) -> bool:
     path = urlsplit(url)
     if re.search(r"\.pdf(?:$|/)", path.path, re.I):
         return False
+    if (path.hostname or "").removeprefix("www.") == "huggingface.co" and (
+        path.path.rstrip("/") == "/papers" or path.path.startswith("/papers/")
+    ):
+        # Keep community URLs as references, but don't promote the platform's
+        # generated AI summary into independently supplied paper evidence.
+        return False
     return not ((path.hostname or "").removeprefix("www.") in {"arxiv.org", "export.arxiv.org"}
                 and re.match(r"^/(?:abs|pdf|html|e-print|format)/", path.path, re.I))
 

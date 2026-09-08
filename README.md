@@ -54,7 +54,9 @@ ai-radar/
 
 日报引用可中英切换。此前真实日报重建验证了 40 份翻译缓存的调用次数与时间戳均未改变。DeepSeek 密钥仅配置在服务端，摘要引擎仍为独立的 Codex CLI。
 
-Android 0.6.0 签名安装包位于本机 `dist/ai-radar-0.6.0-android.apk`，可覆盖旧版保留登录；[网页采集中心](docs/WEB-AUTHORIZATION.md)支持公开网页自动读取、按网站一次手机许可及 App 前台自动补采；包含网页与文章解读、中文阅读、原文切换、离线缓存和余额不足提示。iOS 模拟器原生构建与产物见 [IOS.md](docs/IOS.md)；本机缺完整 Xcode 和运行时，Apple 下载账号访问授权待处理，尚未实际运行 iOS 或生成真机 IPA。免费 Apple Account 可获取 Xcode，真机分发签名另行处理。Facebook 账号正在审核；Meta 官方新闻和 Meta 的 X 帖子不代表 Facebook 社交帖已接通。
+Android 0.7.0 签名安装包位于本机 `dist/ai-radar-0.7.0-android.apk`，可覆盖旧版保留登录；[网页采集中心](docs/WEB-AUTHORIZATION.md)支持公开网页自动读取、按网站一次手机许可及 App 前台自动补采；包含网页与文章解读、中文阅读、原文切换、离线缓存和余额不足提示。iOS 模拟器原生构建与产物见 [IOS.md](docs/IOS.md)；本机缺完整 Xcode 和运行时，Apple 下载账号访问授权待处理，尚未实际运行 iOS 或生成真机 IPA。免费 Apple Account 可获取 Xcode，真机分发签名另行处理。Facebook 账号正在审核；Meta 官方新闻和 Meta 的 X 帖子不代表 Facebook 社交帖已接通。
+
+手机 0.7.0 优化[雷达发言布局](docs/ARTICLE-LAYOUT.md)：作者和时间、服务端 AI 标题、三行正文预览、独立引用卡片与回复身份，详情完整阅读和中英切换。服务端新增标题缓存的发布状态见该说明。
 
 手机 0.6.0 增加恢复网络/回到前台后的内容刷新、详情与收藏缓存同步，以及超过 30 个授权网站的持久轮转。安卓已实际覆盖安装验证 reader 登录保留；iOS 0.6.0 上传归档已准备，EAS 源码上传授权待确认，尚未构建。
 

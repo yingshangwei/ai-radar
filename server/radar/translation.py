@@ -378,6 +378,67 @@ def ensure_translation(session, title: str, text: str, config: TranslationConfig
     return row
 
 
+def reconciled_machine_parts(row: Translation, config: TranslationConfig) -> list[dict] | None:
+    """Reuse exact model approvals after a machine-only rejection becomes clear.
+
+    This never creates an approval, changes a candidate, or discounts a model's
+    objection. Old model receipts and machine failures remain immutable history.
+    """
+    if (row.status != "review_required" or "editorial" in (row.review_model or "").casefold()
+            or row.id != cache_key(row.original_title, row.original_text, config)):
+        return None
+    parts = deepcopy(row.parts)
+    expected = parts_for(row.original_title, row.original_text)
+    if (not parts or any(not isinstance(part, dict) for part in parts)
+            or [(part.get("id"), part.get("source")) for part in parts]
+            != [(part["id"], part["source"]) for part in expected]
+            or any(part.get("recheck_pending") or any(str(k).startswith("editorial_") for k in part)
+                   for part in parts)):
+        return None
+    if any(part.get("ok") and (not part_audited(part)
+           or quality_issues(part["source"], part.get("zh", ""))) for part in parts):
+        return None  # Do not conceal an invalid sibling behind a machine-only repair.
+    changed = False
+    for part in parts:
+        if part.get("ok"):
+            continue
+        candidate = part.get("zh")
+        if not isinstance(candidate, str) or not candidate or candidate != part.get("draft"):
+            continue
+        fingerprint = candidate_fingerprint(part["source"], candidate)
+        review, audit = part.get("review"), part.get("audit")
+        if any(not isinstance(receipt, dict) or receipt.get("policy") != RECHECK_POLICY
+               or receipt.get("fingerprint") != fingerprint or receipt.get("approved") is not True
+               or receipt.get("issues") != [] for receipt in (review, audit)):
+            continue
+        old = audit.get("machine_issues")
+        if (not isinstance(old, list) or not old or any(not isinstance(issue, str) for issue in old)
+                or audit.get("correction_issues") != []
+                or part.get("issues") != list(dict.fromkeys(old))
+                or quality_issues(part["source"], candidate)):
+            continue
+        history = part.get("machine_history", [])
+        if not isinstance(history, list):
+            continue
+        part["machine_history"] = history + [{
+            "policy": "zh-machine-revalidation-v1", "fingerprint": fingerprint,
+            "previous_machine_issues": old, "machine_issues": [], "at": now_iso(),
+        }]
+        part.update(ok=True, issues=[], correction_required=False)
+        changed = True
+    return parts if changed else None
+
+
+def publish_translation_parts(row: Translation, parts: list[dict]) -> None:
+    """Derive the public Chinese fields from the already validated saved parts."""
+    row.text_zh = "\n\n".join(p["zh"] for p in parts if p["id"].startswith("body-"))
+    preview = row.text_zh
+    if row.original_title.strip() != row.original_text.strip() and len(preview) > 120:
+        preview = preview[:120].rstrip() + "…"
+    row.title_zh = next((p["zh"] for p in parts if p["id"] == "title"), preview)
+    row.status, row.retry_at = "ready", ""
+
+
 def queue_article(session, article: Article, config: TranslationConfig):
     if not config.enabled:
         return
@@ -887,13 +948,7 @@ class TranslationService:
                         for part in parts:
                             part.pop("recheck_pending", None)
                         row.parts = json.loads(json.dumps(parts))
-                        row.text_zh = "\n\n".join(p["zh"] for p in parts if p["id"].startswith("body-"))
-                        preview = row.text_zh
-                        if row.original_title.strip() != row.original_text.strip() and len(preview) > 120:
-                            preview = preview[:120].rstrip() + "…"
-                        row.title_zh = next((p["zh"] for p in parts if p["id"] == "title"), preview)
-                        row.status = "ready"
-                        row.retry_at = ""
+                        publish_translation_parts(row, parts)
                     else:
                         row.status = "review_required"
                         row.retry_at = (datetime.now(UTC) + timedelta(minutes=30)).isoformat()
@@ -933,19 +988,57 @@ class TranslationService:
                 if isinstance(exc, (asyncio.CancelledError, KeyboardInterrupt, SystemExit)):
                     raise
 
-    async def pending(self, force=False, *, errors_only=False) -> dict:
+    def reconcile_machine_checks(self, keys: list[str]) -> set[str]:
+        """Bounded local re-evaluation; no model requests, attempt reset or force.
+
+        Hold a database write reservation while checking the current row and
+        lease. There is no asynchronous/model work inside this short transaction.
+        """
+        if not self.config.enabled:
+            return set()
+        changed = set()
+        with self.sessions.begin() as session:
+            if session.bind.dialect.name == "sqlite":
+                session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+            for key in dict.fromkeys(keys):
+                if len(changed) >= self.config.max_documents:
+                    break
+                row = session.scalar(select(Translation).where(
+                    Translation.id == key, Translation.status == "review_required",
+                    Translation.lease_until < now_iso(),
+                ).with_for_update())
+                if row is None:
+                    continue
+                parts = reconciled_machine_parts(row, self.config)
+                if parts is None:
+                    continue
+                row.parts = parts
+                row.issues = [issue for part in parts for issue in part.get("issues", [])][:30]
+                # Previously passing siblings still need valid provenance and
+                # current machine checks before a whole document can publish.
+                if all(part_audited(part) and not quality_issues(part["source"], part["zh"])
+                       for part in parts):
+                    publish_translation_parts(row, parts)
+                row.updated_at = now_iso()
+                changed.add(key)
+        return changed
+
+    async def pending(self, force=False, *, errors_only=False, machine_only=False) -> dict:
+        if machine_only and (force or errors_only):
+            raise ValueError("机器复检不能与强制翻译或错误恢复合用。")
         if not self.config.enabled:
             return {"enabled": False}
-        self.balance_blocked = False
+        if not machine_only:
+            self.balance_blocked = False
         with self.sessions.begin() as session:
-            if errors_only:
+            if errors_only or machine_only:
                 # Read only existing current bindings/caches. This scoped
                 # operation must not repair bindings or create pending work.
                 articles = session.execute(
                     select(Article, Translation)
                     .join(ArticleTranslation, ArticleTranslation.article_id == Article.id)
                     .join(Translation, Translation.id == ArticleTranslation.translation_id)
-                    .where(Translation.status == "error")
+                    .where(Translation.status == ("error" if errors_only else "review_required"))
                     .order_by(Article.published_at.desc(), Article.id)
                 )
                 keys = [row.id for article, row in articles
@@ -966,12 +1059,14 @@ class TranslationService:
             # Use saved body text only. No fetch or summary is needed to finish a
             # page's translation, and a stale/orphan cache must not enter this queue.
             for doc in bound_resource_texts(session):
-                row = (session.get(Translation, cache_key(doc.title, doc.text, self.config)) if errors_only
+                row = (session.get(Translation, cache_key(doc.title, doc.text, self.config)) if errors_only or machine_only
                        else ensure_translation(session, doc.title, doc.text, self.config))
-                if row is not None and (row.status == "error" if errors_only else row.status != "ready"):
+                if row is not None and (row.status == "error" if errors_only else (
+                        row.status == "review_required" if machine_only else row.status != "ready")):
                     keys.append(row.id)
             keys = list(dict.fromkeys(keys))  # Main messages keep priority over shared page caches.
-        if secret(self.config.api_key_env):
+        reconciled = set() if errors_only else self.reconcile_machine_checks(keys)
+        if not machine_only and secret(self.config.api_key_env):
             # Filter eligibility before applying the limit, so failed items do not starve the backlog.
             with self.sessions() as session:
                 query = select(Translation.id).where(
@@ -984,25 +1079,34 @@ class TranslationService:
                         Translation.retry_at <= now_iso(), Translation.attempts < self.config.max_attempts
                     )
                 eligible = set(session.scalars(query))
-            keys = list(dict.fromkeys(k for k in keys if k in eligible))[: self.config.max_documents]
+            keys = [k for k in keys if k in eligible and k not in reconciled][
+                :self.config.max_documents - len(reconciled)]
             if errors_only:
                 await asyncio.gather(*(self.translate_one(key, force, errors_only=True) for key in keys))
             else:
                 await asyncio.gather(*(self.translate_one(key, force) for key in keys))
         with self.sessions() as session:
-            return translation_status(session, self.config)
+            result = translation_status(session, self.config)
+            if machine_only:
+                result["machine_revalidated"] = len(reconciled)
+            return result
 
     async def evidence(self, articles: list[dict], *, force=False) -> list[dict]:
-        if not self.config.enabled or not secret(self.config.api_key_env):
+        if not self.config.enabled:
             return articles
+        configured = bool(secret(self.config.api_key_env))
         with self.sessions.begin() as session:
-            keys = [ensure_translation(session, a["title"], a["text"], self.config).id for a in articles]
-        await asyncio.gather(*(self.translate_one(key, force=force) for key in dict.fromkeys(keys)))
+            keys = [(ensure_translation(session, a["title"], a["text"], self.config).id if configured
+                     else cache_key(a["title"], a["text"], self.config)) for a in articles]
+        reconciled = self.reconcile_machine_checks(keys)
+        if configured:
+            await asyncio.gather(*(self.translate_one(key, force=force)
+                                  for key in dict.fromkeys(keys) if key not in reconciled))
         with self.sessions() as session:
             rows = {t.id: t for t in session.scalars(select(Translation).where(Translation.id.in_(keys)))}
             return [
                 dict(a, title_zh=rows[k].title_zh, text_zh=rows[k].text_zh)
-                if rows[k].status == "ready"
+                if k in rows and rows[k].status == "ready"
                 else a
                 for a, k in zip(articles, keys, strict=True)
             ]

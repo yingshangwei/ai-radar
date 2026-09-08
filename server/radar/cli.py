@@ -45,6 +45,8 @@ def main():
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--limit", type=int, metavar="N", help="Limit a translate batch to 1..500 caches")
     parser.add_argument("--errors-only", action="store_true", help="Resume only existing error caches with --limit")
+    parser.add_argument("--revalidate-machine", action="store_true",
+                        help="Recheck machine rules using saved model approvals, without calling a model")
     parser.add_argument("--translation-diagnostics", action="store_true",
                         help="Write safe translation completion diagnostics to stderr")
     recheck = parser.add_mutually_exclusive_group()
@@ -54,6 +56,11 @@ def main():
     if args.translation_diagnostics and args.action != "translate":
         parser.error("--translation-diagnostics 只能用于 translate")
     rechecking = bool(args.recheck_article or args.recheck_editorial)
+    if args.revalidate_machine and (
+        args.action != "translate" or args.limit is None or args.force or args.errors_only
+        or rechecking or args.file or args.date
+    ):
+        parser.error("--revalidate-machine 必须与 translate --limit 合用，不能与 --force、--errors-only、复核、--file 或 --date 合用")
     if rechecking and args.action != "translate":
         parser.error("翻译复核选项只能用于 translate")
     if rechecking and (args.file or args.date):
@@ -88,6 +95,7 @@ def _run(args, parser, rechecking):
 
             result = asyncio.run(translate_limited(
                 sessions, config.translation, limit=args.limit, force=args.force, errors_only=args.errors_only,
+                **({"machine_only": True} if args.revalidate_machine else {}),
             ))
             print(json.dumps(result, ensure_ascii=False))
             if result["status"] != "completed":

@@ -13,11 +13,15 @@ from .models import Article, ArticleTranslation, Job, Translation, now_iso
 from .translation import RECHECK_POLICY, TranslationService, cache_key, needs_recheck, translation_status
 
 
-async def translate_limited(sessions, config: TranslationConfig, *, limit: int, force=False, errors_only=False):
+async def translate_limited(
+    sessions, config: TranslationConfig, *, limit: int, force=False, errors_only=False, machine_only=False,
+):
     if type(limit) is not int or not 1 <= limit <= 500:
         raise ValueError("翻译批次上限必须是 1 到 500 之间的整数。")
     if not config.enabled:
         raise ValueError("翻译功能尚未启用，未开始翻译。")
+    if machine_only and (force or errors_only):
+        raise ValueError("机器校验复检不能与强制翻译或仅错误缓存模式合用。")
     limited = config.model_copy(deep=True, update={"max_documents": min(limit, config.max_documents)})
     with sessions.begin() as session:
         # Serialize CLI reservations, without changing API startup recovery or
@@ -26,27 +30,40 @@ async def translate_limited(sessions, config: TranslationConfig, *, limit: int, 
             session.connection().exec_driver_sql("BEGIN IMMEDIATE")
         if session.scalar(select(Job.id).where(Job.status == "running").limit(1)):
             raise RuntimeError("已有任务正在运行，请在服务空闲后执行限量翻译。")
-        if not secret(config.api_key_env):
+        if not machine_only and not secret(config.api_key_env):
             raise ValueError("翻译服务尚未配置凭据，未开始翻译。")
         scope = "错误状态的翻译缓存" if errors_only else "翻译缓存"
-        job = Job(kind="translate", message=f"本轮最多处理 {limited.max_documents} 份{scope}。")
+        job = Job(kind="translate", message=(
+            f"机器校验复检最多处理 {limited.max_documents} 份缓存，复用已有模型审核，不调用模型。"
+            if machine_only else f"本轮最多处理 {limited.max_documents} 份{scope}。"
+        ))
         session.add(job)
         session.flush()
         uid = job.id
 
     failure = ""
+    machine_revalidated = 0
     try:
         with sessions() as session:
             if session.scalar(select(Job.id).where(Job.status == "running", Job.id != uid).limit(1)):
                 raise RuntimeError("另一个任务已开始，未开始限量翻译。")
         service = TranslationService(sessions, limited)
-        if errors_only:
+        if machine_only:
+            checked = await service.pending(machine_only=True)
+            changed = checked["machine_revalidated"]
+            if type(changed) is not int or not 0 <= changed <= limited.max_documents:
+                raise ValueError("机器校验复检数量无效。")
+            machine_revalidated = changed
+        elif errors_only:
             await service.pending(force=force, errors_only=True)
         else:
             await service.pending(force=force)
     except BaseException as exc:
         # Provider exceptions can include credentials and source/candidate text.
-        failure = "限量翻译任务中断；原文和已保存进度保留，可在服务空闲后重试。"
+        failure = (
+            "机器校验复检任务中断；原文和已有模型审核记录保留，可在服务空闲后重试。"
+            if machine_only else "限量翻译任务中断；原文和已保存进度保留，可在服务空闲后重试。"
+        )
         if isinstance(exc, (asyncio.CancelledError, KeyboardInterrupt, SystemExit)):
             raise
     finally:
@@ -55,7 +72,13 @@ async def translate_limited(sessions, config: TranslationConfig, *, limit: int, 
             counts, resources = translated["counts"], translated["resource_counts"]
             waiting = sum(n for status, n in counts.items() if status != "ready")
             resource_waiting = sum(n for status, n in resources.items() if status != "ready")
-            message = f"本轮最多处理 {limited.max_documents} 份{scope}。"
+            if machine_only:
+                message = "" if failure else (
+                    f"机器校验复检完成 {machine_revalidated} 份缓存，本轮上限 {limited.max_documents} 份；"
+                    "复用已有模型审核，未调用模型。"
+                )
+            else:
+                message = f"本轮最多处理 {limited.max_documents} 份{scope}。"
             message += f"主消息中文版本 {counts.get('ready', 0)} 条"
             message += f"，{waiting} 条仍在等待翻译或校对。" if waiting else "。"
             message += f"网页正文中文版本 {resources.get('ready', 0)} 份"
@@ -70,6 +93,9 @@ async def translate_limited(sessions, config: TranslationConfig, *, limit: int, 
             }
             if errors_only:
                 result["errors_only"] = True
+            if machine_only:
+                result["machine_only"] = True
+                result["machine_revalidated"] = machine_revalidated
     return result
 
 

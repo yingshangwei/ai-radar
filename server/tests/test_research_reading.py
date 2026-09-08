@@ -157,7 +157,7 @@ def test_cache_helper_requires_narrow_official_abstract_contract(harness, change
         assert session.scalar(select(WebDocument)) is None
 
 
-def test_research_links_only_use_explicit_non_pdf_project_code_or_discussion(harness):
+def test_research_links_only_use_explicit_non_pdf_project_or_code(harness):
     sessions, config = harness
     explicit = [
         {"url": "https://arxiv.org/pdf/2609.01234", "label": "PDF"},
@@ -178,8 +178,7 @@ def test_research_links_only_use_explicit_non_pdf_project_code_or_discussion(har
         sync_documents(session, session.get(Article, article_id), config)
         urls = set(session.scalars(select(WebDocument.url).join(ArticleDocument).where(
             ArticleDocument.article_id == article_id)))
-        assert urls == {PAPER_URL, "https://github.com/synthetic/project", "https://example.org/project",
-                        "https://huggingface.co/papers/2609.01234"}
+        assert urls == {PAPER_URL, "https://github.com/synthetic/project", "https://example.org/project"}
         assert session.get(Article, article_id).url == PAPER_URL
 
 

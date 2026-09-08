@@ -128,7 +128,7 @@ def create_app(settings: Settings | None = None):
     def articles(
         q: str = Query(default="", max_length=200),
         platform: str | None = None,
-        topic: Literal["模型", "产品", "技术", "开源", "观点", "产业"] | None = None,
+        topic: Literal["模型", "产品", "技术", "开源", "观点", "产业", "学界"] | None = None,
         saved: bool = False,
         priority: bool = False,
         sort: Literal["score", "latest"] = "score",

@@ -35,7 +35,12 @@ def article_id(article: IncomingArticle) -> str:
 
 def classify(article: IncomingArticle) -> list[str]:
     text = f"{article.title} {article.text}"
-    return [topic for topic, pattern in TOPICS.items() if re.search(pattern, text, re.I)]
+    topics = [topic for topic, pattern in TOPICS.items() if re.search(pattern, text, re.I)]
+    if article.source_id in {"hf-papers", "arxiv-theory"} and article.platform == "web":
+        # Dedicated collectors already enforce AI categories and research selection.
+        # Theory abstracts need not contain marketing terms such as 'AI' or 'model'.
+        return ["学界", "技术", *[topic for topic in topics if topic != "技术"]]
+    return topics
 
 
 def engagement(metrics: dict) -> int:

@@ -47,6 +47,16 @@ class FeedConfig(BaseModel):
     authority: float = Field(default=1.0, ge=0, le=3)
 
 
+class ResearchConfig(BaseModel):
+    hf_enabled: bool = False
+    arxiv_enabled: bool = False
+    refresh_hours: int = Field(default=6, strict=True, ge=1, le=24)
+    hf_limit: int = Field(default=8, strict=True, ge=1, le=30)
+    hf_min_upvotes: int = Field(default=10, strict=True, ge=1, le=10000)
+    arxiv_limit: int = Field(default=4, strict=True, ge=1, le=20)
+    arxiv_candidates: int = Field(default=60, strict=True, ge=1, le=200)
+
+
 TranslationStage = Literal["draft", "correction", "audit"]
 TranslationTokenLimit = Annotated[int, Field(strict=True, ge=256, le=65536)]
 TRANSLATION_RESERVED_OPTIONS = frozenset({
@@ -144,6 +154,7 @@ class RadarConfig(BaseModel):
     summary_review: SummaryReviewConfig = Field(default_factory=SummaryReviewConfig)
     translation: TranslationConfig = Field(default_factory=TranslationConfig)
     reading: ReadingConfig = Field(default_factory=ReadingConfig)
+    research: ResearchConfig = Field(default_factory=ResearchConfig)
 
     @field_validator("timezone")
     @classmethod

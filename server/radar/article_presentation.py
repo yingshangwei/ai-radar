@@ -25,8 +25,11 @@ MAX_ARTICLES_PER_JOB = 3
 
 
 def article_evidence(article):
-    return {name: getattr(article, name) for name in (
+    evidence = {name: getattr(article, name) for name in (
         "id", "title", "text", "url", "author", "handle", "published_at", "published_precision")}
+    if article.source_id in {"hf-papers", "arxiv-theory"}:
+        evidence.update(partial=True, evidence_type="paper_abstract")
+    return evidence
 
 
 def source_heading(session, article, config):

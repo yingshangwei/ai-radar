@@ -9,10 +9,11 @@ from sqlalchemy import select
 from .article_presentation import ArticlePresentationService
 from .config import RadarConfig
 from .digest_selection import mark_supplemental_stories, select_digest_articles
-from .models import Article, Digest, Job, SourceState, Watch, now_iso
+from .models import Article, ArticleReading, Digest, Job, SourceState, Watch, now_iso
 from .providers import make_provider
 from .ranking import article_id, canonicalize, classify, engagement, rank
-from .reading import ReadingService, remember_references, sync_documents
+from .reading import ReadingService, cache_research_abstract, remember_references, sync_documents
+from .research import ResearchResult, fetch_arxiv_theory, fetch_hf_papers
 from .schemas import IncomingArticle
 from .sources import SourceUnavailable, fetch_anthropic, fetch_facebook, fetch_rss
 from .summary_evidence import digest_review_evidence, reserve_publication, review_evidence_fingerprint
@@ -21,10 +22,35 @@ from .translation import TranslationService, queue_article
 from .x_collection import XCollectionResult, XCollector
 
 logger = logging.getLogger(__name__)
+RESEARCH_SOURCES = {"hf-papers", "arxiv-theory"}
 
 
 def as_dict(row) -> dict:
     return {column.name: getattr(row, column.name) for column in row.__table__.columns}
+
+
+def merge_research_item(session, item, existing):
+    """Keep one paper across discovery sources without discarding richer evidence."""
+    if not existing or item.source_id not in RESEARCH_SOURCES or existing.source_id not in RESEARCH_SOURCES:
+        return item
+    metrics = {**existing.metrics, **item.metrics}
+    old_version = existing.metrics.get("arxiv_version", 0)
+    new_version = item.metrics.get("arxiv_version", 0)
+    updates = {"metrics": metrics}
+    if old_version > new_version:
+        # HF metadata may be unversioned. It can update votes, not roll back a
+        # versioned source abstract or its exact original publication timestamp.
+        updates.update({key: getattr(existing, key) for key in (
+            "title", "text", "author", "published_at", "published_precision")})
+        updates["published_at"] = datetime.fromisoformat(existing.published_at)
+        metrics["arxiv_version"] = old_version
+    if existing.source_id == "hf-papers":
+        updates["source_id"] = existing.source_id
+    reading = session.get(ArticleReading, existing.id)
+    references = {ref["url"]: ref for ref in (reading.references if reading else [])}
+    references.update({ref.url: ref.model_dump(mode="json") for ref in item.references})
+    return IncomingArticle.model_validate({**item.model_dump(), **updates,
+                                          "references": list(references.values())[:30]})
 
 
 def ingest(session, items: list[IncomingArticle], config: RadarConfig, authority: float = 0) -> int:
@@ -35,18 +61,20 @@ def ingest(session, items: list[IncomingArticle], config: RadarConfig, authority
     for item in items:
         if not cutoff <= item.published_at <= now + timedelta(minutes=5):
             continue
+        uid = article_id(item)
+        existing = session.get(Article, uid)
+        item = merge_research_item(session, item, existing)
         topics = classify(item)
         if not topics:
             continue
-        priority = item.handle.lower() in handles or authority >= 1.5
+        item_authority = max(authority, 1.5) if item.source_id == "hf-papers" else authority
+        priority = item.handle.lower() in handles or item_authority >= 1.5
         if (
             item.platform in ("x", "facebook")
             and not priority
             and engagement(item.metrics) < config.min_engagement
         ):
             continue
-        uid = article_id(item)
-        existing = session.get(Article, uid)
         values = item.model_dump(exclude={"published_at", "references"})
         values.update(
             id=uid,
@@ -54,7 +82,7 @@ def ingest(session, items: list[IncomingArticle], config: RadarConfig, authority
             canonical_url=canonicalize(item.url),
             topics=topics,
             priority=priority,
-            score=rank(item, priority, authority, now),
+            score=rank(item, priority, item_authority, now),
         )
         if existing:
             for key, value in values.items():
@@ -67,6 +95,7 @@ def ingest(session, items: list[IncomingArticle], config: RadarConfig, authority
         queue_article(session, existing, config.translation)
         remember_references(session, existing, [r.model_dump(mode="json") for r in item.references])
         if config.reading.enabled:
+            cache_research_abstract(session, existing, config)
             sync_documents(session, existing, config)
     return accepted
 
@@ -104,11 +133,23 @@ class Pipeline:
             sources += [(f.id, f.name, "rss") for f in config.feeds]
             if config.anthropic_news_enabled:
                 sources.append(("anthropic", "Anthropic News", "web"))
+            if config.research.hf_enabled:
+                sources.append(("hf-papers", "Hugging Face 热门论文", "web"))
+            if config.research.arxiv_enabled:
+                sources.append(("arxiv-theory", "arXiv 前沿理论", "web"))
             for key, name, platform in sources:
                 if not session.get(SourceState, key):
                     session.add(SourceState(id=key, name=name, platform=platform))
             for article in session.scalars(select(Article)):
                 queue_article(session, article, config.translation)
+
+    def research_due(self, source_id):
+        with self.sessions() as session:
+            state = session.get(SourceState, source_id)
+            if not state or not state.last_attempt_at:
+                return True
+            hours = self.config.research.refresh_hours if state.status == "healthy" else 1
+            return datetime.fromisoformat(state.last_attempt_at) <= datetime.now(UTC) - timedelta(hours=hours)
 
     async def collect(self):
         with self.sessions() as session:
@@ -129,6 +170,12 @@ class Pipeline:
             ]
             if self.config.anthropic_news_enabled:
                 entries.append(("anthropic", 2.0, lambda: fetch_anthropic(client)))
+            if self.config.research.hf_enabled and self.research_due("hf-papers"):
+                entries.append(("hf-papers", 1.5, lambda: fetch_hf_papers(
+                    client, self.config.research, self.config.lookback_hours)))
+            if self.config.research.arxiv_enabled and self.research_due("arxiv-theory"):
+                entries.append(("arxiv-theory", 1.0, lambda: fetch_arxiv_theory(
+                    client, self.config.research, self.config.lookback_hours)))
             total = 0
             for key, authority, fetch in entries:
                 try:
@@ -143,6 +190,14 @@ class Pipeline:
                             if items.committed_pages:
                                 state.last_success_at = now_iso()
                             total += items.accepted_count
+                            continue
+                        if isinstance(items, ResearchResult):
+                            count = ingest(session, items.items, self.config, authority)
+                            state.status, state.message = items.status, items.message + f" 新增 {count} 篇。"
+                            state.item_count = len(items.items)
+                            if items.status == "healthy" or items.items:
+                                state.last_success_at = now_iso()
+                            total += count
                             continue
                         count = ingest(session, items, self.config, authority)
                         state.status, state.message = (

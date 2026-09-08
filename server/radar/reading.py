@@ -2,6 +2,7 @@
 import asyncio
 import hashlib
 import json
+import re
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlsplit
 
@@ -26,6 +27,73 @@ from .summary_evidence import document_review_evidence, reserve_publication, rev
 from .summary_review import SummaryReviewPending, SummaryReviewService, SummaryReviewYield
 from .translation import cache_key
 from .web_reader import PageFetcher, PageUnavailable
+
+RESEARCH_SOURCES = frozenset({"hf-papers", "arxiv-theory"})
+RESEARCH_ABSTRACT_PREFIX = "arXiv preprint · Author abstract\n\n"
+ARXIV_BASE_ID = re.compile(r"(?:\d{4}\.\d{4,5}|[a-z][a-z.-]*/\d{7})", re.I)
+
+
+def research_source_url(article: Article) -> str | None:
+    """Recognize the narrowly defined official-API paper ingestion contract."""
+    if article.platform != "web" or article.source_id not in RESEARCH_SOURCES:
+        return None
+    if not article.external_id.startswith("arxiv:"):
+        return None
+    identifier = article.external_id.removeprefix("arxiv:")
+    if not ARXIV_BASE_ID.fullmatch(identifier):
+        return None
+    expected = "https://arxiv.org/abs/" + identifier
+    return expected if article.url == expected else None
+
+
+def cache_research_abstract(session, article: Article, config: RadarConfig):
+    """Save source API evidence, never an inferred full paper or an approval.
+
+    The collector refreshes this snapshot. Retaining exactly the article title
+    and text also reuses its content-addressed translation cache.
+    """
+    url = research_source_url(article)
+    if not url or not article.text.startswith(RESEARCH_ABSTRACT_PREFIX):
+        return None
+    if not article.title.strip() or not article.text[len(RESEARCH_ABSTRACT_PREFIX):].strip():
+        return None
+    key = fingerprint(url)
+    doc = session.get(WebDocument, key)
+    if doc and doc.text and (
+        not doc.partial or not doc.text.startswith(RESEARCH_ABSTRACT_PREFIX)
+        or doc.content_type not in {"", "text/plain"}
+    ):
+        return doc  # A previously obtained full/partial paper must not be downgraded to its abstract.
+    if doc is None:
+        doc = WebDocument(id=key, url=url)
+        session.add(doc)
+    content_hash = fingerprint(article.title, article.text, True)
+    if doc.content_hash != content_hash:
+        doc.analysis_id = ""
+    doc.title, doc.text, doc.partial = article.title, article.text, True
+    doc.content_hash, doc.final_url, doc.content_type = content_hash, url, "text/plain"
+    doc.status, doc.message = "fetched", "仅取得官方作者摘要，未读取论文全文。"
+    doc.fetched_at = now_iso()
+    doc.retry_at = (datetime.now(UTC) + timedelta(hours=config.reading.refresh_hours)).isoformat()
+    doc.etag, doc.modified, doc.links = "", "", []
+    session.flush()
+    return doc
+
+
+def research_root_ids(session) -> set[str]:
+    # Abstract roots are refreshed by the source API, even if a prior web fetch
+    # failed or the user requests a forced processing pass.
+    return {fingerprint(url) for article in session.scalars(select(Article).where(
+        Article.platform == "web", Article.source_id.in_(RESEARCH_SOURCES),
+    )) if (url := research_source_url(article)) is not None}
+
+
+def research_reference(url: str) -> bool:
+    path = urlsplit(url)
+    if re.search(r"\.pdf(?:$|/)", path.path, re.I):
+        return False
+    return not ((path.hostname or "").removeprefix("www.") in {"arxiv.org", "export.arxiv.org"}
+                and re.match(r"^/(?:abs|pdf|html|e-print|format)/", path.path, re.I))
 
 
 def fingerprint(*values) -> str:
@@ -57,26 +125,29 @@ def sync_documents(session, article: Article, config: RadarConfig):
     source = session.get(ArticleReading, article.id)
     seeds = []
     root_url = normalize_link(article.url)
+    research = research_source_url(article) is not None
     if article.platform in {"rss", "web"} and root_url:
         seeds.append({"url": root_url, "label": article.title[:300], "relation": "source"})
     direct = [ref for ref in (source.references if source else []) if ref.get("kind") != "reply"]
     expanded = {normalize_link(ref.get("short_url", "")) for ref in direct
                 if ref.get("short_url") and ref["short_url"] != ref["url"]}
-    direct += [ref for ref in text_references(article.text) if ref["url"] not in expanded]
+    if not research:
+        direct += [ref for ref in text_references(article.text) if ref["url"] not in expanded]
     # Only the SOURCE page can contribute first-hop links. Child document links are never expanded.
     root = session.get(WebDocument, fingerprint(root_url)) if seeds else None
-    if root:
+    if root and not research:
         direct += [ref for ref in root.links if not (
             urlsplit(ref['url']).hostname == urlsplit(root.final_url or root.url).hostname
             and urlsplit(ref['url']).path.rstrip('/') in {'', '/blog', '/news', '/index'})]
-    mentions = mentioned_references(article.title + "\n" + article.text, config.reading.mention_catalog)
-    if root:
+    mentions = ([] if research else
+                mentioned_references(article.title + "\n" + article.text, config.reading.mention_catalog))
+    if root and not research:
         mentions += mentioned_references(root.text, config.reading.mention_catalog)
     seen = {root_url} if seeds else set()
     child_count = 0
     for candidate in direct + mentions:
         url = normalize_link(candidate["url"], root_url or article.url)
-        if not url or url in seen or not useful_link(url):
+        if not url or url in seen or not useful_link(url) or (research and not research_reference(url)):
             continue
         seen.add(url)
         seeds.append({"url": url, "label": candidate.get("label", "")[:300],
@@ -161,9 +232,10 @@ class ReadingService:
         reviewed = self.config.summary_review.enabled and self.config.provider.kind != "extractive"
         now = now_iso()
         with self.sessions() as session:
+            research_roots = research_root_ids(session)
             documents = session.scalars(select(WebDocument).join(ArticleDocument).join(Article)).unique().all()
             for document in documents:
-                if document.retry_at <= now:
+                if document.id not in research_roots and document.retry_at <= now:
                     return True
                 if not document.text:
                     continue
@@ -182,6 +254,8 @@ class ReadingService:
     async def fetch_one(self, key: str, fetcher: PageFetcher):
         async with self.semaphore:
             with self.sessions() as session:
+                if key in research_root_ids(session):
+                    return  # The official source API owns this root's refresh.
                 doc = session.get(WebDocument, key)
                 url, etag, modified = doc.url, doc.etag, doc.modified
                 version = (doc.content_hash, doc.fetched_at)
@@ -267,7 +341,9 @@ class ReadingService:
                 query = select(WebDocument).join(ArticleDocument).join(Article).where(
                     Article.id.in_(ids)).order_by(Article.published_at.desc(), ArticleDocument.relation != "source")
                 candidates = session.scalars(query).all()
+                research_roots = research_root_ids(session)
                 keys = list(dict.fromkeys(d.id for d in candidates if d.id not in fetched
+                                         and d.id not in research_roots
                                          and (d.retry_at <= now_iso() or (force and not d.text))))[:remaining]
             fetched.update(keys)
             await asyncio.gather(*(self.fetch_one(key, fetcher) for key in keys))

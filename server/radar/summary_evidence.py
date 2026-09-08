@@ -94,7 +94,7 @@ def digest_review_evidence(session, articles: list[dict], config: RadarConfig) -
         return []
     statement = select(
         Article.id.label("article_id"), Article.title, Article.text, Article.url,
-        Article.author, Article.handle, Article.published_at, Article.published_precision,
+        Article.author, Article.handle, Article.published_at, Article.published_precision, Article.source_id,
     ).where(Article.id.in_(ids))
     if config.reading.enabled:
         statement = statement.outerjoin(ArticleDocument, ArticleDocument.article_id == Article.id).outerjoin(
@@ -117,8 +117,10 @@ def digest_review_evidence(session, articles: list[dict], config: RadarConfig) -
             packets[uid] = {
                 "id": uid, "title": row["title"], "text": row["text"], "url": row["url"],
                 "author": row["author"], "handle": row["handle"], "published_at": row["published_at"],
-                "published_precision": row["published_precision"], "partial": False,
-                "evidence_type": "source_excerpt", "resources": [],
+                "published_precision": row["published_precision"],
+                "partial": row["source_id"] in {"hf-papers", "arxiv-theory"},
+                "evidence_type": ("paper_abstract" if row["source_id"] in {"hf-papers", "arxiv-theory"}
+                                  else "source_excerpt"), "resources": [],
             }
             resources[uid] = []
         if not config.reading.enabled or row["document_id"] is None or not _saved_body_available(row):

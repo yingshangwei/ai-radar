@@ -60,6 +60,17 @@ revision = "reading-zh-v1"
 # [reading.mention_catalog]
 # "An explicitly named app" = "https://its-verified-official-site.example/"
 
+[research]
+hf_enabled = true
+arxiv_enabled = true
+refresh_hours = 6
+hf_limit = 8
+hf_min_upvotes = 10
+arxiv_limit = 4
+arxiv_candidates = 60
+# HF votes measure community interest, not peer review or scientific validity.
+# Keep original paper dates; older recommendations are not relabelled as new papers.
+
 [[feeds]]
 id = "openai"
 name = "OpenAI News"

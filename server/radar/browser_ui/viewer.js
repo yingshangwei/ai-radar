@@ -28,7 +28,7 @@
   };
   async function request(action, body = {}) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), action === 'finish' ? 60000 : 15000);
+    const timer = setTimeout(() => controller.abort(), action === 'finish' ? 90000 : 15000);
     try {
       const response = await fetch(base + action, {method:'POST', credentials:'same-origin',
         signal:controller.signal, headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});

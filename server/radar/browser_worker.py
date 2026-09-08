@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket
 from pydantic import BaseModel, Field
 
+from .browser_readiness import wait_for_content
 from .links import normalize_link
 from .page_parser import extract_page
 from .web_reader import PageFetcher, PageUnavailable, public_addresses
@@ -101,9 +102,23 @@ class Browser:
         self.proxy = None
         self.navigation_target = self.navigation_final = ""
         self.navigation_failure = None
+        self.extractor = os.environ.get("RADAR_BROWSER_EXTRACTOR", "trafilatura")
+        if self.extractor not in {"crawl4ai", "trafilatura"}:
+            raise RuntimeError("Unsupported browser extraction engine")
+        self.background_domain = ""
+        self.background_until = 0.0
+        self.background_uses = 0
+        self.engine_version = ""
 
     async def start(self):
         from playwright.async_api import async_playwright
+
+        if self.extractor == "crawl4ai":
+            from importlib.metadata import version
+
+            self.engine_version = version("crawl4ai")
+            if self.engine_version != "0.9.3":
+                raise RuntimeError("Browser extraction dependency differs from the reviewed version")
 
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.playwright = await async_playwright().start()
@@ -112,6 +127,7 @@ class Browser:
 
     async def close(self):
         self.active = None
+        self.background_domain, self.background_until, self.background_uses = "", 0.0, 0
         if self.context:
             with contextlib.suppress(Exception):
                 await self.context.close()
@@ -134,6 +150,13 @@ class Browser:
         self.navigation_failure = None
         self.robots = PageFetcher()
         await public_addresses(urlsplit(url).hostname, 443 if url.startswith("https:") else 80)
+        domain = urlsplit(url).hostname
+        if self.can_reuse(domain, interactive):
+            self.background_uses += 1
+            self.background_until = time.monotonic() + 90
+            await self.navigate(url, interactive=False)
+            return url
+        await self.close()
         profile = self.root / "profiles" / hashlib.sha256(urlsplit(url).hostname.encode()).hexdigest()
         profile.mkdir(parents=True, mode=0o700, exist_ok=True)
         commands = [["Xvfb", ":89", "-screen", "0", "500x860x24", "-nolisten", "tcp", "-ac"],
@@ -193,6 +216,19 @@ class Browser:
         self.page.on("response", observe)
         for page in self.context.pages[1:]:
             await page.close()
+        if not interactive:
+            self.background_domain, self.background_uses = domain, 1
+            self.background_until = time.monotonic() + 90
+        await self.navigate(url, interactive)
+        return url
+
+    def can_reuse(self, domain, interactive=False):
+        return bool(not interactive and not self.active and self.context and self.background_domain == domain
+            and self.background_until > time.monotonic() and self.background_uses < 8
+            and not self.page.is_closed())
+
+    async def navigate(self, url, interactive):
+        self.last_status = 0
         try:
             await self.page.goto(url, wait_until="domcontentloaded", timeout=25000)
         except Exception:
@@ -200,7 +236,6 @@ class Browser:
                 if self.navigation_failure:
                     raise self.navigation_failure from None
                 raise HTTPException(502, "浏览器暂时无法打开目标文章") from None
-        return url
 
     async def capture(self, url):
         # Stay on a verified article: reloading can trigger another site challenge.
@@ -215,7 +250,7 @@ class Browser:
 
             if not target_page(self.page.url):
                 await self.page.goto(url, wait_until="domcontentloaded", timeout=25000)
-            await self.page.wait_for_timeout(1800)
+            readiness = await wait_for_content(self.page)
             if self.navigation_failure:
                 raise self.navigation_failure
             final = normalize_link(self.page.url)
@@ -225,7 +260,7 @@ class Browser:
                 status = {401: "auth_required", 403: "access_restricted", 429: "rate_limited"}[self.last_status]
                 return {"status": status, "message": {
                     "auth_required": "目标文章要求登录或访问验证，已停止自动浏览器重试。",
-                    "access_restricted": "网站限制服务器访问，已停止自动浏览器重试，可改用手机读取。",
+                    "access_restricted": "网站暂时限制服务器访问，后台将在冷却后复查，也可在手机读取。",
                     "rate_limited": "网站限制访问频率，将在冷却后重试。",
                 }[status]}
             if login_target(final) or await self.page.locator('input[type="password"]:visible').count():
@@ -234,10 +269,10 @@ class Browser:
             if title.strip() in {"sign in", "log in", "login", "登录", "登入"} or title.startswith(("sign in -", "log in -")):
                 return {"status": "auth_required", "message": "页面仍在要求登录，未保存登录页面内容。"}
             if any(marker in title for marker in ["just a moment", "access denied", "verify you", "security verification"]):
-                return {"status": "access_restricted", "message": "网站正在进行人机验证，已停止自动重试，可改用手机读取。"}
+                return {"status": "access_restricted", "message": "网站正在进行人机验证，后台将在冷却后复查，也可在手机处理。"}
             if await self.page.locator('iframe[src*="challenges.cloudflare.com"]:visible, '
                                        'iframe[title*="challenge"]:visible').count():
-                return {"status": "access_restricted", "message": "网站正在进行人机验证，已停止自动重试，可改用手机读取。"}
+                return {"status": "access_restricted", "message": "网站正在进行人机验证，后台将在冷却后复查，也可在手机处理。"}
             if not target_page(final):
                 return {"status": "unavailable", "message": "网页跳转后尚无法确认目标文章，未将其他页面保存为正文。"}
             # An interactive session may navigate through a login provider, but
@@ -246,8 +281,17 @@ class Browser:
             body = (await self.page.content()).encode()
             if len(body) > 8_000_000:
                 return {"status": "too_large", "message": "页面超过单次读取大小限制。"}
-            parsed = await extract_page(body, "text/html", final)
-            return {"status": "fetched", "url": final, "document": parsed}
+            if self.extractor == "crawl4ai":
+                from .crawl_reader import extract_crawl_page
+
+                parsed = await extract_crawl_page(body, final)
+            else:
+                parsed = await extract_page(body, "text/html", final)
+            if readiness and readiness.get("timed_out"):
+                parsed["partial"] = True
+            return {"status": "fetched", "url": final, "document": parsed,
+                "extraction_engine": parsed.get("extraction_engine", "trafilatura"),
+                "readiness_timed_out": bool(readiness and readiness.get("timed_out"))}
         except PageUnavailable as exc:
             return {"status": exc.status, "message": exc.message}
         except Exception:
@@ -273,6 +317,8 @@ def create_worker():
                 async with browser.lock:
                     if browser.active and browser.active["expires"] <= time.time():
                         await browser.close()
+                    elif not browser.active and browser.context and browser.background_until <= time.monotonic():
+                        await browser.close()
         task = asyncio.create_task(expire())
         yield
         task.cancel()
@@ -285,7 +331,9 @@ def create_worker():
 
     @app.get("/health", dependencies=[Depends(auth)])
     async def health():
-        return {"status": "ok", "interactive": bool(browser.active)}
+        return {"status": "ok", "interactive": bool(browser.active),
+                "extraction_engine": browser.extractor, "engine_version": browser.engine_version,
+                "background_browser_reusable": browser.can_reuse(browser.background_domain)}
 
     @app.post("/sessions", dependencies=[Depends(auth)])
     async def create(body: Target):
@@ -309,7 +357,15 @@ def create_worker():
     async def capture(uid: str):
         async with browser.lock:
             current = active(uid)
-            result = await browser.capture(current["url"])
+            try:
+                async with asyncio.timeout(70):
+                    result = await browser.capture(current["url"])
+            except TimeoutError:
+                await browser.close()
+                return {"status": "unavailable", "message": "网页读取超时，窗口已关闭，后台将继续重试。"}
+            except BaseException:
+                await browser.close()
+                raise
             if result["status"] == "fetched":
                 await browser.close()
             return result
@@ -329,13 +385,19 @@ def create_worker():
             try:
                 async with asyncio.timeout(70):
                     url = await browser.launch(body.url, False)
-                    return await browser.capture(url)
+                    result = await browser.capture(url)
+                    if result["status"] != "fetched":
+                        await browser.close()
+                    return result
             except PageUnavailable as exc:
+                await browser.close()
                 return {"status": exc.status, "message": exc.message}
             except Exception:
-                return {"status": "unavailable", "message": "浏览器读取暂时失败，下轮继续重试。"}
-            finally:
                 await browser.close()
+                return {"status": "unavailable", "message": "浏览器读取暂时失败，下轮继续重试。"}
+            except BaseException:
+                await browser.close()
+                raise
 
     @app.websocket("/sessions/{uid}/socket")
     async def socket(ws: WebSocket, uid: str):

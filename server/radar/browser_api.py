@@ -138,7 +138,7 @@ def mount_browser(app, settings, sessions, authenticated, admin, enqueue):
 
     @router.get("/assets/{name}")
     async def assets(name: str):
-        if name not in {"viewer.js", "viewer.css"}:
+        if name not in {"viewer.js", "viewer.css", "credits.html"}:
             raise HTTPException(404)
         return FileResponse(STATIC / name, headers={"Cache-Control": "no-cache"})
 

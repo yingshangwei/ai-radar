@@ -119,3 +119,9 @@ pnpm exec expo export --platform all
 本版为单用户私有服务，收藏和关注由同一个 reader token 对应的设备共享。不是多租户产品。Token 与模型凭证只通过部署环境配置；修改模型配置、执行采集、导入内容需要管理员权限。
 
 部署前阅读 [腾讯云部署说明](docs/DEPLOYMENT.md)，账号与数据源接入见 [接入说明](docs/CONNECTORS.md)。
+
+## 网页提取与开源致谢
+
+浏览器正文提取支持 Crawl4AI 0.9.3，安装到独立 `.browser-venv`（锁定环境需要 Python 3.12+），主 API 的依赖保持独立。接入方式与实际网页验收见 [Crawl4AI 接入](docs/CRAWL4AI.md)。
+
+This product includes software developed by UncleCode (https://x.com/unclecode) as part of the Crawl4AI project (https://github.com/unclecode/crawl4ai).

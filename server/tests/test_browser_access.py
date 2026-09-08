@@ -1,5 +1,6 @@
 import asyncio
 import time
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -202,7 +203,7 @@ def test_new_browser_text_never_uses_old_ready_analysis(app, changed):
 
 @pytest.mark.parametrize("status,action", [
     ("pending", "automatic"), ("unavailable", "retry"), ("unsupported", "retry"),
-    ("rate_limited", "retry"), ("auth_required", "login"), ("access_restricted", "restricted"),
+    ("rate_limited", "retry"), ("auth_required", "login"), ("access_restricted", "retry"),
     ("restricted", "restricted"), ("blocked", "restricted"), ("too_large", "restricted"),
 ])
 def test_sites_distinguish_auto_reading_and_real_intervention(app, status, action):
@@ -224,6 +225,191 @@ def test_site_user_browser_pause_is_explicit(app):
         site = sites(s)[0]
     assert site["status"] == "paused" and site["action"] == "none"
     assert not site["browser_enabled"]
+
+
+@pytest.mark.asyncio
+async def test_restricted_domain_retries_after_cooldown_once_for_concurrent_articles(app):
+    previous = (datetime.now(UTC) - timedelta(hours=7)).isoformat()
+    with app.state.sessions.begin() as s:
+        s.add(WebsiteAccess(domain="example.org", status="access_restricted", updated_at=previous))
+
+    class Worker:
+        calls = 0
+        async def request(self, *_args):
+            self.calls += 1
+            with app.state.sessions() as s:
+                # The reservation must survive a crash before the worker responds.
+                assert s.get(WebsiteAccess, "example.org").updated_at > previous
+            await asyncio.sleep(0)
+            return {"status": "access_restricted", "message": "仍然暂时限制访问"}
+
+    client = Worker()
+    results = await asyncio.gather(*(
+        browser_fallback(app.state.sessions, f"https://example.org/article-{n}", client)
+        for n in range(4)
+    ), return_exceptions=True)
+    assert client.calls == 1
+    assert isinstance(results[0], PageUnavailable)
+    assert results[0].status == "access_restricted"
+    assert results[1:] == [None, None, None]
+    with app.state.sessions() as s:
+        access = s.get(WebsiteAccess, "example.org")
+        assert access.status == "access_restricted" and not access.enabled
+        assert access.updated_at > previous
+
+
+@pytest.mark.asyncio
+async def test_restricted_domain_can_recover_without_manual_authorization(app):
+    with app.state.sessions.begin() as s:
+        s.add(WebsiteAccess(domain="example.org", status="access_restricted",
+                            updated_at=(datetime.now(UTC) - timedelta(hours=7)).isoformat()))
+
+    class Worker:
+        async def request(self, *_args):
+            return {"status": "fetched", "url": "https://example.org/ai", "document": {"text": "source " * 30}}
+
+    assert (await browser_fallback(app.state.sessions, "https://example.org/ai", Worker()))["status"] == "fetched"
+    with app.state.sessions() as s:
+        access = s.get(WebsiteAccess, "example.org")
+        assert access.status == "ready" and access.enabled and not access.verified_at
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("elapsed,expected_calls", [(timedelta(hours=6, seconds=-1), 0), (timedelta(hours=6), 1)])
+async def test_restricted_domain_six_hour_boundary(app, monkeypatch, elapsed, expected_calls):
+    current = datetime.now(UTC)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return current if tz else current.replace(tzinfo=None)
+
+    monkeypatch.setattr("radar.browser_access.datetime", Clock)
+    monkeypatch.setattr("radar.browser_access.now_iso", lambda: current.isoformat())
+    with app.state.sessions.begin() as s:
+        s.add(WebsiteAccess(domain="example.org", status="access_restricted", updated_at=(current - elapsed).isoformat()))
+
+    class Worker:
+        calls = 0
+        async def request(self, *_args):
+            self.calls += 1
+            return {"status": "fetched"}
+
+    client = Worker()
+    await browser_fallback(app.state.sessions, "https://example.org/ai", client)
+    assert client.calls == expected_calls
+
+
+@pytest.mark.asyncio
+async def test_legacy_invalid_cooldown_gets_one_reserved_probe(app):
+    with app.state.sessions.begin() as s:
+        s.add(WebsiteAccess(domain="example.org", status="access_restricted", updated_at="invalid legacy timestamp"))
+
+    class Worker:
+        calls = 0
+        async def request(self, *_args):
+            self.calls += 1
+            return {"status": "access_restricted"}
+
+    client = Worker()
+    with pytest.raises(PageUnavailable):
+        await browser_fallback(app.state.sessions, "https://example.org/ai", client)
+    assert await browser_fallback(app.state.sessions, "https://example.org/next", client) is None
+    assert client.calls == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("result", ["exception", "cancelled", "unavailable", "rate_limited"])
+async def test_failed_restricted_probe_keeps_durable_cooldown(app, result):
+    previous = (datetime.now(UTC) - timedelta(hours=7)).isoformat()
+    with app.state.sessions.begin() as s:
+        s.add(WebsiteAccess(domain="example.org", status="access_restricted", updated_at=previous))
+
+    class Worker:
+        calls = 0
+        async def request(self, *_args):
+            self.calls += 1
+            if result == "exception":
+                raise PageUnavailable("unavailable", "worker unavailable")
+            if result == "cancelled":
+                raise asyncio.CancelledError
+            return {"status": result, "message": "暂未完成读取"}
+
+    client = Worker()
+    with pytest.raises(asyncio.CancelledError if result == "cancelled" else PageUnavailable):
+        await browser_fallback(app.state.sessions, "https://example.org/ai", client)
+    assert await browser_fallback(app.state.sessions, "https://example.org/next", client) is None
+    assert client.calls == 1
+    with app.state.sessions() as s:
+        access = s.get(WebsiteAccess, "example.org")
+        assert access.status == "access_restricted" and access.updated_at > previous
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status,enabled", [("auth_required", False), ("paused", False), ("ready", False)])
+async def test_old_login_requirement_and_user_pause_never_expire_automatically(app, status, enabled):
+    previous = (datetime.now(UTC) - timedelta(days=30)).isoformat()
+    with app.state.sessions.begin() as s:
+        s.add(WebsiteAccess(domain="example.org", status=status, enabled=enabled, updated_at=previous))
+
+    class Worker:
+        async def request(self, *_args):
+            pytest.fail("Real login and explicit pause cannot be cleared by a cooldown")
+
+    assert await browser_fallback(app.state.sessions, "https://example.org/ai", Worker()) is None
+    with app.state.sessions() as s:
+        assert s.get(WebsiteAccess, "example.org").updated_at == previous
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status,enabled", [("paused", False), ("ready", False), ("auth_required", False)])
+async def test_inflight_probe_cannot_override_newer_pause_or_login_state(app, status, enabled):
+    with app.state.sessions.begin() as s:
+        s.add(WebsiteAccess(domain="example.org", status="access_restricted",
+                            updated_at=(datetime.now(UTC) - timedelta(hours=7)).isoformat()))
+
+    class Worker:
+        async def request(self, *_args):
+            with app.state.sessions.begin() as s:
+                access = s.get(WebsiteAccess, "example.org")
+                access.status, access.enabled = status, enabled
+            return {"status": "fetched", "url": "https://example.org/ai", "document": {"text": "source " * 30}}
+
+    await browser_fallback(app.state.sessions, "https://example.org/ai", Worker())
+    with app.state.sessions() as s:
+        access = s.get(WebsiteAccess, "example.org")
+        assert (access.status, access.enabled) == (status, enabled)
+
+
+@pytest.mark.parametrize("document_hours,expected_hours", [(1, 6), (8, 8)])
+def test_site_restriction_displays_automatic_retry_after_both_cooldowns(app, document_hours, expected_hours):
+    now = datetime.now(UTC)
+    updated = now.isoformat()
+    with app.state.sessions.begin() as s:
+        doc = s.scalar(select(WebDocument))
+        doc.status, doc.retry_at = "unavailable", (now + timedelta(hours=document_hours)).isoformat()
+        s.add(WebsiteAccess(domain="example.org", status="access_restricted", updated_at=updated))
+    with app.state.sessions() as s:
+        site = sites(s)[0]
+        assert s.get(WebsiteAccess, "example.org").updated_at == updated  # GET is read-only.
+    assert site["status"] == "access_restricted" and site["action"] == "retry" and site["automatic"]
+    assert site["counts"]["retry"] == 1 and site["counts"]["restricted"] == 0
+    assert not site["browser_enabled"]
+    assert site["retry_at"] == (now + timedelta(hours=expected_hours)).isoformat()
+    assert "每六小时最多自动检查一次" in site["message"]
+
+
+@pytest.mark.parametrize("status", ["blocked", "restricted", "too_large", "rate_limited"])
+def test_site_restriction_cooldown_never_hides_document_limits(app, status):
+    with app.state.sessions.begin() as s:
+        doc = s.scalar(select(WebDocument))
+        doc.status, doc.retry_at = status, "2026-09-08T00:00:00+00:00"
+        s.add(WebsiteAccess(domain="example.org", status="access_restricted"))
+    with app.state.sessions() as s:
+        site = sites(s)[0]
+    assert site["status"] == status
+    assert site["action"] == ("retry" if status == "rate_limited" else "restricted")
+    assert site["retry_at"] == "2026-09-08T00:00:00+00:00"
 
 
 @pytest.mark.asyncio
@@ -262,8 +448,17 @@ def test_only_bound_documents_can_launch_browser(app, monkeypatch):
         assert c.get("/v1/browser/permissions", headers=headers()).json() == {"manage": True}
 
 
+@pytest.fixture
+def browser_content_ready(monkeypatch):
+    # These browser doubles exercise navigation and authorization, not DOM
+    # readiness. Real readiness behavior is covered by the browser-render tests.
+    async def ready(_page):
+        pass
+    monkeypatch.setattr("radar.browser_worker.wait_for_content", ready, raising=False)
+
+
 @pytest.mark.asyncio
-async def test_completed_challenge_not_reloaded_and_login_page_not_captured(monkeypatch):
+async def test_completed_challenge_not_reloaded_and_login_page_not_captured(monkeypatch, browser_content_ready):
     from radar.browser_worker import Browser
     class Page:
         url = "https://example.org/article"
@@ -303,7 +498,7 @@ async def test_completed_challenge_not_reloaded_and_login_page_not_captured(monk
     ("https://example.org/news/canonical-article", True),
     ("https://publisher.example.net/news/canonical-article", True),
 ])
-async def test_public_www_and_observed_http_canonical_redirects_are_readable(monkeypatch, final, redirect):
+async def test_public_www_and_observed_http_canonical_redirects_are_readable(monkeypatch, final, redirect, browser_content_ready):
     from radar.browser_worker import Browser
     class Page:
         url = final
@@ -337,7 +532,7 @@ async def test_public_www_and_observed_http_canonical_redirects_are_readable(mon
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("title,status", [("Just a moment...", "access_restricted"), ("Sign in", "auth_required")])
-async def test_challenges_and_login_are_never_article_evidence(monkeypatch, title, status):
+async def test_challenges_and_login_are_never_article_evidence(monkeypatch, title, status, browser_content_ready):
     from radar.browser_worker import Browser
     class Page:
         url = "https://example.org/article"
@@ -361,7 +556,8 @@ async def test_challenges_and_login_are_never_article_evidence(monkeypatch, titl
 @pytest.mark.parametrize("redirect,robots_status,expected", [
     (False, "", "unavailable"), (True, "restricted", "restricted"), (True, "blocked", "blocked"),
 ])
-async def test_unrelated_navigation_and_redirect_rules_cannot_be_saved(monkeypatch, redirect, robots_status, expected):
+async def test_unrelated_navigation_and_redirect_rules_cannot_be_saved(monkeypatch, redirect, robots_status, expected,
+                                                                     browser_content_ready):
     from radar.browser_worker import Browser
     class Page:
         url = "https://example.org/other"

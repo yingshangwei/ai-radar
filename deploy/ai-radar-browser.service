@@ -12,8 +12,9 @@ EnvironmentFile=/etc/ai-radar/browser.env
 Environment=HOME=/var/lib/ai-radar-browser
 Environment=RADAR_BROWSER_HOME=/var/lib/ai-radar-browser
 Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/ai-radar/browser-cache
-Environment=PATH=/opt/ai-radar/current/.venv/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=/opt/ai-radar/current/.venv/bin/uvicorn radar.browser_worker:create_worker --factory --host 127.0.0.1 --port 18475 --workers 1 --no-access-log --ws-max-size 131072
+Environment=PATH=/opt/ai-radar/current/.browser-venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=RADAR_BROWSER_EXTRACTOR=crawl4ai
+ExecStart=/opt/ai-radar/current/.browser-venv/bin/uvicorn radar.browser_worker:create_worker --factory --host 127.0.0.1 --port 18475 --workers 1 --no-access-log --ws-max-size 131072
 Restart=on-failure
 RestartSec=10
 TimeoutStopSec=20

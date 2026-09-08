@@ -5,17 +5,18 @@ set -euo pipefail
 umask 022
 RADAR_RELEASE="$(cd "$(dirname "$0")/.." && pwd)"
 [[ "$(id -u)" == 0 ]] || { echo 'Run as root.' >&2; exit 1; }
+python3 -c 'import sys; assert sys.version_info >= (3, 12), "The browser dependency lock requires Python 3.12+"'
 if [[ -n "$(ss -H -ltn 'sport = :18475')" ]] && ! systemctl is-active --quiet ai-radar-browser; then
     echo 'Browser port is occupied by another service.' >&2; exit 1
 fi
 export NEEDRESTART_MODE=l
 apt-get update -qq
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends xvfb x11vnc openbox fonts-noto-cjk
-python3 -m venv "$RADAR_RELEASE/.venv"
-"$RADAR_RELEASE/.venv/bin/pip" install --require-hashes -r "$RADAR_RELEASE/server/requirements.lock"
-"$RADAR_RELEASE/.venv/bin/pip" install --no-deps -e "$RADAR_RELEASE/server"
-"$RADAR_RELEASE/.venv/bin/playwright" install-deps chromium
-PLAYWRIGHT_BROWSERS_PATH=/opt/ai-radar/browser-cache "$RADAR_RELEASE/.venv/bin/playwright" install --no-shell chromium
+python3 -m venv "$RADAR_RELEASE/.browser-venv"
+"$RADAR_RELEASE/.browser-venv/bin/pip" install --require-hashes -r "$RADAR_RELEASE/server/requirements-browser.lock"
+"$RADAR_RELEASE/.browser-venv/bin/pip" install --no-deps -e "$RADAR_RELEASE/server"
+"$RADAR_RELEASE/.browser-venv/bin/playwright" install-deps chromium
+PLAYWRIGHT_BROWSERS_PATH=/opt/ai-radar/browser-cache "$RADAR_RELEASE/.browser-venv/bin/playwright" install --no-shell chromium
 id ai-radar-browser >/dev/null 2>&1 || useradd --system --user-group --home-dir /var/lib/ai-radar-browser --shell /usr/sbin/nologin ai-radar-browser
 install -d -m 0700 -o ai-radar-browser -g ai-radar-browser /var/lib/ai-radar-browser
 python3 - <<'PY'
@@ -44,7 +45,7 @@ if not env.exists():
   f.write('RADAR_BROWSER_PUBLIC_ORIGIN=https://radar.yswdra.cn\n')
 print('Browser dependencies, private credentials and integrity-checked noVNC assets prepared.')
 PY
-"$RADAR_RELEASE/.venv/bin/python" "$RADAR_RELEASE/scripts/patch-novnc.py" /opt/ai-radar/browser-assets
+"$RADAR_RELEASE/.browser-venv/bin/python" "$RADAR_RELEASE/scripts/patch-novnc.py" /opt/ai-radar/browser-assets
 # Ubuntu 24.04 restricts unprivileged user namespaces by executable. Permit
 # Chromium's own sandbox only for this dedicated installation, never globally.
 if command -v apparmor_parser >/dev/null; then

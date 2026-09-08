@@ -59,7 +59,7 @@ def sync_documents(session, article: Article, config: RadarConfig):
     root_url = normalize_link(article.url)
     if article.platform in {"rss", "web"} and root_url:
         seeds.append({"url": root_url, "label": article.title[:300], "relation": "source"})
-    direct = list(source.references if source else [])
+    direct = [ref for ref in (source.references if source else []) if ref.get("kind") != "reply"]
     expanded = {normalize_link(ref.get("short_url", "")) for ref in direct
                 if ref.get("short_url") and ref["short_url"] != ref["url"]}
     direct += [ref for ref in text_references(article.text) if ref["url"] not in expanded]

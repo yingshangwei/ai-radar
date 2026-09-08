@@ -105,7 +105,7 @@ def x_text_with_quotes(post: dict, referenced: dict, users: dict) -> str:
     return "\n\n".join(part for part in parts if part)[:30000]
 
 
-def x_references(post: dict, referenced: dict) -> list[dict]:
+def x_references(post: dict, referenced: dict, users: dict | None = None) -> list[dict]:
     posts = [post] + [referenced[r["id"]] for r in post.get("referenced_tweets", [])
                       if r.get("type") == "quoted" and r["id"] in referenced]
     refs = {}
@@ -116,7 +116,20 @@ def x_references(post: dict, referenced: dict) -> list[dict]:
                 if url and len(url) <= 4000:
                     refs[url] = {"url": url, "label": (entry.get("title") or "")[:300],
                                  "short_url": (entry.get("url") or "")[:4000]}
-    return list(refs.values())[:30]
+    replies = []
+    for relation in post.get("referenced_tweets", []):
+        if relation.get("type") != "replied_to":
+            continue
+        uid = relation.get("id", "")
+        if not isinstance(uid, str) or not uid.isdigit():
+            continue
+        parent = referenced.get(uid, {})
+        author = (users or {}).get(parent.get("author_id"), {})
+        replies.append({"kind": "reply", "url": f"https://x.com/i/status/{uid}",
+                        "author": author.get("name", "")[:200], "handle": author.get("username", "")[:200],
+                        "published_at": parent.get("created_at")})
+        break  # X replies identify one direct parent, never a deeper conversation.
+    return replies + list(refs.values())[:30 - len(replies)]
 
 
 def x_page_items(body: dict) -> list[IncomingArticle]:
@@ -137,7 +150,7 @@ def x_page_items(body: dict) -> list[IncomingArticle]:
             title=(x_full_text(post) or content)[:180], text=content,
             author=author.get("name", handle), handle=handle,
             published_at=post["created_at"], metrics=post.get("public_metrics", {}),
-            references=x_references(post, referenced),
+            references=x_references(post, referenced, users),
         )
     return list(items.values())
 

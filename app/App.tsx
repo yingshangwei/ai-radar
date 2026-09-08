@@ -35,6 +35,8 @@ import {
   storage,
 } from "./src/api";
 import { C, s } from "./src/theme";
+import { ArticleBody, ArticleByline, ReplyContext } from "./src/ArticleContent";
+import { displayHeadline } from "./src/articlePresentation";
 import AuthorizationCenter from "./src/AuthorizationCenter";
 import DeviceReading from "./src/DeviceReading";
 import {
@@ -100,8 +102,6 @@ const humanError = (error: unknown) =>
 const chineseReady = (a: Article) =>
   a.translation?.status === "ready" && !!a.title_zh;
 const articleTitle = (a: Article) => (chineseReady(a) ? a.title_zh! : a.title);
-const articleText = (a: Article) =>
-  chineseReady(a) ? a.text_zh || a.title_zh! : a.text;
 const translationNote = (a: Article) => {
   switch (a.translation?.status) {
     case "ready":
@@ -570,66 +570,71 @@ function Reader({
           : articles.error,
     );
   function ArticleCard({ article: a }: { article: Article }) {
+    const headline = displayHeadline(a);
+    const likes = a.metrics.like_count || a.metrics.reaction_count || 0;
+    const analyses =
+      a.resources?.filter((r) => r.status === "ready").length || 0;
     return (
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`阅读：${articleTitle(a)}`}
+        accessibilityLabel={`阅读 ${a.author} 的发言：${headline.text}`}
         onPress={() => setDetail({ article: a })}
-        style={s.card}
+        style={({ pressed }) => [s.feedCard, pressed && { opacity: 0.78 }]}
       >
-        <View style={[s.spread, { marginBottom: 10 }]}>
-          <View style={[s.row, { gap: 7 }]}>
-            <T style={[s.label, { letterSpacing: 0.5 }]}>
-              {platformName(a.platform)}
-            </T>
-            {a.priority && (
-              <View style={s.tag}>
-                <T style={s.tagText}>重点关注</T>
-              </View>
-            )}
-          </View>
-          <T style={s.muted}>{shortDate(a.published_at)}</T>
+        <ArticleByline article={a} />
+        <ReplyContext article={a} />
+        <View style={{ marginTop: 15, marginBottom: 9 }}>
+          {headline.ai && (
+            <View style={[s.row, { gap: 4, marginBottom: 5 }]}>
+              <Icon name="zap" size={11} color={C.green} />
+              <T
+                style={{
+                  color: C.green,
+                  fontSize: 10,
+                  lineHeight: 16,
+                  fontWeight: "600",
+                }}
+              >
+                AI 摘要
+              </T>
+            </View>
+          )}
+          <T numberOfLines={2} style={s.feedTitle}>
+            {headline.text}
+          </T>
         </View>
-        <T style={s.cardTitle}>{articleTitle(a)}</T>
-        {!!a.resources?.length && (
-          <T style={[s.muted, { color: C.green, marginTop: 8, fontSize: 11 }]}>
-            {a.resources.filter((r) => r.status === "ready").length} 份网页解读
-            · {a.resources.length} 个直接来源
-          </T>
-        )}
-        {articleText(a).trim() !== articleTitle(a).trim() && (
-          <T
-            numberOfLines={2}
-            style={[s.muted, { fontSize: 13, lineHeight: 23, marginTop: 9 }]}
-          >
-            {articleText(a)}
-          </T>
-        )}
+        <ArticleBody article={a} preview />
         {!chineseReady(a) && !!translationNote(a) && (
-          <T style={[s.muted, { fontSize: 11, marginTop: 10 }]}>
+          <T style={[s.muted, { fontSize: 10, marginTop: 10 }]}>
             {translationNote(a)}
           </T>
         )}
-        <View style={[s.spread, { marginTop: 16 }]}>
-          <T numberOfLines={1} style={[s.muted, { maxWidth: "65%" }]}>
-            {a.author} · {a.topics[0]}
-          </T>
-          <View style={[s.row, { gap: 14 }]}>
-            {Object.keys(a.metrics).length > 0 && (
-              <T style={[s.muted, { fontSize: 11 }]}>
-                {(
-                  a.metrics.like_count ||
-                  a.metrics.reaction_count ||
-                  0
-                ).toLocaleString()}{" "}
-                赞
-              </T>
+        <View style={[s.spread, { marginTop: 17, gap: 8 }]}>
+          <View style={[s.row, { gap: 10, flex: 1, flexWrap: "wrap" }]}>
+            {!!a.topics[0] && (
+              <T style={{ color: C.green, fontSize: 11 }}>{a.topics[0]}</T>
             )}
-            <Icon
-              name={a.saved ? "bookmark" : "arrow-up-right"}
-              size={16}
-              color={a.saved ? C.accent : C.muted}
-            />
+            {likes > 0 && (
+              <View style={[s.row, { gap: 4 }]}>
+                <Icon name="heart" size={12} color={C.muted} />
+                <T style={[s.muted, { fontSize: 10 }]}>
+                  {likes.toLocaleString()}
+                </T>
+              </View>
+            )}
+            {analyses > 0 && (
+              <View style={[s.row, { gap: 4 }]}>
+                <Icon name="file-text" size={12} color={C.muted} />
+                <T style={[s.muted, { fontSize: 10 }]}>{analyses} 份解读</T>
+              </View>
+            )}
+          </View>
+          <View style={[s.row, { gap: 5 }]}>
+            {a.saved && <Icon name="bookmark" size={12} color={C.accent} />}
+            <T style={{ fontSize: 11, lineHeight: 18, color: C.muted }}>
+              阅读全文
+            </T>
+            <Icon name="arrow-right" size={13} color={C.muted} />
           </View>
         </View>
       </Pressable>
@@ -1233,67 +1238,100 @@ function Reader({
               </>
             ) : currentArticle ? (
               <>
-                <T style={[s.label, { color: C.accent, marginBottom: 14 }]}>
-                  {platformName(currentArticle.platform)}
-                </T>
-                {chineseReady(currentArticle) && (
-                  <View style={[s.row, { gap: 8, marginBottom: 20 }]}>
-                    {([false, true] as const).map((value) => (
-                      <Pressable
-                        key={String(value)}
-                        accessibilityRole="button"
-                        accessibilityState={{ selected: original === value }}
-                        onPress={() => setOriginal(value)}
+                <ArticleByline article={currentArticle} detail />
+                <ReplyContext article={currentArticle} onOpen={openSource} />
+                <View style={{ marginTop: 22, marginBottom: 20 }}>
+                  {displayHeadline(currentArticle).ai && (
+                    <View style={[s.row, { gap: 5, marginBottom: 8 }]}>
+                      <Icon name="zap" size={12} color={C.green} />
+                      <T
                         style={{
-                          paddingVertical: 9,
-                          paddingHorizontal: 18,
-                          borderRadius: 18,
-                          backgroundColor: original === value ? C.ink : C.pale,
+                          color: C.green,
+                          fontSize: 11,
+                          fontWeight: "600",
                         }}
                       >
-                        <T
+                        AI 摘要
+                      </T>
+                    </View>
+                  )}
+                  <T
+                    style={{
+                      color: C.ink,
+                      fontSize: 26,
+                      lineHeight: 37,
+                      fontWeight: "700",
+                    }}
+                  >
+                    {displayHeadline(currentArticle).text}
+                  </T>
+                </View>
+                <View
+                  style={[
+                    s.spread,
+                    {
+                      borderTopWidth: 1,
+                      borderColor: C.line,
+                      paddingTop: 16,
+                      marginBottom: 20,
+                    },
+                  ]}
+                >
+                  <T style={[s.label, { letterSpacing: 1 }]}>完整发言</T>
+                  {chineseReady(currentArticle) && (
+                    <View
+                      style={[
+                        s.row,
+                        {
+                          gap: 3,
+                          backgroundColor: "#EAECE3",
+                          padding: 3,
+                          borderRadius: 9,
+                        },
+                      ]}
+                    >
+                      {([false, true] as const).map((value) => (
+                        <Pressable
+                          key={String(value)}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: original === value }}
+                          onPress={() => setOriginal(value)}
                           style={{
-                            fontSize: 13,
-                            color: original === value ? C.paper : C.ink,
+                            paddingVertical: 7,
+                            paddingHorizontal: 14,
+                            borderRadius: 7,
+                            backgroundColor:
+                              original === value ? C.paper : "transparent",
                           }}
                         >
-                          {value ? "原文" : "中文"}
-                        </T>
-                      </Pressable>
-                    ))}
-                  </View>
+                          <T
+                            style={{
+                              fontSize: 12,
+                              fontWeight: original === value ? "600" : "400",
+                              color: original === value ? C.ink : C.muted,
+                            }}
+                          >
+                            {value ? "原文" : "中文"}
+                          </T>
+                        </Pressable>
+                      ))}
+                    </View>
+                  )}
+                </View>
+                {currentArticle.text.trim() === currentArticle.title.trim() &&
+                currentArticle.platform !== "x" &&
+                currentArticle.platform !== "facebook" ? (
+                  <T style={s.body}>
+                    此来源仅提供标题，可打开原始链接阅读全文。
+                  </T>
+                ) : (
+                  <ArticleBody article={currentArticle} original={original} />
                 )}
-                <T style={s.h1}>
-                  {currentArticle.platform === "x" ||
-                  currentArticle.platform === "facebook"
-                    ? `${currentArticle.author} 的动态`
-                    : original
-                      ? currentArticle.title
-                      : articleTitle(currentArticle)}
-                </T>
-                <T style={[s.muted, { marginVertical: 18 }]}>
-                  {currentArticle.author} ·{" "}
-                  {currentArticle.published_precision === "date"
-                    ? `${shortDate(currentArticle.published_at)}（来源仅公布日期）`
-                    : dateTime(currentArticle.published_at)}
-                </T>
                 {!!translationNote(currentArticle) && (
-                  <T style={[s.muted, { marginBottom: 16, fontSize: 11 }]}>
+                  <T style={[s.muted, { marginTop: 20, fontSize: 10 }]}>
                     {translationNote(currentArticle)}
                   </T>
                 )}
-                <T
-                  selectable
-                  style={[s.body, { fontSize: 16, lineHeight: 30 }]}
-                >
-                  {currentArticle.text.trim() === currentArticle.title.trim() &&
-                  currentArticle.platform !== "x" &&
-                  currentArticle.platform !== "facebook"
-                    ? "此来源仅提供标题，可打开原始链接阅读全文。"
-                    : original
-                      ? currentArticle.text
-                      : articleText(currentArticle)}
-                </T>
                 {!!currentArticle?.resources?.length && (
                   <View style={{ marginTop: 28, marginBottom: 8 }}>
                     <T style={s.sectionTitle}>网页与文章解读</T>

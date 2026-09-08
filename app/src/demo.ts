@@ -8,8 +8,16 @@ export const demoArticles: Article[] = [
     platform: "x",
     source_id: "x",
     title: "Agent 的下一步：从回答问题，到完成工作",
-    text: "设计示例：当模型开始调用工具、管理上下文和验证结果，产品的核心问题也在变化。这里展示一条有关 Agent 工作流的摘要排版，并非真实新闻。",
-    author: "AI Radar 编辑示例",
+    text: "Design preview: the next step for agents is not just answering questions. It is completing useful work, checking the outcome, and knowing when to ask for help. This is fictional content.\n\n[引用帖：@builder_demo，2026-09-06T00:00:00+00:00]\nDesign preview: a reliable agent needs clear goals and a way to verify its work. This is not a real post.",
+    title_zh: "Agent 的下一步：从回答问题，到完成工作",
+    text_zh:
+      "设计示例：当模型开始调用工具、管理上下文和验证结果，产品的核心问题也在变化。可靠的 Agent 不只是给出答案，还要完成任务、核对结果，并知道什么时候需要人的帮助。以上内容为虚构示例。\n\n[引用帖：@builder_demo，2026-09-06T00:00:00+00:00]\n设计示例：可靠的智能体需要清晰的目标，也需要验证自己工作的能力。这不是真实发言。",
+    translation: { status: "ready" },
+    presentation: {
+      status: "ready",
+      title_zh: "Agent 的下一步：从回答问题，到完成工作",
+    },
+    author: "林遥 · 设计示例",
     handle: "design_preview",
     url: "https://openai.com",
     published_at: stamp,
@@ -34,6 +42,10 @@ export const demoArticles: Article[] = [
     score: 88,
     priority: false,
     saved: true,
+    presentation: {
+      status: "ready",
+      title_zh: "开源模型，正在成为开发者的新基础设施",
+    },
   },
   {
     id: "demo-3",
@@ -50,6 +62,18 @@ export const demoArticles: Article[] = [
     score: 81,
     priority: true,
     saved: false,
+    presentation: {
+      status: "ready",
+      title_zh: "多模态交互，让 AI 理解更丰富的上下文",
+    },
+    social: {
+      reply_to: {
+        author: "研究员 · 示例",
+        handle: "research_demo",
+        url: "https://example.org/design-preview",
+        published_at: stamp,
+      },
+    },
   },
 ];
 export const demoWatches: Watch[] = [

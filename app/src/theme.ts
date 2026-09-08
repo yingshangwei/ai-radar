@@ -83,6 +83,21 @@ export const s = StyleSheet.create({
   pillActive: { backgroundColor: C.ink, borderColor: C.ink },
   pillText: { fontSize: 13, fontWeight: "600", color: C.muted },
   card: { paddingVertical: 22, borderBottomWidth: 1, borderColor: C.line },
+  feedCard: {
+    backgroundColor: C.paper,
+    borderWidth: 1,
+    borderColor: C.line,
+    borderRadius: 17,
+    padding: 18,
+    marginBottom: 13,
+  },
+  feedTitle: {
+    fontSize: 20,
+    fontWeight: "600",
+    lineHeight: 29,
+    color: C.ink,
+    letterSpacing: -0.25,
+  },
   cardTitle: { fontSize: 20, fontWeight: "600", lineHeight: 30, color: C.ink },
   avatar: {
     width: 40,

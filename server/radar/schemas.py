@@ -9,6 +9,25 @@ class DirectReference(BaseModel):
     url: str = Field(min_length=1, max_length=4000)
     label: str = Field(default="", max_length=300)
     short_url: str = Field(default="", max_length=4000)
+    kind: Literal["link", "reply"] = "link"
+    author: str = Field(default="", max_length=200)
+    handle: str = Field(default="", max_length=200)
+    published_at: datetime | None = None
+
+    @field_validator("url")
+    @classmethod
+    def public_link(cls, value):
+        parsed = urlparse(value)
+        if parsed.scheme not in ("https", "http") or not parsed.hostname or parsed.username or parsed.password:
+            raise ValueError("A public direct source URL is required")
+        return value
+
+    @field_validator("published_at")
+    @classmethod
+    def aware_reference_date(cls, value):
+        if value is not None and value.tzinfo is None:
+            raise ValueError("Reference timestamp requires a timezone")
+        return value.astimezone(UTC) if value is not None else None
 
 
 class IncomingArticle(BaseModel):

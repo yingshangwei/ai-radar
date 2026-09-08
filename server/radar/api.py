@@ -177,7 +177,7 @@ def create_app(settings: Settings | None = None):
         )
         return {
             "items": present_articles(session, session.scalars(query.limit(limit).offset(offset)),
-                                      config.translation),
+                                      config.translation, presentation_config=config),
             "total": total,
         }
 
@@ -186,7 +186,7 @@ def create_app(settings: Settings | None = None):
         row = session.get(Article, uid)
         if not row:
             raise HTTPException(404, "文章不存在")
-        return present_articles(session, [row], config.translation, full_resources=True)[0]
+        return present_articles(session, [row], config.translation, full_resources=True, presentation_config=config)[0]
 
     @app.put("/v1/articles/{uid}/bookmark", dependencies=[Depends(authenticated)])
     def bookmark(uid: str, body: Bookmark, session=Depends(session_dep)):
@@ -217,7 +217,7 @@ def create_app(settings: Settings | None = None):
         data = as_dict(row)
         ids = {uid for story in row.stories for uid in story["source_ids"]}
         data["sources"] = present_articles(session, session.scalars(select(Article).where(Article.id.in_(ids))),
-                                          config.translation)
+                                          config.translation, presentation_config=config)
         return data
 
     @app.get("/v1/watches", dependencies=[Depends(authenticated)])

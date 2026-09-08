@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 import httpx
 from sqlalchemy import select
 
+from .article_presentation import ArticlePresentationService
 from .config import RadarConfig
 from .digest_selection import mark_supplemental_stories, select_digest_articles
 from .models import Article, Digest, Job, SourceState, Watch, now_iso
@@ -64,7 +65,7 @@ def ingest(session, items: list[IncomingArticle], config: RadarConfig, authority
             accepted += 1
         session.flush()
         queue_article(session, existing, config.translation)
-        remember_references(session, existing, [r.model_dump() for r in item.references])
+        remember_references(session, existing, [r.model_dump(mode="json") for r in item.references])
         if config.reading.enabled:
             sync_documents(session, existing, config)
     return accepted
@@ -95,6 +96,7 @@ class Pipeline:
         self.translations = TranslationService(sessions, config.translation)
         self.reading = ReadingService(sessions, config, self.translations)
         self.summary_reviews = SummaryReviewService(sessions, config)
+        self.presentations = ArticlePresentationService(sessions, config, lambda value: make_provider(value))
         with sessions.begin() as session:
             sources = [("x", "X / Twitter", "x"), ("facebook", "Facebook", "facebook")]
             sources += [(f.id, f.name, "rss") for f in config.feeds]
@@ -293,6 +295,8 @@ class Pipeline:
                 if self.config.reading.enabled and kind != "translate":
                     reading = await self.reading.pending(force=force if kind == "read" else False)
                     message += f"本轮处理 {reading['fetched']} 个直接来源，完成 {reading['summarized']} 份网页解读。"
+                if kind in ("collect", "read", "digest", "daily"):
+                    await self.presentations.pending()
                 if kind in ("digest", "daily"):
                     message += f"已生成 {await self.digest(day or self.latest_day(), force)} 日报。"
                 with self.sessions.begin() as session:

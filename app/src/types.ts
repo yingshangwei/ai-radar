@@ -28,6 +28,18 @@ export interface Article {
   priority: boolean;
   saved: boolean;
   resources?: ReadResource[];
+  presentation?: {
+    status: "ready" | "pending" | "review_required" | "error" | "disabled";
+    title_zh: string | null;
+  };
+  social?: {
+    reply_to: {
+      author: string;
+      handle: string;
+      url: string;
+      published_at: string | null;
+    } | null;
+  };
 }
 export interface ReadResource {
   id: string;

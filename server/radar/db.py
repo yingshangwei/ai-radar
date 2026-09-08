@@ -22,7 +22,7 @@ WATCHLIST = [
     ("Jeff Dean", "JeffDean", "Google", "技术专家"),
     ("Sundar Pichai", "sundarpichai", "Google", "重点人物"),
     ("Andrej Karpathy", "karpathy", "Independent", "技术与思想"),
-    ("Tibo", "tibo_maker", "Independent", "AI 产品与独立开发"),
+    ("Tibo", "thsottiaux", "OpenAI", "Codex 与 ChatGPT"),
     ("Hugging Face", "huggingface", "Hugging Face", "开源生态"),
 ]
 

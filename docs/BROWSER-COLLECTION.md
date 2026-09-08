@@ -18,7 +18,7 @@
 
 ## 本次验证结果
 
-- 8 条帖子来自 OpenAI、Anthropic、Google DeepMind、Sam Altman 和 Tibo；云端总计 33 条信息。Tibo 暂按 `tibo_maker` 关注，具体身份仍可由用户确认后调整。
+- 8 条帖子来自 OpenAI、Anthropic、Google DeepMind、Sam Altman 和独立开发者 `tibo_maker`；云端总计 33 条信息。这是当时的采集记录。2026-09-08 用户明确所指为 OpenAI 的 Tibo，正确重点账号是 [`thsottiaux`](https://x.com/thsottiaux)（简介：Codex & ChatGPT @OpenAI），默认关注已纠正；历史 maker 帖子的作者和内容仍按真实来源保留。
 - 9 月 5 日日报：Codex 约 22 秒完成，4 条 X 原文合并为 2 条中文报道。OpenAI 与 Sam Altman 的开放范围更新合并；Anthropic 的形式化证明描述与已有数学证明明确区分。
 - 9 月 6 日日报：Codex 约 10 秒完成，1 条 X 消息。模型明确将 Tibo 的产品说法标为尚未证实，并保留来源。
 - 9 月 4 日历史日报也已补齐：11 条输入形成 6 条报道、10 个引用；同一发布事件合并使用更完整的官方正文。结果保存在 `verified-digest-2026-09-04-with-x.json`。

@@ -4,7 +4,17 @@
 
 ## 当前部署状态 · 2026-09-08
 
-当前运行 `/opt/ai-radar/releases/20260908-c95c8d4`。在已上线的 X 公平轮转与日报启动补偿基础上，增加回看期内未报道消息的补充选稿、按实际引用生成展示标签，并移除 reading 关闭时的临时网页正文抓取；不包含暂缓发布的 AI 筛选或中文语言门禁。TAT 激活 `inv-j8d9bvgigi` 为 **SUCCESS / 0**，实际证据 `dist/cloud/daily-evidence-activation.txt` / `.json`。
+当前运行 `/opt/ai-radar/releases/20260908-a510803`。新增机器校验复检，仅复用当前策略及精确原文 / 候选指纹一致的既有模型修订和独立审计，保留原始正文、候选和审核记录，不调用模型。正式入口为 `radar translate --revalidate-machine --limit N`，普通补译也使用同一严格检查；不接受替换文字或强制批准。未包含暂缓发布的 AI 筛选、中文语言门禁或尚未集成的摘要审计模块。
+
+归档 139,433 字节、51 份已提交文件、6 分片，SHA-256 `84b750b9552d686ec20bfda970d428161a901d931c491e73c41ceea2900e27ed`。隔离发布范围 **856 passed、6 skipped**，Ruff 通过；正式复检运维脚本另有 22 项合成回归。预检 `inv-n8dar20mcd`、六个分片上传和激活 `inv-e8dau3gp1m` 均成功，激活退出 0。15 张表、已有 X 进度、三份私有配置、九组历史、浏览器、Caddy 及原 8080 服务保持，`zero_job_activation=true`。激活基线在自然日报完成后冻结，9 月 8 日到期日报复用，没有把合法的自然任务更新误判为数据变更。证据 `dist/cloud/machine-revalidation-release.json`、`machine-revalidation-activation-final.txt` 和 `machine-revalidation-activation.json`。
+
+正式复检提交 `inv-j8daw70e48` 成功，业务任务 `a45264c1-5dcc-420d-9fa7-8645b621d576` 于 2026-09-08 00:34:25.355768–00:34:25.672992 UTC 完成。实际选择并更新 2 份缓存，其中 1 份整篇 ready，另 1 份仍 review_required；没有调用模型或改写原文、候选与模型审核记录。只读验收 `inv-m8dax1g5eg` 为 SUCCESS / 0，`operation_completed=true`、`all_selected_changed=true`、`all_selected_ready=false`、`protected_invariants_passed=true`、`network_isolated=true`，运行任务为 0。其他 13 张表、历史任务、未选缓存与配置保持，只有机器派生状态、追加复检历史和 1 个正式任务记录发生允许的变化。证据 `dist/cloud/machine-revalidation-formal-verification.txt`；独立操作目录 `/var/lib/ai-radar/machine-revalidation/20260908T003424223293Z-caa23213/`。
+
+**2026-09-08 00:36:41 UTC** 公网只读复验通过健康与 401/403 权限隔离：主消息 46 ready，47 份网页全文 14 ready / 33 review_required；运行任务为 0，余额告警为空，调度器开启。X 为 partial，六个官方来源 healthy，Facebook 仍 auth_required。首次只读连接出现 ConnectError，第二次成功；没有因此重复提交业务任务。证据 `dist/cloud/supplemental-digest-public-20260908T003641530362Z.json`。仍待审的全文不因本次机器复检被强制发布。
+
+## 历史：c95c8d4 补充选稿与读取边界
+
+当时运行 `/opt/ai-radar/releases/20260908-c95c8d4`。在已上线的 X 公平轮转与日报启动补偿基础上，增加回看期内未报道消息的补充选稿、按实际引用生成展示标签，并移除 reading 关闭时的临时网页正文抓取；不包含暂缓发布的 AI 筛选或中文语言门禁。TAT 激活 `inv-j8d9bvgigi` 为 **SUCCESS / 0**，实际证据 `dist/cloud/daily-evidence-activation.txt` / `.json`。
 
 归档为 137,713 字节、51 份已提交文件、6 分片，SHA-256 `6edecdbb849b0bed9e48ac8139f142ed48bac39fb9958e252ff5958ca569a035`；清单及隔离验证记录为 `dist/cloud/daily-evidence-release.json`、`daily-evidence-local-validation.json`。发布范围 **800 passed、6 skipped**，Ruff 通过；另有 10 项运维保护测试及独立审查的 70 个子场景通过。预检 `inv-e8d997gitx` 及六个分片均成功。15 张表、X 进度、三份私有配置、九组历史、浏览器、Caddy、原 8080 服务保持；9 月 7 日到期日报指纹仍为 `45a6f239f38106fb4e14125c484f516d3b0212d09f9ac4aa92ad2aa343bd33df`。`zero_job_activation=true`：本次仅发布代码，没有新建任务、调用模型或重写文章、译文和日报。
 
@@ -18,7 +28,7 @@
 
 启动补偿的本机真实 API 生命周期验证使用隔离数据库与合成 CLI：缺少到期日报时完成一次任务，重启后复用相同日报和任务；实际模型调用与云请求均为 0。证据 `dist/cloud/daily-startup-local-verification.json`。它证明恢复路径，不冒充生产新日报执行成功。
 
-该次启动夹具固定 `7e9774a`，不是后续补充选稿或中文语言门禁的真实执行证据。补充选稿已随本文开头的 `c95c8d4` 上线；未获具体诊断授权的 AI 内容筛选规则继续未发布。
+该次启动夹具固定 `7e9774a`，不是后续补充选稿或中文语言门禁的真实执行证据。补充选稿随后随 `c95c8d4` 上线；未获具体诊断授权的 AI 内容筛选规则继续未发布。
 
 ## 历史：5142473 X 分页进度
 

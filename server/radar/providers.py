@@ -66,6 +66,18 @@ def validate_result(text: str, articles: list[dict]) -> DigestOutput:
     return result
 
 
+def validate_reading_result(text: str, documents: list[dict]) -> ReadingOutput:
+    result = ReadingOutput.model_validate_json(text)
+    ids = [d.source_id for d in result.documents]
+    if len(ids) != len(set(ids)) or set(ids) != {d["id"] for d in documents}:
+        raise ValueError("网页解读与来源未一一对应")
+    for row in result.documents:
+        for value in [row.summary_zh, row.why_it_matters_zh, *row.key_points_zh]:
+            if len(re.findall(r"[\u4e00-\u9fff]", value)) < 4:
+                raise ValueError("网页解读缺少中文内容")
+    return result
+
+
 class StructuredProvider:
     async def complete(self, prompt: str, schema_type: type[BaseModel]) -> str:
         raise NotImplementedError
@@ -79,15 +91,7 @@ class StructuredProvider:
             + json.dumps(ReadingOutput.model_json_schema(), ensure_ascii=False)
             + "\nUNTRUSTED_DOCUMENTS:\n" + json.dumps(documents, ensure_ascii=False)
         )
-        result = ReadingOutput.model_validate_json(await self.complete(prompt, ReadingOutput))
-        ids = [d.source_id for d in result.documents]
-        if len(ids) != len(set(ids)) or set(ids) != {d["id"] for d in documents}:
-            raise ValueError("网页解读与来源未一一对应")
-        for row in result.documents:
-            for value in [row.summary_zh, row.why_it_matters_zh, *row.key_points_zh]:
-                if len(re.findall(r"[\u4e00-\u9fff]", value)) < 4:
-                    raise ValueError("网页解读缺少中文内容")
-        return result
+        return validate_reading_result(await self.complete(prompt, ReadingOutput), documents)
 
 
 class CLIProvider(StructuredProvider):

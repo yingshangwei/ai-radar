@@ -14,6 +14,8 @@ from .ranking import article_id, canonicalize, classify, engagement, rank
 from .reading import ReadingService, remember_references, sync_documents
 from .schemas import IncomingArticle
 from .sources import SourceUnavailable, fetch_anthropic, fetch_facebook, fetch_rss
+from .summary_evidence import digest_review_evidence, reserve_publication, review_evidence_fingerprint
+from .summary_review import SummaryReviewPending, SummaryReviewService
 from .translation import TranslationService, queue_article
 from .x_collection import XCollectionResult, XCollector
 
@@ -75,12 +77,24 @@ def digest_window(day: date, config: RadarConfig):
     return start.astimezone(UTC), end.astimezone(UTC)
 
 
+def publication_is_current(session, day: date, force: bool, expected: dict | None) -> bool:
+    """Reserve the short write transaction and preserve concurrent publication."""
+    reserve_publication(session)
+    current = session.get(Digest, day.isoformat())
+    if current is not None and not force:
+        return False
+    if force and (as_dict(current) if current is not None else None) != expected:
+        raise SummaryReviewPending("日报已更新，已保留新发布的版本。")
+    return True
+
+
 class Pipeline:
     def __init__(self, sessions, config: RadarConfig):
         self.sessions, self.config = sessions, config
         self.lock = asyncio.Lock()
         self.translations = TranslationService(sessions, config.translation)
         self.reading = ReadingService(sessions, config, self.translations)
+        self.summary_reviews = SummaryReviewService(sessions, config)
         with sessions.begin() as session:
             sources = [("x", "X / Twitter", "x"), ("facebook", "Facebook", "facebook")]
             sources += [(f.id, f.name, "rss") for f in config.feeds]
@@ -172,6 +186,7 @@ class Pipeline:
             existing = session.get(Digest, day.isoformat())
             if existing and not force:
                 return existing.date
+            expected_digest = as_dict(existing) if existing is not None else None
             selection = select_digest_articles(session, self.config, day, start, end)
             selected = selection.articles
             coverage = [as_dict(s) for s in session.scalars(select(SourceState))]
@@ -186,6 +201,8 @@ class Pipeline:
             if missing:
                 overview += "尚未完整覆盖：" + "、".join(missing) + "，因此这不代表全网没有 AI 动态。"
             with self.sessions.begin() as session:
+                if not publication_is_current(session, day, force, expected_digest):
+                    return day.isoformat()
                 session.merge(
                     Digest(
                         date=day.isoformat(),
@@ -204,9 +221,27 @@ class Pipeline:
             return day.isoformat()
         if self.config.reading.enabled:
             selected = self.reading.evidence(selected)
+        reviewed = self.config.summary_review.enabled and self.config.provider.kind != "extractive"
+        if reviewed:
+            with self.sessions() as session:
+                evidence = digest_review_evidence(session, selected, self.config)
         selected = await self.translations.evidence(selected)
-        result = await make_provider(self.config.provider).generate(selected, day.isoformat())
+        provider = make_provider(self.config.provider)
+        if reviewed:
+            result = await self.summary_reviews.generate_digest(
+                "digest:" + day.isoformat(), selected, day.isoformat(), provider, evidence=evidence,
+            )
+        else:
+            # Explicit offline excerpt mode stays labelled as an excerpt; it is
+            # never an automatic fallback when model review is unavailable.
+            result = await provider.generate(selected, day.isoformat())
         with self.sessions.begin() as session:
+            if not publication_is_current(session, day, force, expected_digest):
+                return day.isoformat()
+            if reviewed:
+                current = digest_review_evidence(session, selected, self.config)
+                if review_evidence_fingerprint(current) != review_evidence_fingerprint(evidence):
+                    raise SummaryReviewPending("摘要来源已更新，等待服务器使用新证据审核。")
             session.merge(
                 Digest(
                     date=day.isoformat(),

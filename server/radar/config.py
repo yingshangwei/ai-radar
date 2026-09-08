@@ -22,6 +22,24 @@ class ProviderConfig(BaseModel):
     env_allowlist: list[str] = Field(default_factory=list)
 
 
+class SummaryReviewConfig(BaseModel):
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    enabled: bool = True
+    provider: ProviderConfig | None = None
+    max_calls: int = Field(default=64, strict=True, ge=1, le=500)
+    max_correction_rounds: int = Field(default=2, strict=True, ge=0, le=4)
+    max_format_retries: int = Field(default=1, strict=True, ge=0, le=2)
+    max_prompt_chars: int = Field(default=400_000, strict=True, ge=1000, le=2_000_000)
+
+    @field_validator("provider")
+    @classmethod
+    def independent_provider(cls, value):
+        if value is not None and value.kind == "extractive":
+            raise ValueError("Summary fact review requires a structured model provider")
+        return value
+
+
 class FeedConfig(BaseModel):
     id: str
     name: str
@@ -123,6 +141,7 @@ class RadarConfig(BaseModel):
     facebook_page_ids: list[str] = Field(default_factory=list)
     feeds: list[FeedConfig] = Field(default_factory=list)
     provider: ProviderConfig = Field(default_factory=ProviderConfig)
+    summary_review: SummaryReviewConfig = Field(default_factory=SummaryReviewConfig)
     translation: TranslationConfig = Field(default_factory=TranslationConfig)
     reading: ReadingConfig = Field(default_factory=ReadingConfig)
 

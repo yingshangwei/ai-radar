@@ -193,3 +193,27 @@ class WebsiteAccess(Base):
     message: Mapped[str] = mapped_column(Text, default="")
     verified_at: Mapped[str] = mapped_column(String(40), default="")
     updated_at: Mapped[str] = mapped_column(String(40), default=now_iso)
+
+
+class SummaryReview(Base):
+    """Private candidates and immutable review events, separate from public summaries."""
+    __tablename__ = "summary_reviews"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    scope: Mapped[str] = mapped_column(String(240), index=True)
+    kind: Mapped[str] = mapped_column(String(20))
+    policy: Mapped[str] = mapped_column(String(100))
+    evidence_fingerprint: Mapped[str] = mapped_column(String(64))
+    config_fingerprint: Mapped[str] = mapped_column(String(64))
+    evidence: Mapped[list] = mapped_column(JSON, default=list)
+    generator_sources: Mapped[list] = mapped_column(JSON, default=list)
+    candidate: Mapped[dict] = mapped_column(JSON, default=dict)
+    history: Mapped[list] = mapped_column(JSON, default=list)
+    call_counts: Mapped[dict] = mapped_column(JSON, default=dict)
+    correction_rounds: Mapped[dict] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(30), default="pending", index=True)
+    failure_code: Mapped[str] = mapped_column(String(60), default="")
+    retry_at: Mapped[str] = mapped_column(String(40), default="")
+    owner: Mapped[str] = mapped_column(String(36), default="")
+    lease_until: Mapped[str] = mapped_column(String(40), default="")
+    created_at: Mapped[str] = mapped_column(String(40), default=now_iso)
+    updated_at: Mapped[str] = mapped_column(String(40), default=now_iso)

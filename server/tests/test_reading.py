@@ -143,7 +143,8 @@ def summary(uid):
 @pytest.mark.asyncio
 async def test_one_hop_cache_restart_backlog_and_changed_content(tmp_path, monkeypatch):
     engine, sessions = database(f'sqlite:///{tmp_path}/reading.db')
-    config = RadarConfig(reading=ReadingConfig(enabled=True, mention_catalog={}, max_documents=2))
+    config = RadarConfig(reading=ReadingConfig(enabled=True, mention_catalog={}, max_documents=2),
+                         summary_review={"enabled": False})
     calls, analyses = [], []
     changed = False
 

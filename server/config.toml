@@ -21,6 +21,21 @@ max_items = 35
 # base_url = "https://api.openai.com/v1"
 # api_key_env = "OPENAI_API_KEY"
 
+[summary_review]
+enabled = true
+max_calls = 64
+max_correction_rounds = 2
+max_format_retries = 1
+max_prompt_chars = 400000
+# The independent reviewer uses [provider] unless explicitly overridden.
+# Model-generated summaries stay private until review passes against saved originals.
+# Explicit extractive mode remains a labelled offline excerpt, without AI review.
+# [summary_review.provider]
+# kind = "openai_chat"
+# model = "your-review-model"
+# base_url = "https://your-model-provider.example/v1"
+# api_key_env = "SUMMARY_REVIEW_API_KEY"
+
 [translation]
 enabled = false
 base_url = "https://api.deepseek.com"

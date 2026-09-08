@@ -22,12 +22,27 @@ from .models import (
 )
 from .page_parser import extract_page
 from .providers import make_provider
+from .summary_evidence import document_review_evidence, reserve_publication, review_evidence_fingerprint
+from .summary_review import SummaryReviewPending, SummaryReviewService
 from .translation import cache_key
 from .web_reader import PageFetcher, PageUnavailable
 
 
 def fingerprint(*values) -> str:
     return hashlib.sha256(json.dumps(values, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+
+
+def analysis_key(session, document: WebDocument, config: RadarConfig) -> str:
+    legacy = fingerprint(document.content_hash, config.reading.revision)
+    existing = session.get(DocumentAnalysis, legacy)
+    if document.analysis_id == legacy and existing is not None and existing.status == "ready":
+        # Preserve published history; it is not retroactively labelled as
+        # having passed the new independent source review.
+        return legacy
+    if not config.summary_review.enabled or config.provider.kind == "extractive":
+        return legacy
+    return fingerprint(document.content_hash, config.reading.revision, "source-bound-summary-v1",
+                       document.id, document.final_url or document.url)
 
 
 def remember_references(session, article: Article, references: list[dict]):
@@ -111,9 +126,14 @@ def resource_views(session, article_ids: list[str], config, *, full=False) -> di
             "id": doc.id, "url": doc.url, "resolved_url": canonical, "relation": binding.relation,
             "title": doc.title or binding.label or urlsplit(doc.url).hostname,
             "title_zh": analysis.title_zh if ready else (zh.title_zh if zh_ready else None),
-            "status": "ready" if ready else ("analysis_error" if analysis and analysis.status == "error"
-                                               else ("pending" if doc.text else doc.status)),
-            "fetch_status": doc.status, "message": doc.message, "partial": doc.partial,
+            "status": "ready" if ready else (
+                "analysis_review_required" if analysis and analysis.status == "review_required" else
+                "analysis_error" if analysis and analysis.status == "error" else
+                "pending" if doc.text else doc.status),
+            "fetch_status": doc.status,
+            "message": ("网页解读尚未通过自动审核，处理进度已保存，无需重新授权。"
+                        if analysis and analysis.status == "review_required" else doc.message),
+            "partial": doc.partial,
             "fetched_at": doc.fetched_at or None,
             "summary_zh": analysis.summary_zh if ready else None,
             "key_points_zh": analysis.key_points_zh if ready else [],
@@ -132,6 +152,7 @@ class ReadingService:
     def __init__(self, sessions, config: RadarConfig, translations):
         self.sessions, self.config, self.translations = sessions, config, translations
         self.semaphore = asyncio.Semaphore(config.reading.concurrency)
+        self.summary_reviews = SummaryReviewService(sessions, config)
 
     async def fetch_one(self, key: str, fetcher: PageFetcher):
         async with self.semaphore:
@@ -197,6 +218,8 @@ class ReadingService:
     async def pending(self, *, force=False) -> dict:
         if not self.config.reading.enabled:
             return {"enabled": False}
+        reviewed = self.config.summary_review.enabled and self.config.provider.kind != "extractive"
+        source_documents = {}
         with self.sessions.begin() as session:
             articles = session.scalars(select(Article).order_by(Article.published_at.desc())).all()
             for article in articles:
@@ -226,7 +249,7 @@ class ReadingService:
                 WebDocument.text != "").order_by(Article.published_at.desc())).unique().all()
             payloads, seen = [], set()
             for doc in docs:
-                key = fingerprint(doc.content_hash, self.config.reading.revision)
+                key = analysis_key(session, doc, self.config)
                 doc.analysis_id = key
                 analysis = session.get(DocumentAnalysis, key)
                 if not analysis:
@@ -238,38 +261,65 @@ class ReadingService:
                     continue
                 seen.add(key)
                 needs_analysis = analysis.status != "ready" and (force or analysis.retry_at <= now_iso())
+                source = {"id": key, "url": doc.final_url or doc.url, "title": doc.title,
+                          "text": doc.text, "partial": doc.partial}
+                if needs_analysis and reviewed:
+                    needs_analysis = self.summary_reviews.can_analyze_documents(
+                        "document:" + key, [source], evidence=document_review_evidence([source]),
+                    )
                 translation = session.get(Translation, cache_key(doc.title, doc.text, self.config.translation))
                 needs_translation = self.config.translation.enabled and (not translation or (
                     translation.status != "ready" and (force or (translation.retry_at <= now_iso()
                     and translation.attempts < self.config.translation.max_attempts))))
                 if not needs_analysis and not needs_translation:
                     continue
-                payloads.append({"id": key, "url": doc.final_url or doc.url, "title": doc.title,
-                                 "text": doc.text, "partial": doc.partial,
-                                 "needs_analysis": needs_analysis})
+                source_documents[key] = doc.id
+                payloads.append(dict(source, needs_analysis=needs_analysis))
         payloads = payloads[:self.config.reading.max_documents]
         payloads = await self.translations.evidence(payloads, force=force)
         to_analyze = [{k: v for k, v in doc.items() if k != "needs_analysis"}
                       for doc in payloads if doc["needs_analysis"]]
         completed = 0
         provider = make_provider(self.config.provider)
-        for offset in range(0, len(to_analyze), 4):
-            batch = to_analyze[offset:offset + 4]
+        batch_size = 1 if reviewed else 4
+        for offset in range(0, len(to_analyze), batch_size):
+            batch = to_analyze[offset:offset + batch_size]
             try:
-                output = await provider.analyze(batch)
+                if reviewed:
+                    evidence = document_review_evidence(batch)
+                    output = await self.summary_reviews.analyze_documents(
+                        "document:" + batch[0]["id"], batch, provider, evidence=evidence,
+                    )
+                else:
+                    output = await provider.analyze(batch)
                 with self.sessions.begin() as session:
+                    if reviewed:
+                        reserve_publication(session)
+                        doc = session.get(WebDocument, source_documents[batch[0]["id"]])
+                        if doc is None or doc.analysis_id != batch[0]["id"]:
+                            raise SummaryReviewPending("摘要来源已更新，等待服务器使用新证据审核。")
+                        current = document_review_evidence([{
+                            "id": doc.analysis_id, "url": doc.final_url or doc.url,
+                            "title": doc.title, "text": doc.text, "partial": doc.partial,
+                        }])
+                        if review_evidence_fingerprint(current) != review_evidence_fingerprint(evidence):
+                            raise SummaryReviewPending("摘要来源已更新，等待服务器使用新证据审核。")
                     for summary in output.documents:
                         row = session.get(DocumentAnalysis, summary.source_id)
+                        if row is None or row.status == "ready":
+                            continue
                         for name, value in summary.model_dump(exclude={"source_id"}).items():
                             setattr(row, name, value)
                         row.status, row.provider, row.model = "ready", self.config.provider.kind, self.config.provider.model or ""
                         row.updated_at, row.retry_at = now_iso(), ""
                         completed += 1
-            except Exception:
+            except Exception as exc:
                 with self.sessions.begin() as session:
                     for doc in batch:
                         row = session.get(DocumentAnalysis, doc["id"])
-                        row.status = "error"
+                        if row is None or row.status == "ready":
+                            continue
+                        row.status = "review_required" if isinstance(exc, SummaryReviewPending) else "error"
                         row.retry_at = (datetime.now(UTC) + timedelta(minutes=30)).isoformat()
                         row.updated_at = now_iso()
         return {"enabled": True, "fetched": len(fetched), "summarized": completed}

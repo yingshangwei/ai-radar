@@ -34,6 +34,9 @@ def store(tmp_path):
 def config(**overrides):
     return RadarConfig(**{
         "reading": {"enabled": False}, "translation": {"enabled": False},
+        # These tests exercise selection with a deterministic generation stub;
+        # actual review/publication is covered in test_summary_publication.py.
+        "summary_review": {"enabled": False},
         "enrich_official_articles": True, **overrides,
     })
 

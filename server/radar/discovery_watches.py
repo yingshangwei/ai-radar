@@ -102,6 +102,8 @@ def maintain_watches(session, config):
         entity = session.get(DiscoveryEntity, trial.entity_id)
         if entity:
             entity.status, entity.updated_at = "expired", now
+    if not config.discovery.enabled:
+        return
     # A daily cap delays a grounded recommendation; it should not require a
     # fresh model judgment or a manual click after capacity becomes available.
     for entity in session.scalars(select(DiscoveryEntity).where(

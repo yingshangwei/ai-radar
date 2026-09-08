@@ -258,3 +258,14 @@ def test_waiting_recommendation_promotes_when_trial_capacity_releases(env):
         assert not session.get(Watch, "x:lab0").enabled
         assert session.get(Watch, "x:lab1").enabled
         assert session.scalar(select(func.count()).select_from(DiscoveryCall)) == 2
+
+
+def test_disabled_discovery_cannot_promote_previously_saved_recommendation(env):
+    sessions, config = env
+    config.discovery.auto_watch = False
+    with sessions.begin() as session:
+        apply(session, receipt(session, config, source(), hot=True), config)
+        config.discovery.auto_watch = True
+        config.discovery.enabled = False
+        maintain_watches(session, config)
+        assert not session.get(Watch, "x:labexample")

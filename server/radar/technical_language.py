@@ -34,6 +34,8 @@ source_terms 只是内部核对记录，不得把这些额外解释插入译文�
 """
 
 TECHNICAL_AUDIT_INSTRUCTIONS = """\n本次技术文档审计须按 output_schema 输出，使用 concept_checks，而不是校对阶段的 source_terms。
+本任务核对译文是否忠实原文，不评审研究结论本身是否成立，不重新证明定理或推导复杂度。
+machine_formula_checks.exact_match=true 表示公式已由程序逐字核对；仍须检查周围的条件、量词和语义，不重复求解公式。
 只返回 audit_target_ids 指定的项。untrusted_document_context 仅有原文上下文，不能把它另当一个待审段落，
 不能增添正文项、标题项或输出校对 source_terms。每个输入候选只出现于 untrusted_parts，没有其他候选作为旁证。
 先从原文独立判定关键概念，再核对候选：source_quote 逐字引用原文，candidate_quote 逐字引用本项候选，

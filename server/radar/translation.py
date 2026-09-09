@@ -35,7 +35,7 @@ from .models import (
     WebDocument,
     now_iso,
 )
-from .providers import make_provider
+from .providers import CLIStoppedTimeout, make_provider
 from .technical_language import (
     TECHNICAL_AUDIT_INSTRUCTIONS,
     TERMINOLOGY_INSTRUCTIONS,
@@ -139,6 +139,8 @@ def failure_diagnostic(key: str, stage: str, exc: BaseException) -> dict:
         code = "technical_provider_error"
     elif isinstance(exc, ProviderNotStartedError):
         code = "provider_not_started"
+    elif isinstance(exc, CLIStoppedTimeout):
+        code = "cli_stopped_timeout"
     elif isinstance(exc, ValidationError):
         code = "output_schema_invalid"
     elif status is not None:
@@ -161,6 +163,8 @@ def failure_diagnostic(key: str, stage: str, exc: BaseException) -> dict:
     }
     if isinstance(exc, ValidationError):
         diagnostic["validation_errors"] = validation_diagnostics(exc)
+    if isinstance(exc, CLIStoppedTimeout):
+        diagnostic.update(local_process_group_stopped=True, timeout_seconds=exc.timeout_seconds)
     return diagnostic
 
 
@@ -877,6 +881,7 @@ class TranslationService:
                 self._record(parts=group, kind="request_reserved", call_id=call_id,
                              request_id=request_id, stage=stage,
                              transport=provider_config.kind if provider_config else "deepseek",
+                             timeout_seconds=provider_config.timeout_seconds if provider_config else self.config.timeout_seconds,
                              sdk_request_upper_bound=None if provider_config else 2)
                 self.save_parts(key, owner, parts)
             try:
@@ -885,6 +890,13 @@ class TranslationService:
                               + "\nUNTRUSTED_TRANSLATION_DATA:\n" + json.dumps(payload, ensure_ascii=False))
                     try:
                         content = await make_provider(provider_config).complete(prompt, output)
+                    except CLIStoppedTimeout as exc:
+                        if provider_config.kind in {"codex", "claude_cli"}:
+                            # These adapters disable tools. A stopped read-only
+                            # call with no verdict follows the existing bounded
+                            # transport recovery, rather than losing its cause.
+                            raise
+                        raise TechnicalProviderError("Configured command timed out") from exc
                     except Exception as exc:
                         # No silent fallback or guessed retry: an agent may have
                         # consumed its request before failing to return a result.
@@ -1022,6 +1034,9 @@ class TranslationService:
         }
         output = ContextualAuditOutput if contextual else AuditOutput
         if contextual:
+            payload['machine_formula_checks'] = [
+                {'id': p['id'], 'exact_match': not formula_issues(p['source'], p['candidate'])} for p in parts
+            ]
             payload["output_schema"] = output.model_json_schema()
             payload["output_schema"]["$defs"]["ContextualAuditedPart"]["properties"]["id"]["enum"] = [
                 p['id'] for p in parts]
@@ -1193,11 +1208,11 @@ class TranslationService:
                        "invalid_output" if isinstance(exc, (TranslationValidationError, ValidationError)) else
                        "unknown")
             for part in group:
-                previous = sum(e.get("outcome") == "known_transport" and e.get("stage") == stage
-                               and e.get("target") == before[part["id"]]
-                               for e in workflow.events(part, self.policy))
+                previous = workflow.transport_failures(part, stage, self.policy, before[part["id"]])
                 self._record([part], "result", call_id=call_id, stage=stage, target=before[part["id"]],
                              outcome=outcome, code=diagnostic["code"], http_status=status,
+                             **({"local_process_group_stopped": True, "timeout_seconds": exc.timeout_seconds}
+                                if isinstance(exc, CLIStoppedTimeout) else {}),
                              retry_at=(datetime.now(UTC) + timedelta(seconds=60 if previous == 0 else 300)).isoformat())
             # A stale owner must never overwrite a replacement owner's state.
             try:

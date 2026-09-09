@@ -9,6 +9,7 @@ import hashlib
 import json
 import shutil
 from copy import deepcopy
+from datetime import datetime, timedelta
 from pathlib import Path
 from uuid import UUID
 
@@ -68,6 +69,49 @@ def confirm_unstarted_cli(row, config, call_id, original_path):
             call_id=call_id, stage=stage, target=target, at=now_iso(), operator_confirmed_not_started=True,
             original_path_sha256=hashlib.sha256(original_path.encode()).hexdigest(),
             command_sha256=hashlib.sha256(json.dumps(provider.command).encode()).hexdigest()))
+    row.parts = parts
+
+
+def confirm_stopped_cli_timeout(row, config, call_id, previous_timeout):
+    """Operator-confirmed terminal timeout from the old opaque CLI error wrapper.
+
+    No verdict was delivered. Keep the unknown receipt, candidate and semantic
+    budget, and count the confirmed timeout against the normal transport cap.
+    This is never inferred from a missing result or an expired lease alone.
+    """
+    provider = config.technical_review_provider
+    if (str(UUID(call_id)) != call_id or type(previous_timeout) is not int or not 10 <= previous_timeout <= 900
+            or not provider or provider.kind not in {'codex', 'claude_cli'}
+            or provider.timeout_seconds < previous_timeout):
+        raise ValueError('须核实原 CLI 超时设置及进程组已终止，仅支持禁用工具的 Agent 适配器。')
+    if row.status != 'error' or row.owner or row.lease_until >= now_iso() or review_policy(row) != RECHECK_POLICY:
+        raise ValueError('只能诊断已结束且无占用的当前技术翻译错误。')
+    parts = deepcopy(row.parts)
+    matched = [p for p in parts if any(e.get('call_id') == call_id for e in workflow.events(p, RECHECK_POLICY))]
+    if not matched:
+        raise ValueError('调用不属于当前选中缓存。')
+    for part in matched:
+        history = workflow.events(part, RECHECK_POLICY)
+        calls = [e for e in history if e.get('call_id') == call_id]
+        results = [e for e in history if e.get('kind') == 'result']
+        requests = [e for e in calls if e.get('kind') == 'request_reserved']
+        last = results[-1] if results else {}
+        stage, target = last.get('stage'), last.get('target')
+        if (last.get('call_id') != call_id or last.get('outcome') != 'unknown'
+                or last.get('code') != 'technical_provider_error' or stage not in {'correction', 'audit'}
+                or target != workflow.target_for(part, stage) or len(requests) != 1
+                or requests[0].get('transport') != provider.kind
+                or requests[0].get('timeout_seconds', previous_timeout) != previous_timeout
+                or any(e.get('kind') in {'request_returned', 'timeout_recovery', 'launch_recovery'} for e in calls)
+                or workflow.blocked(part, RECHECK_POLICY) or workflow.denied(part, RECHECK_POLICY, target)
+                or workflow.transport_failures(part, stage, RECHECK_POLICY, target) >= workflow.TRANSPORT_RETRIES):
+            raise ValueError('只允许有剩余传输重试次数、无输出/否决的精确超时调用。')
+        started, ended = datetime.fromisoformat(requests[0]['at']), datetime.fromisoformat(last['at'])
+        if not started.tzinfo or not ended.tzinfo or not previous_timeout <= (ended-started).total_seconds() < previous_timeout+30:
+            raise ValueError('调用持续时间与核实的 CLI 超时不对应，不能据此推断已终止。')
+        part['workflow_history'].append(workflow.event(part, RECHECK_POLICY, 'timeout_recovery',
+            call_id=call_id, stage=stage, target=target, at=now_iso(), operator_confirmed_stopped_timeout=True,
+            previous_timeout_seconds=previous_timeout, retry_at=(ended+timedelta(seconds=60)).isoformat()))
     row.parts = parts
 
 
@@ -205,7 +249,8 @@ def select_rechecks(session, config: TranslationConfig, *, article_ids=(), edito
     return list(selected.values())
 
 
-def _reserve_job(sessions, config, *, article_ids, editorial, force, unstarted_call=None, original_cli_path=None):
+def _reserve_job(sessions, config, *, article_ids, editorial, force, unstarted_call=None, original_cli_path=None,
+                 stopped_timeout_call=None, previous_cli_timeout=None):
     with sessions.begin() as session:
         # Serialize CLI reservations on the deployed SQLite database. Per-row
         # translation leases remain authoritative across API/CLI processes.
@@ -214,6 +259,10 @@ def _reserve_job(sessions, config, *, article_ids, editorial, force, unstarted_c
         if session.scalar(select(Job.id).where(Job.status == "running").limit(1)):
             raise RuntimeError("已有任务正在运行，请在服务空闲后执行复核。")
         rows = select_rechecks(session, config, article_ids=article_ids, editorial=editorial)
+        if stopped_timeout_call or previous_cli_timeout is not None:
+            if not stopped_timeout_call or previous_cli_timeout is None or editorial or len(rows) != 1 or unstarted_call:
+                raise ValueError('超时诊断须指定一篇文章、一个调用 ID 和已核实的原超时设置。')
+            confirm_stopped_cli_timeout(rows[0], config, stopped_timeout_call, previous_cli_timeout)
         if unstarted_call or original_cli_path:
             if not unstarted_call or not original_cli_path or editorial or len(rows) != 1:
                 raise ValueError("启动诊断须指定一篇文章、一个未启动调用 ID 及原启动 PATH。")
@@ -231,12 +280,14 @@ def _reserve_job(sessions, config, *, article_ids, editorial, force, unstarted_c
 
 
 async def recheck_translations(sessions, config: TranslationConfig, *, article_ids=(), editorial=False, force=False,
-                              unstarted_call=None, original_cli_path=None):
+                              unstarted_call=None, original_cli_path=None,
+                              stopped_timeout_call=None, previous_cli_timeout=None):
     if not config.enabled:
         raise ValueError("翻译功能尚未启用，未开始复核。")
     uid, selected, pending = _reserve_job(
         sessions, config, article_ids=article_ids, editorial=editorial, force=force,
         unstarted_call=unstarted_call, original_cli_path=original_cli_path,
+        stopped_timeout_call=stopped_timeout_call, previous_cli_timeout=previous_cli_timeout,
     )
     service = TranslationService(sessions, config)
     failure = ""

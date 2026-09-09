@@ -84,3 +84,34 @@ async def test_sdk_adapters_share_grounded_contract(kind, structured, monkeypatc
     request = json.loads(route.calls[0].request.content)
     assert request["model"] == "configured-model"
     assert "test-only" not in route.calls[0].request.content.decode()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('cancelled', [False, True])
+async def test_cli_timeout_reports_stopped_group_but_cancellation_stays_unknown(monkeypatch, cancelled):
+    import asyncio
+    import signal
+
+    from radar.providers import CLIProvider, CLIStoppedTimeout
+    from radar.schemas import DigestOutput
+
+    calls = []
+
+    class Process:
+        pid = 7654321
+
+        async def communicate(self, data):
+            raise asyncio.CancelledError if cancelled else TimeoutError
+
+        async def wait(self):
+            calls.append('reaped')
+
+    async def spawn(*args, **kwargs):
+        assert kwargs['start_new_session'] is True
+        return Process()
+
+    monkeypatch.setattr(asyncio, 'create_subprocess_exec', spawn)
+    monkeypatch.setattr('radar.providers.os.killpg', lambda pid, sig: calls.append((pid, sig)))
+    with pytest.raises(asyncio.CancelledError if cancelled else CLIStoppedTimeout):
+        await CLIProvider(ProviderConfig(kind='codex', timeout_seconds=10)).complete('synthetic-only', DigestOutput)
+    assert calls == [(7654321, signal.SIGKILL), 'reaped']

@@ -56,10 +56,19 @@ def main():
                         help="Operator confirmation: verify the CLI never started before using this recovery")
     parser.add_argument("--original-cli-path", metavar="PATH",
                         help="Verified PATH of that failed launch; must not contain the configured executable")
+    parser.add_argument("--confirm-stopped-cli-timeout", metavar="CALL_ID",
+                        help="Operator confirmation: the timed-out tool-disabled CLI was terminated with no returned output")
+    parser.add_argument("--previous-cli-timeout", type=int, metavar="SECONDS")
     args = parser.parse_args()
     if args.translation_diagnostics and args.action != "translate":
         parser.error("--translation-diagnostics 只能用于 translate")
     rechecking = bool(args.recheck_article or args.recheck_editorial)
+    if (args.confirm_stopped_cli_timeout or args.previous_cli_timeout is not None) and (
+        not args.confirm_stopped_cli_timeout or args.previous_cli_timeout is None or args.action != "translate"
+        or len(args.recheck_article) != 1 or args.recheck_editorial or args.force
+        or args.confirm_provider_not_started or args.original_cli_path
+    ):
+        parser.error("确认已终止的 CLI 超时须与单条复核及原超时设置合用，不能与其他确认或强制选项合并")
     if (args.confirm_provider_not_started or args.original_cli_path) and (
         not args.confirm_provider_not_started or not args.original_cli_path or args.action != "translate"
         or len(args.recheck_article) != 1 or args.recheck_editorial or args.force
@@ -117,6 +126,8 @@ def _run(args, parser, rechecking):
                 editorial=args.recheck_editorial, force=args.force,
                 **({"unstarted_call": args.confirm_provider_not_started,
                     "original_cli_path": args.original_cli_path} if args.confirm_provider_not_started else {}),
+                **({"stopped_timeout_call": args.confirm_stopped_cli_timeout,
+                    "previous_cli_timeout": args.previous_cli_timeout} if args.confirm_stopped_cli_timeout else {}),
             ))
             print(json.dumps(result, ensure_ascii=False))
             if result["status"] != "completed":

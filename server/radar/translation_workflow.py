@@ -95,6 +95,13 @@ def target_for(part, stage):
     return fingerprint(part["source"], "" if stage == "draft" else part.get("draft", part.get("zh", "")))
 
 
+def transport_failures(part, stage, policy, target):
+    return len({e.get('call_id') for e in events(part, policy)
+                if e.get('stage') == stage and e.get('target') == target and (
+                    (e.get('kind') == 'result' and e.get('outcome') == 'known_transport')
+                    or e.get('kind') == 'timeout_recovery')})
+
+
 def blocked(part, policy):
     history = events(part, policy)
     completed = {e["call_id"] for e in history if e["kind"] == "result"}
@@ -120,6 +127,12 @@ def permitted(part, stage, policy, now, *, force=False, individual=False):
     if last["outcome"] == "not_started":
         return sum(e["outcome"] == "not_started" for e in results) <= TRANSPORT_RETRIES
     if last["outcome"] == "unknown" and last.get("code") == "technical_provider_error":
+        recovery = next((e for e in events(part, policy) if e.get('kind') == 'timeout_recovery'
+                         and e.get('call_id') == last['call_id'] and e.get('stage') == stage
+                         and e.get('target') == target and e.get('operator_confirmed_stopped_timeout') is True), None)
+        if recovery:
+            return transport_failures(part, stage, policy, target) <= TRANSPORT_RETRIES and (
+                force or recovery.get('retry_at', '') <= now)
         return any(e.get("kind") == "launch_recovery" and e.get("call_id") == last["call_id"]
                    and e.get("stage") == stage and e.get("target") == target
                    and e.get("operator_confirmed_not_started") is True for e in events(part, policy))
@@ -128,7 +141,7 @@ def permitted(part, stage, policy, now, *, force=False, individual=False):
     if last["outcome"] == "known_balance":
         return True
     if last["outcome"] == "known_transport":
-        failures = sum(e["outcome"] == "known_transport" for e in results)
+        failures = transport_failures(part, stage, policy, target)
         return failures <= TRANSPORT_RETRIES and (force or last.get("retry_at", "") <= now)
     # A malformed multi-item mapping is a known unusable response. Only the
     # persisted single-item strategy may recover it; a second bad mapping stops.

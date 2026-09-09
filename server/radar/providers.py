@@ -105,6 +105,14 @@ class StructuredProvider:
         return validate_reading_result(await self.complete(prompt, ReadingOutput), documents)
 
 
+class CLIStoppedTimeout(TimeoutError):
+    """The caller has killed its CLI process group and reaped the parent."""
+
+    def __init__(self, timeout_seconds):
+        self.timeout_seconds = timeout_seconds
+        super().__init__("CLI exceeded its time limit; local process group stopped")
+
+
 class CLIProvider(StructuredProvider):
     def __init__(self, config: ProviderConfig):
         self.config = config
@@ -188,12 +196,14 @@ class CLIProvider(StructuredProvider):
                 stdout, _stderr = await asyncio.wait_for(
                     process.communicate(prompt.encode()), timeout=config.timeout_seconds
                 )
-            except (TimeoutError, asyncio.CancelledError):
+            except (TimeoutError, asyncio.CancelledError) as exc:
                 try:
                     os.killpg(process.pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
                 await process.wait()
+                if isinstance(exc, TimeoutError):
+                    raise CLIStoppedTimeout(config.timeout_seconds) from None
                 raise
             if process.returncode:
                 # stderr can contain provider credentials, URLs or user config: never expose it.

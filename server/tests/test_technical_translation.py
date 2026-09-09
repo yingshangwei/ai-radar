@@ -693,3 +693,116 @@ def test_launch_confirmation_cannot_release_other_failures(store, monkeypatch, b
         with pytest.raises(ValueError):
             confirm_unstarted_cli(row, config, call, '/verified/missing/program')
         assert row.parts == before
+
+
+@pytest.mark.asyncio
+async def test_stopped_readonly_cli_timeout_uses_bounded_transport_retries(store, monkeypatch):
+    from radar.providers import CLIStoppedTimeout
+
+    sessions, config = store
+    config.technical_review_provider = ProviderConfig(kind='codex')
+    key, _ = seed(sessions, config)
+    service, calls = TranslationService(sessions, config), []
+
+    class TimedAudit:
+        async def complete(self, prompt, schema):
+            payload = json.loads(prompt.split('\nUNTRUSTED_TRANSLATION_DATA:\n')[1])
+            part = payload['untrusted_parts'][0]
+            if 'candidate' in part:
+                calls.append('audit')
+                raise CLIStoppedTimeout(180)
+            calls.append('correction')
+            return json.dumps({'translations': [{'id': part['id'], 'zh': GOOD[part['id']], 'approved': True,
+                'issues': [], 'source_terms': [{'term': 'rate', 'source_quote': part['source'], 'concept': 'metric',
+                    'meaning_zh': '优化算法的收敛速度', 'translation_zh': '收敛速率'}]}]})
+
+    monkeypatch.setattr('radar.translation.make_provider', lambda _: TimedAudit())
+    await service.translate_one(key, recheck=True)
+    await service.translate_one(key, recheck=True)
+    assert calls == ['correction', 'audit']  # Backoff applies even during a recheck.
+    for _ in range(4):
+        await service.translate_one(key, recheck=True, force=True)
+    assert calls == ['correction', 'audit', 'audit', 'audit']
+    with sessions() as session:
+        row = session.get(Translation, key)
+        body = row.parts[1]
+        results = [e for e in workflow.events(body, RECHECK_POLICY) if e.get('stage') == 'audit' and e['kind'] == 'result']
+        assert len(results) == 3 and all(e['outcome'] == 'known_transport' for e in results)
+        assert all(e['local_process_group_stopped'] and e['timeout_seconds'] == 180 for e in results)
+        assert body['zh'] == GOOD['body-0'] and workflow.correction_rounds(body, RECHECK_POLICY) == 1
+        assert not service.can_progress(row, force=True, recheck=True)
+
+
+def stopped_timeout_fixture(sessions, config):
+    from datetime import UTC, datetime, timedelta
+
+    key, call = unstarted_fixture(sessions, config)
+    with sessions.begin() as session:
+        row = session.get(Translation, key)
+        parts = deepcopy(row.parts)
+        body = parts[1]
+        body.update(zh=GOOD['body-0'], draft=GOOD['body-0'], correction_required=False)
+        body['workflow_history'][0]['correction_rounds'] = 2
+        target = workflow.target_for(body, 'audit')
+        body['review'] = {'policy': RECHECK_POLICY, 'approved': True, 'issues': [], 'fingerprint': target, 'round': 2}
+        started = datetime.now(UTC)-timedelta(minutes=10)
+        for e in body['workflow_history'][1:]:
+            e.update(stage='audit', target=target, at=(started+timedelta(seconds=300.1 if e['kind']=='result' else 0)).isoformat())
+        row.parts = parts
+    return key, call
+
+
+def test_operator_timeout_recovery_retains_candidate_rounds_and_shared_retry_cap(store):
+    from radar.translation_recheck import confirm_stopped_cli_timeout
+
+    sessions, config = store
+    config.technical_review_provider = ProviderConfig(kind='codex', timeout_seconds=600)
+    key, call = stopped_timeout_fixture(sessions, config)
+    with sessions.begin() as session:
+        row = session.get(Translation, key)
+        before = deepcopy(row.parts)
+        confirm_stopped_cli_timeout(row, config, call, 300)
+        body = row.parts[1]
+        assert body['zh'] == before[1]['zh'] and body['source'] == before[1]['source']
+        assert body['workflow_history'][:-1] == before[1]['workflow_history']
+        assert workflow.correction_rounds(body, RECHECK_POLICY) == 2
+        assert workflow.transport_failures(body, 'audit', RECHECK_POLICY, workflow.target_for(body, 'audit')) == 1
+        assert workflow.permitted(body, 'audit', RECHECK_POLICY, now_iso())
+        with pytest.raises(ValueError):
+            confirm_stopped_cli_timeout(row, config, call, 300)
+        for i in range(2):
+            body['workflow_history'].append(workflow.event(body, RECHECK_POLICY, 'result', call_id=f'retry-{i}',
+                stage='audit', target=workflow.target_for(body, 'audit'), outcome='known_transport'))
+        assert not workflow.permitted(body, 'audit', RECHECK_POLICY, now_iso(), force=True)
+
+
+@pytest.mark.parametrize('bad', ['short', 'long', 'response', 'denied', 'leased', 'budget', 'unresolved'])
+def test_timeout_confirmation_rejects_unproven_execution_or_existing_verdict(store, bad):
+    from datetime import datetime, timedelta
+
+    from radar.translation_recheck import confirm_stopped_cli_timeout
+
+    sessions, config = store
+    config.technical_review_provider = ProviderConfig(kind='codex', timeout_seconds=600)
+    key, call = stopped_timeout_fixture(sessions, config)
+    with sessions.begin() as session:
+        row = session.get(Translation, key)
+        body = row.parts[1]
+        history = body['workflow_history']
+        if bad in {'short', 'long'}:
+            history[-1]['at'] = (datetime.fromisoformat(history[-2]['at'])+timedelta(seconds=299 if bad=='short' else 331)).isoformat()
+        if bad == 'response':
+            history.append(workflow.event(body, RECHECK_POLICY, 'request_returned', call_id=call))
+        if bad == 'denied':
+            body['audit'] = {**body['review'], 'approved': False, 'issues': ['实际差错']}
+        if bad == 'leased':
+            row.owner = 'other-worker'
+        if bad == 'budget':
+            history[1:1] = [workflow.event(body, RECHECK_POLICY, 'result', call_id=f'old-{i}', stage='audit',
+                target=workflow.target_for(body, 'audit'), outcome='known_transport') for i in range(2)]
+        if bad == 'unresolved':
+            history.pop()
+        before = deepcopy(row.parts)
+        with pytest.raises(ValueError):
+            confirm_stopped_cli_timeout(row, config, call, 300)
+        assert row.parts == before

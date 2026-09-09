@@ -1,6 +1,14 @@
 # Android 构建与签名
 
-## 当前版本：0.9.0 / code 10
+## 当前版本：0.10.0 / code 11
+
+交付包 `dist/ai-radar-0.10.0-android.apk`，70,295,910 字节，SHA-256 `6fdf6abb5e9f4ba958e4412769f3dde06d9dfa06e9711b9d719a8dd4827cbae8`；App 源码 `da7b5268c5c576c819383a4327f49d28c1094725`。沿用应用 ID、正式签名和四 ABI，最低 API 24、目标 API 36。签名、ZIP 完整性、Hermes bundle 一致性及 6 个已知私密值扫描通过。
+
+增加离线公式排版，覆盖论文中英文正文、标题、引用和网页解读；列表提示进入详情查看公式。无法排版时保留原始表达式。字体、CSS、KaTeX 和许可随包内置，不读取网页授权或下载远程字体。实际 Android 检查发现并修复了 WebView 阻止父级文章滚动的问题。
+
+App 43 项测试通过、1 项既有跳过，类型检查通过；320 / 390 / 768 px 离线页面检查覆盖真实 Silver Rate 摘要与合成分数、多行公式、长公式、错误语法。专用 API 36 模拟器实测覆盖安装后保留 reader 连接、公式显示、从公式正文开始的上下滑动、断网阅读。证据位于忽略目录 `dist/math-ui/`。iOS 工程同步为 0.10.0 / build 11，本轮未生成 iOS 签名安装包或进行 iOS 原生运行验证。
+
+## 历史版本：0.9.0 / code 10
 
 交付包 `dist/ai-radar-0.9.0-android.apk`，69,644,350 字节，SHA-256 `7f57b28c92bc854886ba15618c36e4e70b7b8f58852753e0f79c9470515976f7`；源码 `327c6fa30f7f6c3c38cdfaa672d563753e40c314`。沿用原应用 ID、签名证书、四 ABI、最低 API 24 和目标 API 36。正式签名、ZIP 完整性和 APK 内 Hermes bundle 与本次生成 bundle 一致性均通过，记录 `dist/android-v0.9-verification.json`。
 

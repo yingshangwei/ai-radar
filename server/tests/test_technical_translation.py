@@ -10,6 +10,7 @@ from radar.db import database
 from radar.math_text import formula_issues, math_spans, protect_html_math, restore_html_math, truncate_math
 from radar.models import Translation
 from radar.translation import (
+    CONTEXT_POLICY,
     LEGACY_POLICY,
     RECHECK_POLICY,
     AuditedPart,
@@ -93,7 +94,46 @@ async def test_context_upgrade_reuses_candidate_and_retains_history_once(store):
         before = deepcopy(row.parts)
         assert ensure_translation(session, TITLE, BODY, config).parts == before
     await service.translate_one(key, force=True, recheck=True)
-    assert calls == ["audit", "correction", "audit"]
+    assert calls == ["audit", "correction", "audit", "correction", "audit"]
+
+
+@pytest.mark.asyncio
+async def test_source_grounded_title_reuses_context_audited_body_and_omits_old_title(store):
+    sessions, config = store
+    key, _ = seed(sessions, config)
+    with sessions.begin() as session:
+        row = session.get(Translation, key)
+        parts = deepcopy(row.parts)
+        for part in parts:
+            part['audit']['policy'] = CONTEXT_POLICY
+        row.parts = parts
+        body_before = deepcopy(parts[1])
+        ensure_translation(session, TITLE, BODY, config)
+        assert row.parts[0]['context_recheck_requested'] and row.parts[1] == body_before
+    service, calls = TranslationService(sessions, config), []
+
+    async def completion(payload, *, system, model, stage):
+        part = payload['untrusted_parts'][0]
+        assert len(payload['untrusted_parts']) == 1 and part['id'] == 'title'
+        context = payload['untrusted_document_context']
+        assert context['original_sections'] == [BODY]
+        assert [c['id'] for c in context['candidate_sections']] == ['body-0']
+        calls.append(stage)
+        if stage == 'correction':
+            assert 'draft' not in part and part['translation_mode'] == 'source_grounded_title'
+            return json.dumps({'translations': [{'id': 'title', 'zh': GOOD['title'], 'approved': True, 'issues': []}]})
+        assert stage == 'audit' and part['candidate'] == GOOD['title']
+        return json.dumps({'audits': [{'id': 'title', 'approved': True, 'issues': []}]})
+
+    service._completion = completion
+    await service.translate_one(key)
+    with sessions() as session:
+        row = session.get(Translation, key)
+        assert row.status == 'ready' and row.title_zh == GOOD['title']
+        assert row.parts[1] == body_before
+        assert all(part_audited(p, current=True) for p in row.parts)
+    await service.translate_one(key, force=True, recheck=True)
+    assert calls == ['correction', 'audit']
 
 
 @pytest.mark.parametrize("status,unknown", [("review_required", False), ("ready", True), ("error", True)])

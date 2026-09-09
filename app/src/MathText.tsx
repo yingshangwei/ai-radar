@@ -135,7 +135,7 @@ export default function MathText({
           allowUniversalAccessFromFileURLs={false}
           mixedContentMode="never"
           scrollEnabled={false}
-          nestedScrollEnabled
+          nestedScrollEnabled={false}
           textZoom={100}
           setSupportMultipleWindows={false}
           showsVerticalScrollIndicator={false}

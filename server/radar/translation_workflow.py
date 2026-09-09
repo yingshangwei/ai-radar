@@ -117,6 +117,12 @@ def permitted(part, stage, policy, now, *, force=False, individual=False):
     if not results:
         return True
     last = results[-1]
+    if last["outcome"] == "not_started":
+        return sum(e["outcome"] == "not_started" for e in results) <= TRANSPORT_RETRIES
+    if last["outcome"] == "unknown" and last.get("code") == "technical_provider_error":
+        return any(e.get("kind") == "launch_recovery" and e.get("call_id") == last["call_id"]
+                   and e.get("stage") == stage and e.get("target") == target
+                   and e.get("operator_confirmed_not_started") is True for e in events(part, policy))
     if stage == "correction" and last["outcome"] == "completed":
         return True  # A newly failed first audit may request one bounded repair.
     if last["outcome"] == "known_balance":

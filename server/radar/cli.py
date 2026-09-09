@@ -52,10 +52,19 @@ def main():
     recheck = parser.add_mutually_exclusive_group()
     recheck.add_argument("--recheck-article", action="append", default=[], metavar="ARTICLE_ID")
     recheck.add_argument("--recheck-editorial", action="store_true")
+    parser.add_argument("--confirm-provider-not-started", metavar="CALL_ID",
+                        help="Operator confirmation: verify the CLI never started before using this recovery")
+    parser.add_argument("--original-cli-path", metavar="PATH",
+                        help="Verified PATH of that failed launch; must not contain the configured executable")
     args = parser.parse_args()
     if args.translation_diagnostics and args.action != "translate":
         parser.error("--translation-diagnostics 只能用于 translate")
     rechecking = bool(args.recheck_article or args.recheck_editorial)
+    if (args.confirm_provider_not_started or args.original_cli_path) and (
+        not args.confirm_provider_not_started or not args.original_cli_path or args.action != "translate"
+        or len(args.recheck_article) != 1 or args.recheck_editorial or args.force
+    ):
+        parser.error("确认未启动须与单条 translate --recheck-article 及原 PATH 合用，不能强制或批量恢复")
     if args.revalidate_machine and (
         args.action != "translate" or args.limit is None or args.force or args.errors_only
         or rechecking or args.file or args.date
@@ -106,6 +115,8 @@ def _run(args, parser, rechecking):
             result = asyncio.run(recheck_translations(
                 sessions, config.translation, article_ids=args.recheck_article,
                 editorial=args.recheck_editorial, force=args.force,
+                **({"unstarted_call": args.confirm_provider_not_started,
+                    "original_cli_path": args.original_cli_path} if args.confirm_provider_not_started else {}),
             ))
             print(json.dumps(result, ensure_ascii=False))
             if result["status"] != "completed":

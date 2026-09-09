@@ -5,12 +5,70 @@ do not initialize Pipeline, which recovers interrupted jobs on server startup.
 """
 
 import asyncio
+import hashlib
+import json
+import shutil
+from copy import deepcopy
+from pathlib import Path
+from uuid import UUID
 
 from sqlalchemy import Text, cast, or_, select
 
+from . import translation_workflow as workflow
 from .config import TranslationConfig, secret
 from .models import Article, ArticleTranslation, Job, Translation, now_iso
-from .translation import RECHECK_POLICY, TranslationService, cache_key, needs_recheck, translation_status
+from .translation import (
+    RECHECK_POLICY,
+    TranslationService,
+    cache_key,
+    needs_recheck,
+    review_policy,
+    translation_status,
+)
+
+
+def confirm_unstarted_cli(row, config, call_id, original_path):
+    """Explicit operator diagnosis; never infer non-execution from an expired lease.
+
+    The operator must verify the original launch environment and zero execution.
+    We additionally require a missing program in that PATH, a working current
+    program, one exact terminal CLI failure, and no returned response/denial.
+    This only appends a receipt; source, candidate, old results and budgets stay.
+    """
+    if (str(UUID(call_id)) != call_id or not isinstance(original_path, str) or not original_path
+            or any(not Path(p).is_absolute() for p in original_path.split(':'))):
+        raise ValueError("启动诊断参数无效。")
+    provider = config.technical_review_provider
+    if (not provider or provider.kind not in {"codex", "claude_cli", "command"} or not provider.command
+            or shutil.which(provider.command[0], path=original_path) is not None
+            or shutil.which(provider.command[0]) is None):
+        raise ValueError("必须确认原启动 PATH 缺少该程序，且当前环境已修复。")
+    if row.status != "error" or row.owner or row.lease_until >= now_iso() or review_policy(row) != RECHECK_POLICY:
+        raise ValueError("只能诊断已结束且无占用的当前技术翻译错误。")
+    parts = deepcopy(row.parts)
+    matched = [p for p in parts if any(e.get('call_id') == call_id for e in workflow.events(p, RECHECK_POLICY))]
+    if not matched:
+        raise ValueError("指定调用不属于当前选中的翻译。")
+    for part in matched:
+        history = workflow.events(part, RECHECK_POLICY)
+        calls = [e for e in history if e.get('call_id') == call_id]
+        results = [e for e in history if e.get('kind') == 'result']
+        requests = [e for e in calls if e.get('kind') == 'request_reserved']
+        last = results[-1] if results else {}
+        stage, target = last.get('stage'), last.get('target')
+        if (last.get('call_id') != call_id or last.get('outcome') != 'unknown'
+                or last.get('code') != 'technical_provider_error' or stage not in {'correction', 'audit'}
+                or target != workflow.target_for(part, stage) or len(requests) != 1
+                or requests[0].get('transport') != provider.kind
+                or any(e.get('kind') in {'request_returned', 'launch_recovery'} for e in calls)
+                or workflow.blocked(part, RECHECK_POLICY) or workflow.denied(part, RECHECK_POLICY, target)
+                or workflow.correction_rounds(part, RECHECK_POLICY) >= config.review_max_rounds):
+            raise ValueError("没有可确认的单次启动失败；未知执行、已返回结果、否决和已耗尽预算均不能恢复。")
+        part['workflow_history'].append(workflow.event(part, RECHECK_POLICY, 'launch_recovery',
+            call_id=call_id, stage=stage, target=target, at=now_iso(), operator_confirmed_not_started=True,
+            original_path_sha256=hashlib.sha256(original_path.encode()).hexdigest(),
+            command_sha256=hashlib.sha256(json.dumps(provider.command).encode()).hexdigest()))
+    row.parts = parts
 
 
 async def translate_limited(
@@ -147,7 +205,7 @@ def select_rechecks(session, config: TranslationConfig, *, article_ids=(), edito
     return list(selected.values())
 
 
-def _reserve_job(sessions, config, *, article_ids, editorial, force):
+def _reserve_job(sessions, config, *, article_ids, editorial, force, unstarted_call=None, original_cli_path=None):
     with sessions.begin() as session:
         # Serialize CLI reservations on the deployed SQLite database. Per-row
         # translation leases remain authoritative across API/CLI processes.
@@ -156,6 +214,10 @@ def _reserve_job(sessions, config, *, article_ids, editorial, force):
         if session.scalar(select(Job.id).where(Job.status == "running").limit(1)):
             raise RuntimeError("已有任务正在运行，请在服务空闲后执行复核。")
         rows = select_rechecks(session, config, article_ids=article_ids, editorial=editorial)
+        if unstarted_call or original_cli_path:
+            if not unstarted_call or not original_cli_path or editorial or len(rows) != 1:
+                raise ValueError("启动诊断须指定一篇文章、一个未启动调用 ID 及原启动 PATH。")
+            confirm_unstarted_cli(rows[0], config, unstarted_call, original_cli_path)
         keys = [row.id for row in rows]
         pending = [row.id for row in rows if force or needs_recheck(row)]
         if pending and not secret(config.api_key_env):
@@ -168,11 +230,13 @@ def _reserve_job(sessions, config, *, article_ids, editorial, force):
         return job.id, keys, pending
 
 
-async def recheck_translations(sessions, config: TranslationConfig, *, article_ids=(), editorial=False, force=False):
+async def recheck_translations(sessions, config: TranslationConfig, *, article_ids=(), editorial=False, force=False,
+                              unstarted_call=None, original_cli_path=None):
     if not config.enabled:
         raise ValueError("翻译功能尚未启用，未开始复核。")
     uid, selected, pending = _reserve_job(
-        sessions, config, article_ids=article_ids, editorial=editorial, force=force
+        sessions, config, article_ids=article_ids, editorial=editorial, force=force,
+        unstarted_call=unstarted_call, original_cli_path=original_cli_path,
     )
     service = TranslationService(sessions, config)
     failure = ""

@@ -9,6 +9,7 @@ import hashlib
 import json
 import logging
 import re
+import shutil
 from collections import Counter
 from contextvars import ContextVar
 from copy import deepcopy
@@ -84,6 +85,10 @@ class TechnicalProviderError(RuntimeError):
     """An agent failure is not a DeepSeek account balance signal."""
 
 
+class ProviderNotStartedError(RuntimeError):
+    """A missing executable was detected before invoking a CLI."""
+
+
 class TranslationYield(Exception):
     """Yield only between fully persisted calls, never cancel an in-flight request."""
 
@@ -132,6 +137,8 @@ def failure_diagnostic(key: str, stage: str, exc: BaseException) -> dict:
         code = "lease_lost"
     elif isinstance(exc, TechnicalProviderError):
         code = "technical_provider_error"
+    elif isinstance(exc, ProviderNotStartedError):
+        code = "provider_not_started"
     elif isinstance(exc, ValidationError):
         code = "output_schema_invalid"
     elif status is not None:
@@ -255,7 +262,7 @@ class ContextualTranslatedPart(BaseModel):
     source_terms: list[SourceTerm] = Field(min_length=1, max_length=12)
     zh: str = Field(min_length=1)
     approved: bool = Field(strict=True)
-    issues: list[str] = Field(default_factory=list)
+    issues: list[str]
 
 
 class ContextualTranslationOutput(BaseModel):
@@ -278,7 +285,7 @@ class ContextualAuditedPart(BaseModel):
     id: str
     concept_checks: list[ConceptCheck] = Field(min_length=1, max_length=16)
     approved: bool = Field(strict=True)
-    issues: list[str] = Field(default_factory=list)
+    issues: list[str]
 
 
 class ContextualAuditOutput(BaseModel):
@@ -859,6 +866,9 @@ class TranslationService:
         output: type[BaseModel], validate_literals=None, validation_code="protected_literal_mismatch",
     ):
         provider_config = self.technical_provider(stage)
+        if provider_config and provider_config.kind in {"codex", "claude_cli", "command"}:
+            if not provider_config.command or shutil.which(provider_config.command[0]) is None:
+                raise ProviderNotStartedError("Configured CLI executable is unavailable")
         for attempt in range(2):
             context = self._workflow_call.get()
             request_id = str(uuid4())
@@ -1147,9 +1157,11 @@ class TranslationService:
             any(name.startswith("editorial_") for name in p) for p in row.parts)
         if recheck and editorial and not history:
             return True
+        technical = technical_document(row.original_title, row.original_text)
+        body_ready = all(part_audited(p) for p in row.parts if p['id'].startswith('body-'))
         return any(not part_audited(p) and workflow.next_stage(
             p, policy, self.config.review_max_rounds, now_iso(), force=force)
-            for p in row.parts)
+            for p in row.parts if not technical or p['id'] != 'title' or body_ready)
 
     async def _invoke_stage(self, key, owner, parts, group, stage, invoke, apply, *, force=False, batch=False):
         budget = self._stage_budget.get()
@@ -1171,7 +1183,8 @@ class TranslationService:
         except BaseException as exc:
             diagnostic = failure_diagnostic(key, stage, exc)
             status = diagnostic["http_status"]
-            outcome = ("known_balance" if status == 402 else "known_transport" if
+            outcome = ("not_started" if isinstance(exc, ProviderNotStartedError) else
+                       "known_balance" if status == 402 else "known_transport" if
                        status == 429 or (status is not None and status >= 500) or
                        isinstance(exc, (APITimeoutError, httpx.TimeoutException, TimeoutError,
                                         APIConnectionError, httpx.TransportError)) else

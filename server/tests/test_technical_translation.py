@@ -566,3 +566,130 @@ def test_technical_provider_timeout_is_covered_by_the_saved_lease(store):
     assert service.lease_seconds() == 2460
     service._policy.set(SOURCE_AUDIT_POLICY)
     assert service.lease_seconds() == config.timeout_seconds * 4 + 60
+
+
+def test_agent_technical_schemas_require_every_field():
+    from radar.translation import ContextualAuditOutput, ContextualTranslationOutput
+
+    for model in (ContextualTranslationOutput, ContextualAuditOutput):
+        schema = model.model_json_schema()
+        for item in [schema, *schema['$defs'].values()]:
+            if item.get('type') == 'object':
+                assert item['additionalProperties'] is False
+                assert set(item['properties']) == set(item['required'])
+
+
+@pytest.mark.asyncio
+async def test_missing_cli_is_recorded_before_provider_request_and_bounded(store, monkeypatch):
+    sessions, config = store
+    config.technical_review_provider = ProviderConfig(kind='codex')
+    key, _ = seed(sessions, config)
+    service = TranslationService(sessions, config)
+    monkeypatch.setattr('radar.translation.shutil.which', lambda *a, **kw: None)
+    monkeypatch.setattr('radar.translation.make_provider', lambda _: pytest.fail('No executable; no provider request'))
+    await service.translate_one(key, recheck=True)
+    await service.translate_one(key, recheck=True, force=True)
+    await service.translate_one(key, recheck=True, force=True)
+    with sessions() as session:
+        row = session.get(Translation, key)
+        assert row.status == 'error'
+        part = next(p for p in row.parts if p['id'] == 'body-0')
+        events = workflow.events(part, RECHECK_POLICY)
+        assert not any(e['kind'] == 'request_reserved' for e in events)
+        assert [e['outcome'] for e in events if e['kind'] == 'result'] == ['not_started', 'not_started']
+        assert workflow.correction_rounds(part, RECHECK_POLICY) == 2
+        assert not service.can_progress(row, force=True, recheck=True)
+
+
+def unstarted_fixture(sessions, config):
+    key, _ = seed(sessions, config, status='error')
+    call = 'abacf9c9-14e6-498c-a7b4-0131ab1b8dbe'
+    with sessions.begin() as session:
+        row = session.get(Translation, key)
+        parts = deepcopy(row.parts)
+        for p in parts:
+            p.pop('audit')
+            p.pop('review')
+            p.update(correction_required=True, recheck_pending=True)
+            p['workflow_history'] = [workflow.event(p, RECHECK_POLICY, 'baseline', correction_rounds=0)]
+        body = parts[1]
+        target = workflow.target_for(body, 'correction')
+        body['workflow_history'] += [
+            workflow.event(body, RECHECK_POLICY, 'reserved', call_id=call, stage='correction', target=target),
+            workflow.event(body, RECHECK_POLICY, 'request_reserved', call_id=call, stage='correction', transport='codex'),
+            workflow.event(body, RECHECK_POLICY, 'result', call_id=call, stage='correction', target=target,
+                           outcome='unknown', code='technical_provider_error'),
+        ]
+        row.parts = parts
+    return key, call
+
+
+@pytest.mark.asyncio
+async def test_confirmed_launch_recovery_preserves_old_result_and_budget(store, monkeypatch):
+    from radar.translation_recheck import confirm_unstarted_cli
+
+    sessions, config = store
+    config.technical_review_provider = ProviderConfig(kind='codex')
+    key, call = unstarted_fixture(sessions, config)
+    service, calls = TranslationService(sessions, config), []
+    monkeypatch.setattr('radar.translation_recheck.shutil.which', lambda cmd, path=None: None if path else '/fixed/codex')
+    with sessions.begin() as session:
+        row = session.get(Translation, key)
+        original = deepcopy(row.parts)
+        assert not workflow.permitted(row.parts[1], 'correction', RECHECK_POLICY, now_iso(), force=True)
+        confirm_unstarted_cli(row, config, call, '/verified/missing/program')
+        body = row.parts[1]
+        assert body['workflow_history'][:-1] == original[1]['workflow_history']
+        assert all(body[k] == original[1][k] for k in ('source', 'draft', 'zh'))
+        assert workflow.correction_rounds(body, RECHECK_POLICY) == 1
+        assert workflow.permitted(body, 'correction', RECHECK_POLICY, now_iso())
+        with pytest.raises(ValueError):
+            confirm_unstarted_cli(row, config, call, '/verified/missing/program')
+
+    async def request(parts, *, review):
+        assert review
+        calls.append('correction')
+        return {p['id']: TranslatedPart(id=p['id'], zh=GOOD[p['id']], approved=True) for p in parts}
+
+    async def audit(parts):
+        calls.append('audit')
+        return {p['id']: AuditedPart(id=p['id'], approved=True) for p in parts}
+
+    service.request, service.audit = request, audit
+    await service.translate_one(key, recheck=True)
+    with sessions() as session:
+        row = session.get(Translation, key)
+        assert row.status == 'ready'
+        assert workflow.correction_rounds(row.parts[1], RECHECK_POLICY) == 2
+        assert any(e.get('outcome') == 'unknown' for e in workflow.events(row.parts[1], RECHECK_POLICY))
+    await service.translate_one(key, recheck=True, force=True)
+    assert calls == ['correction', 'audit', 'correction', 'audit']
+
+
+@pytest.mark.parametrize('bad', ['wrong_call', 'returned', 'denied', 'exhausted', 'running', 'program_existed', 'unfixed'])
+def test_launch_confirmation_cannot_release_other_failures(store, monkeypatch, bad):
+    from radar.translation_recheck import confirm_unstarted_cli
+
+    sessions, config = store
+    config.technical_review_provider = ProviderConfig(kind='codex')
+    key, call = unstarted_fixture(sessions, config)
+    monkeypatch.setattr('radar.translation_recheck.shutil.which', lambda cmd, path=None:
+                        '/present/codex' if bad == 'program_existed' else None if path or bad == 'unfixed' else '/fixed/codex')
+    with sessions.begin() as session:
+        row = session.get(Translation, key)
+        body = row.parts[1]
+        if bad == 'wrong_call':
+            call = 'cbacf9c9-14e6-498c-a7b4-0131ab1b8dbe'
+        if bad == 'returned':
+            body['workflow_history'].append(workflow.event(body, RECHECK_POLICY, 'request_returned', call_id=call))
+        if bad == 'denied':
+            body['audit'] = {'policy': RECHECK_POLICY, 'approved': False, 'issues': ['意义错误'],
+                            'fingerprint': workflow.target_for(body, 'audit')}
+        if bad == 'exhausted':
+            body['workflow_history'][0]['correction_rounds'] = 2
+        if bad == 'running':
+            row.owner = 'another-worker'
+        before = deepcopy(row.parts)
+        with pytest.raises(ValueError):
+            confirm_unstarted_cli(row, config, call, '/verified/missing/program')
+        assert row.parts == before

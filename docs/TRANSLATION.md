@@ -35,7 +35,7 @@ timeout_seconds = 300
 # model 可指定；省略时使用 CLI 默认模型。
 ```
 
-该配置复用摘要/解读的通用适配器，支持 Claude CLI、通用命令、OpenAI 兼容接口和 Anthropic；不接受 extractive。校对和审计各使用独立调用，Codex 会话为临时隔离会话，禁用工具、联网搜索及用户指令，审计不继承校对的上下文。每次调用先持久化预约，回执记录实际 Provider/模型；租约覆盖该 Provider 的超时。Agent 失败不静默回退、不当作 DeepSeek 余额不足，也不自动重放结果未知的调用。原有修订与格式恢复次数不增加。没有此配置时保持原翻译接口；`stage_request_options` 只作用于该接口，不传给独立 Provider。
+该配置复用摘要/解读的通用适配器，支持 Claude CLI、通用命令、OpenAI 兼容接口和 Anthropic；不接受 extractive。校对和审计各使用独立调用，Codex 会话为临时隔离会话，禁用工具、联网搜索及用户指令，审计不继承校对的上下文。每次调用先持久化预约，回执记录实际 Provider/模型；租约覆盖该 Provider 的超时。Agent 失败不静默回退、不当作 DeepSeek 余额不足，也不自动重放结果未知的调用。CLI 在预约外部请求前检查可执行文件，缺失时记录明确的未启动错误，仍受原有次数限制。原有修订与格式恢复次数不增加。没有此配置时保持原翻译接口；`stage_request_options` 只作用于该接口，不传给独立 Provider。
 
 `stage_request_options` 可分别配置 `draft`（初稿）、`correction`（修订）、`audit`（独立审计）。没有配置该阶段时使用公共 `request_options`；阶段键存在时，其对象**完整替换**公共对象，不做合并，显式 `{}` 表示不发送额外参数。其他服务的参数仍可透传，供应商自己的嵌套对象（如 `thinking`）可以使用；不要再包一层 `extra_body`。空对象不等于关闭供应商默认推理模式，关闭时须按该供应商的接口显式配置。
 
@@ -200,3 +200,10 @@ App 使用锁定版本的 [KaTeX 0.18.7](https://github.com/KaTeX/KaTeX/releases
 正式翻译命令可加 `--translation-diagnostics`，例如 `radar translate --limit 1 --force --translation-diagnostics`。该开关仅适用于 `translate`，默认关闭。启用时，`radar.translation` 的 INFO 日志通过独立 handler 写入 stderr；stdout 仍只输出原有任务 JSON。不会提升 root、HTTPX 或 OpenAI SDK 的日志级别，命令结束或失败后恢复原有日志状态，重复调用不会累积 handler。
 
 `translation_completion` 行只包含阶段、安全模型标识、耗时、固定结束原因，以及供应商报告的输入、输出和推理 token 数；缺失的 token 数为 `null`，不能据此推断是否实际进行了推理。已知 DeepSeek 模型别名直接记录，其他模型使用短哈希标识。日志不包含原文、候选、思考内容、URL 或密钥；这项诊断不会改变队列范围、翻译内容、审核门槛或重试次数。
+
+
+### 运维确认 CLI 未启动
+
+只有运维已核实 **原启动环境找不到配置的可执行文件、进程和模型请求均未启动** 时，单条正式复核可附加 `--confirm-provider-not-started CALL_ID --original-cli-path ORIGINAL_PATH`。这不是超时或未知执行的通用重试开关；普通重试仍不能解除未知调用。
+
+该入口核对单条缓存、当前策略、精确调用 ID、一次 CLI 请求预约、已结束的启动错误、没有返回响应或语义否决、仍有剩余预算；同时要求原 PATH 不含可执行文件，而当前环境已修复。仅追加操作员确认与环境/命令指纹，不改写原结果、原文、候选或审核，不重置修订次数，同一诊断不可重复使用。正文尚不能继续时，等待它的标题不会被误认为可运行任务。

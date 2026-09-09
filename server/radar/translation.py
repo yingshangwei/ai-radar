@@ -34,6 +34,7 @@ from .models import (
     WebDocument,
     now_iso,
 )
+from .providers import make_provider
 from .technical_language import (
     TECHNICAL_AUDIT_INSTRUCTIONS,
     TERMINOLOGY_INSTRUCTIONS,
@@ -50,9 +51,12 @@ COMPACT_CURRENCY = re.compile(r"[$€£¥]\d+(?:[.,]\d+)*(?:[kKmMbB](?![A-Za-z])
 CONTEXT_POLICY = "zh-context-audit-v2"
 TITLE_POLICY = "zh-context-title-v3"
 CLARITY_POLICY = "zh-context-clarity-v4"
-RECHECK_POLICY = "zh-source-audit-v5"
+SOURCE_AUDIT_POLICY = "zh-source-audit-v5"
+RECHECK_POLICY = "zh-agent-context-v6"
 LEGACY_POLICY = "zh-independent-audit-v1"
-PUBLISHED_AUDIT_POLICIES = {LEGACY_POLICY, CONTEXT_POLICY, TITLE_POLICY, CLARITY_POLICY, RECHECK_POLICY}
+PUBLISHED_AUDIT_POLICIES = {
+    LEGACY_POLICY, CONTEXT_POLICY, TITLE_POLICY, CLARITY_POLICY, SOURCE_AUDIT_POLICY, RECHECK_POLICY,
+}
 logger = logging.getLogger(__name__)
 VALIDATION_FAILURES = {
     "output_incomplete": "翻译输出不完整",
@@ -74,6 +78,10 @@ class TranslationValidationError(ValueError):
 
 class TranslationLeaseError(RuntimeError):
     pass
+
+
+class TechnicalProviderError(RuntimeError):
+    """An agent failure is not a DeepSeek account balance signal."""
 
 
 class TranslationYield(Exception):
@@ -122,6 +130,8 @@ def failure_diagnostic(key: str, stage: str, exc: BaseException) -> dict:
         code = exc.code
     elif isinstance(exc, TranslationLeaseError):
         code = "lease_lost"
+    elif isinstance(exc, TechnicalProviderError):
+        code = "technical_provider_error"
     elif isinstance(exc, ValidationError):
         code = "output_schema_invalid"
     elif status is not None:
@@ -316,7 +326,7 @@ def review_policy(row: Translation) -> str:
     policies = {r.get("policy") for p in row.parts for previous in workflow.snapshots(p)
                 for r in [previous.get("audit", {}), previous.get("review", {})]
                 + previous.get("workflow_history", [])}
-    return next((p for p in (RECHECK_POLICY, CLARITY_POLICY, TITLE_POLICY, CONTEXT_POLICY, LEGACY_POLICY)
+    return next((p for p in (RECHECK_POLICY, SOURCE_AUDIT_POLICY, CLARITY_POLICY, TITLE_POLICY, CONTEXT_POLICY, LEGACY_POLICY)
                  if p in policies), RECHECK_POLICY)
 
 
@@ -670,6 +680,9 @@ def translation_status(session, config: TranslationConfig) -> dict:
         "configured": bool(secret(config.api_key_env)),
         "model": config.model,
         "review_model": config.review_model,
+        "technical_review_provider": ({"kind": config.technical_review_provider.kind,
+                                       "model": config.technical_review_provider.model}
+                                      if config.technical_review_provider else None),
         "counts": counts,
         "resource_counts": resource_counts,
         "alert": balance_alert(session, config),
@@ -702,6 +715,25 @@ class TranslationService:
     @property
     def policy(self):
         return self._policy.get()
+
+    def technical_provider(self, stage: TranslationStage):
+        # In-flight and failed workflows keep their original transport/budgets.
+        if (stage in {"correction", "audit"} and self.policy == RECHECK_POLICY
+                and (self._document_context.get() or {}).get("technical")):
+            return self.config.technical_review_provider
+        return None
+
+    def stage_model(self, stage: TranslationStage):
+        if provider := self.technical_provider(stage):
+            return f"{provider.kind}/{provider.model or 'default'}"
+        return (self.config.model if stage == "draft" else
+                (self.config.audit_model or self.config.review_model) if stage == "audit" else
+                self.config.review_model)
+
+    def lease_seconds(self):
+        provider = self.technical_provider("correction")
+        timeout = max(self.config.timeout_seconds, provider.timeout_seconds if provider else 0)
+        return timeout * 4 + 60
 
     def document_context(self, *, exclude_ids=()):
         context = self._document_context.get()
@@ -826,16 +858,31 @@ class TranslationService:
         self, payload: dict, *, system: str, model: str, stage: TranslationStage,
         output: type[BaseModel], validate_literals=None, validation_code="protected_literal_mismatch",
     ):
+        provider_config = self.technical_provider(stage)
         for attempt in range(2):
             context = self._workflow_call.get()
             request_id = str(uuid4())
             if context:
                 key, owner, parts, group, call_id = context
                 self._record(parts=group, kind="request_reserved", call_id=call_id,
-                             request_id=request_id, stage=stage, sdk_request_upper_bound=2)
+                             request_id=request_id, stage=stage,
+                             transport=provider_config.kind if provider_config else "deepseek",
+                             sdk_request_upper_bound=None if provider_config else 2)
                 self.save_parts(key, owner, parts)
             try:
-                content = await self._completion(payload, system=system, model=model, stage=stage)
+                if provider_config:
+                    prompt = (system + "\nJSON_SCHEMA:\n" + json.dumps(output.model_json_schema(), ensure_ascii=False)
+                              + "\nUNTRUSTED_TRANSLATION_DATA:\n" + json.dumps(payload, ensure_ascii=False))
+                    try:
+                        content = await make_provider(provider_config).complete(prompt, output)
+                    except Exception as exc:
+                        # No silent fallback or guessed retry: an agent may have
+                        # consumed its request before failing to return a result.
+                        raise TechnicalProviderError("Technical translation provider failed") from exc
+                    if not isinstance(content, str) or not content or len(content) > 180000:
+                        raise TranslationValidationError("output_empty_or_oversized")
+                else:
+                    content = await self._completion(payload, system=system, model=model, stage=stage)
             except BaseException:
                 # The enclosing logical result classifies known failures. A
                 # process death leaves the reservation visibly unresolved.
@@ -960,7 +1007,9 @@ class TranslationService:
             # introduce IDs outside this exact audit batch.
             context = {k: v for k, v in context.items() if k != 'candidate_sections'}
             payload["untrusted_document_context"] = context
-        contextual = bool((context or {}).get("technical")) and self.policy == RECHECK_POLICY
+        contextual = bool((context or {}).get("technical")) and self.policy in {
+            CLARITY_POLICY, SOURCE_AUDIT_POLICY, RECHECK_POLICY,
+        }
         output = ContextualAuditOutput if contextual else AuditOutput
         if contextual:
             payload["output_schema"] = output.model_json_schema()
@@ -1019,7 +1068,7 @@ class TranslationService:
             for part in group:
                 audited = result[part["id"]]
                 self._apply_audit(part, {
-                    "policy": self.policy, "model": self.config.audit_model or self.config.review_model,
+                    "policy": self.policy, "model": self.stage_model("audit"),
                     "fingerprint": candidate_fingerprint(part["source"], part["draft"]),
                     "approved": audited.approved,
                     "issues": audited.issues or ([] if audited.approved else ["独立语义审计未通过"]),
@@ -1065,7 +1114,7 @@ class TranslationService:
                 Translation.id == key, Translation.owner == owner, Translation.lease_until > now,
             ).values(parts=deepcopy(parts), updated_at=now,
                      lease_until=(datetime.now(UTC) + timedelta(
-                         seconds=self.config.timeout_seconds * 4 + 60)).isoformat()))
+                         seconds=self.lease_seconds())).isoformat()))
             if changed.rowcount != 1:
                 raise TranslationLeaseError("Translation lease lost")
 
@@ -1247,7 +1296,7 @@ class TranslationService:
                         cycle = target != before[part["id"]] and target in seen[part["id"]]
                         part.update(zh=reviewed.zh, draft=reviewed.zh, ok=False, correction_required=False)
                         part["review"] = {
-                            "model": self.config.review_model, "policy": self.policy,
+                            "model": self.stage_model("correction"), "policy": self.policy,
                             "fingerprint": target, "approved": reviewed.approved, "issues": reviewed.issues,
                             "round": rounds[part["id"]], "at": now_iso(),
                         }
@@ -1337,7 +1386,7 @@ class TranslationService:
                         status="running",
                         attempts=Translation.attempts + (0 if finalize else 1),
                         lease_until=(
-                            datetime.now(UTC) + timedelta(seconds=self.config.timeout_seconds * 4 + 60)
+                            datetime.now(UTC) + timedelta(seconds=self.lease_seconds())
                         ).isoformat(),
                     )
                 )
@@ -1386,7 +1435,7 @@ class TranslationService:
                     if row is None:
                         return
                     row.issues = [issue for p in parts for issue in p.get("issues", [])][:30]
-                    row.model, row.review_model = self.config.model, self.config.review_model
+                    row.model, row.review_model = self.config.model, self.stage_model("correction")
                     if all(p.get("ok") for p in parts):
                         for part in parts:
                             part.pop("recheck_pending", None)

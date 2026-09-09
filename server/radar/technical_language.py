@@ -1,6 +1,6 @@
 """Shared semantic requirements, not article-specific replacement translations."""
 
-TECHNICAL_POLICY = 'technical-context-v4'
+TECHNICAL_POLICY = 'technical-context-v5'
 
 TERMINOLOGY_INSTRUCTIONS = """\n先从完整原文语境识别领域、研究对象，以及术语指代的方法、数学量或算法设定，再选择中文词义。
 不能仅按单个英文词的日常字典义直译；中文必须保留概念的类型及它与方法/结果的关系。

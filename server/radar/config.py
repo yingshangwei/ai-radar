@@ -98,6 +98,7 @@ class TranslationConfig(BaseModel):
     model: str = "deepseek-v4-flash"
     review_model: str = "deepseek-v4-pro"
     audit_model: str | None = None
+    technical_review_provider: ProviderConfig | None = None
     review_max_rounds: int = Field(default=2, ge=1, le=4)
     revision: str = "zh-v1"
     timeout_seconds: int = Field(default=120, ge=10, le=600)
@@ -115,6 +116,13 @@ class TranslationConfig(BaseModel):
         "formalization": "形式化；不能改成首次证明", "benchmark": "基准测试",
         "post-hoc": "事后评估", "inference": "推理", "fine-tuning": "微调",
     })
+
+    @field_validator("technical_review_provider")
+    @classmethod
+    def technical_model_provider(cls, value):
+        if value is not None and value.kind == "extractive":
+            raise ValueError("Technical translation review requires a structured model provider")
+        return value
 
     @field_validator("stage_request_options", "stage_max_tokens", mode="before")
     @classmethod

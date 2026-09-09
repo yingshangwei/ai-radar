@@ -5,15 +5,16 @@ from copy import deepcopy
 import pytest
 
 from radar import translation_workflow as workflow
-from radar.config import TranslationConfig
+from radar.config import ProviderConfig, TranslationConfig
 from radar.db import database
 from radar.math_text import formula_issues, math_spans, protect_html_math, restore_html_math, truncate_math
-from radar.models import Translation
+from radar.models import Translation, now_iso
 from radar.translation import (
     CLARITY_POLICY,
     CONTEXT_POLICY,
     LEGACY_POLICY,
     RECHECK_POLICY,
+    SOURCE_AUDIT_POLICY,
     TITLE_POLICY,
     AuditedPart,
     TranslatedPart,
@@ -445,3 +446,123 @@ def test_publisher_tex_survives_html_extraction_without_duplicate_visual_math():
     html, protected = protect_html_math(source)
     assert len(protected) == 4 and formula in restore_html_math(html, protected)
     assert truncate_math('before ' + '$$' + 'x'*100 + '$$ after', 50) == 'before '
+
+
+def test_technical_provider_is_optional_and_requires_structured_model():
+    from pydantic import ValidationError
+
+    assert TranslationConfig().technical_review_provider is None
+    with pytest.raises(ValidationError):
+        TranslationConfig(technical_review_provider={'kind': 'extractive'})
+
+
+@pytest.mark.asyncio
+async def test_configurable_technical_provider_keeps_stages_independent_and_durable(store, monkeypatch):
+    sessions, config = store
+    config.technical_review_provider = ProviderConfig(kind='codex', model='test-review-model')
+    key, old = seed(sessions, config)
+    service, calls = TranslationService(sessions, config), []
+
+    class StubProvider:
+        async def complete(self, prompt, schema):
+            payload = json.loads(prompt.split('\nUNTRUSTED_TRANSLATION_DATA:\n')[1])
+            part = payload['untrusted_parts'][0]
+            assert len(payload['untrusted_parts']) == 1
+            calls.append(('audit' if 'candidate' in part else 'correction', part['id']))
+            if 'candidate' in part:
+                assert 'source_terms' not in payload and 'candidate_sections' not in payload['untrusted_document_context']
+                assert part['candidate'] == GOOD[part['id']]
+                return audit_output(part)
+            assert 'draft' not in part and 'checks' in part
+            return json.dumps({'translations': [{'id': part['id'], 'zh': GOOD[part['id']], 'approved': True,
+                'issues': [], 'source_terms': [{'term': 'rate', 'source_quote': part['source'], 'concept': 'metric',
+                    'meaning_zh': '优化算法的收敛速度', 'translation_zh': '收敛速率'}]}]})
+
+    def factory(provider):
+        assert provider == config.technical_review_provider
+        return StubProvider()
+
+    async def forbidden(*args, **kwargs):
+        pytest.fail('Technical correction/audit must use the configured transport')
+
+    monkeypatch.setattr('radar.translation.make_provider', factory)
+    service._completion = forbidden
+    await service.translate_one(key, recheck=True)
+    with sessions() as session:
+        row = session.get(Translation, key)
+        assert row.status == 'ready' and row.review_model == 'codex/test-review-model'
+        assert row.model == config.model and row.text_zh == GOOD['body-0']
+        assert row.original_title == TITLE and row.original_text == BODY
+        for i, part in enumerate(row.parts):
+            assert part['review']['model'] == part['audit']['model'] == 'codex/test-review-model'
+            assert part_audited(part, current=True)
+            assert part['review_history'][0]['previous']['audit'] == old[i]['audit']
+            requests = [e for e in workflow.events(part, RECHECK_POLICY) if e.get('kind') == 'request_reserved']
+            assert len(requests) == 2
+            assert all(e['transport'] == 'codex' and e['sdk_request_upper_bound'] is None for e in requests)
+    await service.translate_one(key, recheck=True, force=True)
+    assert calls == [('correction', 'body-0'), ('audit', 'body-0'), ('correction', 'title'), ('audit', 'title')]
+
+
+@pytest.mark.parametrize('technical,stage,policy', [
+    (True, 'draft', RECHECK_POLICY), (False, 'correction', RECHECK_POLICY),
+    (False, 'audit', RECHECK_POLICY), (True, 'correction', SOURCE_AUDIT_POLICY),
+    (True, 'audit', LEGACY_POLICY),
+])
+def test_provider_scope_preserves_drafts_nontechnical_and_old_workflows(store, technical, stage, policy):
+    sessions, config = store
+    config.technical_review_provider = ProviderConfig(kind='codex')
+    service = TranslationService(sessions, config)
+    service._document_context.set({'technical': technical})
+    service._policy.set(policy)
+    assert service.technical_provider(stage) is None
+    assert service.stage_model(stage) == (config.model if stage == 'draft' else config.review_model)
+
+
+@pytest.mark.asyncio
+async def test_agent_failure_is_not_ds_balance_and_never_silently_replayed(store, monkeypatch):
+    import httpx
+    from openai import APIStatusError
+
+    from radar.models import TranslationAccountState
+
+    sessions, config = store
+    config.technical_review_provider = ProviderConfig(kind='openai_chat', model='test-review')
+    key, _ = seed(sessions, config)
+    service, calls = TranslationService(sessions, config), []
+
+    class FailingProvider:
+        async def complete(self, *args):
+            calls.append('agent')
+            raise APIStatusError('private-provider-error', response=httpx.Response(402,
+                                 request=httpx.Request('POST', 'https://example.org')), body=None)
+
+    async def forbidden(*args, **kwargs):
+        pytest.fail('No fallback to DeepSeek after an uncertain agent request')
+
+    monkeypatch.setattr('radar.translation.make_provider', lambda _: FailingProvider())
+    service._completion = forbidden
+    await service.translate_one(key, recheck=True)
+    with sessions() as session:
+        row = session.get(Translation, key)
+        assert row.status == 'error' and not service.balance_blocked
+        assert 'technical_provider_error' in row.issues[0] and 'private-provider-error' not in str(row.issues)
+        assert session.query(TranslationAccountState).count() == 0
+        body = next(p for p in row.parts if p['id'] == 'body-0')
+        assert not workflow.permitted(body, 'correction', RECHECK_POLICY, now_iso(), force=True)
+        assert any(e.get('outcome') == 'unknown' for e in workflow.events(body, RECHECK_POLICY))
+        before = deepcopy(row.parts)
+    await service.translate_one(key, recheck=True, force=True)
+    assert calls == ['agent']
+    with sessions() as session:
+        assert session.get(Translation, key).parts == before
+
+
+def test_technical_provider_timeout_is_covered_by_the_saved_lease(store):
+    sessions, config = store
+    config.technical_review_provider = ProviderConfig(kind='codex', timeout_seconds=600)
+    service = TranslationService(sessions, config)
+    service._document_context.set({'technical': True})
+    assert service.lease_seconds() == 2460
+    service._policy.set(SOURCE_AUDIT_POLICY)
+    assert service.lease_seconds() == config.timeout_seconds * 4 + 60

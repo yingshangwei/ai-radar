@@ -25,6 +25,7 @@ def main():
     if not 1 <= args.workers <= 16:
         parser.error("--workers must be between 1 and 16")
     env = os.environ.copy()
+    subprocess.run(["node", str(ROOT / "app/scripts/build-math-assets.cjs")], env=env, check=True)
     if args.variant == "Release":
         if not args.credentials.is_file():
             parser.error("Release credentials are missing; see docs/ANDROID.md")

@@ -60,8 +60,12 @@ def audit_response(parts, *, approved=True, issues=()):
 def audit_inputs(payload, system, model):
     assert system == AUDIT and model == "separate-auditor"
     assert set(payload) in [
-        {"glossary", "untrusted_parts"}, {"glossary", "untrusted_parts", "format_feedback"}
+        {"glossary", "untrusted_parts", "untrusted_document_context"},
+        {"glossary", "untrusted_parts", "untrusted_document_context", "format_feedback"}
     ]
+    context = payload["untrusted_document_context"]
+    assert context["original_title"] == TITLE and context["original_sections"] == [SOURCE]
+    assert all(set(p) == {"id", "candidate"} for p in context["candidate_sections"])
     if "format_feedback" in payload:
         assert payload["format_feedback"]["reason"] == "output_schema_invalid"
         assert payload["format_feedback"]["required_schema"] == AuditOutput.model_json_schema()

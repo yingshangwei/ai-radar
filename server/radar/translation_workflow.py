@@ -90,7 +90,12 @@ def target_for(part, stage):
 def blocked(part, policy):
     history = events(part, policy)
     completed = {e["call_id"] for e in history if e["kind"] == "result"}
-    return any(e["kind"] == "stop" for e in history) or any(
+    # A new review policy is not permission to replay an unknown old request.
+    all_events = [e for previous in snapshots(part) for e in previous.get("workflow_history", [])
+                  if e.get("version") == VERSION]
+    finished = {e.get("call_id") for e in all_events if e.get("kind") == "result"}
+    unknown = any(e.get("kind") == "reserved" and e.get("call_id") not in finished for e in all_events)
+    return unknown or any(e["kind"] == "stop" for e in history) or any(
         e["kind"] == "reserved" and e["call_id"] not in completed for e in history
     )
 

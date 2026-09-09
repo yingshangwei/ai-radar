@@ -91,10 +91,11 @@ async def test_one_format_retry_uses_unchanged_evidence_safe_feedback_and_real_a
         assert_clean_payload(payload, system, model)
         calls.append(deepcopy(payload))
         if len(calls) == 1:
-            assert set(payload) == {"glossary", "untrusted_parts"}
+            assert set(payload) == {"glossary", "untrusted_parts", "untrusted_document_context"}
             return malformed(fault)
         assert len(calls) == 2
-        assert set(payload) == {"glossary", "untrusted_parts", "format_feedback"}
+        assert set(payload) == {"glossary", "untrusted_parts", "untrusted_document_context", "format_feedback"}
+        assert payload["untrusted_document_context"] == calls[0]["untrusted_document_context"]
         feedback = payload["format_feedback"]
         assert set(feedback) == {"reason", "errors", "required_schema"}
         assert feedback["reason"] == "output_schema_invalid"

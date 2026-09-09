@@ -8,6 +8,7 @@ import {
   publicationLabel,
 } from "./articlePresentation";
 import type { Article } from "./types";
+import MathText from "./MathText";
 
 export function ArticleByline({
   article: a,
@@ -106,13 +107,11 @@ export function ArticleBody({
   return (
     <View style={{ gap: preview ? 13 : 22 }}>
       {!!content.body && (
-        <Text
-          selectable={!preview}
-          numberOfLines={preview ? 3 : undefined}
+        <MathText
+          text={content.body}
+          preview={preview}
           style={preview ? styles.preview : styles.body}
-        >
-          {content.body}
-        </Text>
+        />
       )}
       {content.quotes.slice(0, preview ? 1 : undefined).map((quote, i) => (
         <View key={i} style={[styles.quote, !preview && styles.quoteDetail]}>
@@ -131,19 +130,20 @@ export function ArticleBody({
               )}
             </Text>
           )}
-          <Text
-            selectable={!preview}
-            numberOfLines={preview ? 2 : undefined}
+          <MathText
+            preview={preview}
+            lines={2}
             style={[
               styles.quoteBody,
               !preview && { fontSize: 15, lineHeight: 26 },
               quote.unavailable && { color: C.muted },
             ]}
-          >
-            {quote.unavailable
-              ? `原帖暂不可用，未取得正文。${quote.text ? `\n\n${quote.text}` : ""}`
-              : quote.text || "未取得正文。"}
-          </Text>
+            text={
+              quote.unavailable
+                ? `原帖暂不可用，未取得正文。${quote.text ? `\n\n${quote.text}` : ""}`
+                : quote.text || "未取得正文。"
+            }
+          />
         </View>
       ))}
       {preview && content.quotes.length > 1 && (

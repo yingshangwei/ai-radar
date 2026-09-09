@@ -83,7 +83,9 @@ def parse_crawl_page(data: bytes, url: str) -> dict:
     from crawl4ai import DefaultMarkdownGenerator, LXMLWebScrapingStrategy
     from lxml import html
 
-    source_html = data.decode("utf-8", errors="replace")
+    from .math_text import protect_html_math, restore_html_math, truncate_math
+
+    source_html, formulas = protect_html_math(data)
     source_tree = html.fromstring(source_html, parser=html.HTMLParser(no_network=True))
     bases = source_tree.xpath("//head/base[@href]")
     # HTML base changes relative references, never this document's identity.
@@ -121,14 +123,15 @@ def parse_crawl_page(data: bytes, url: str) -> dict:
         "body_width": 0, "ignore_images": True, "ignore_links": True,
         "single_line_break": False, "mark_code": True,
     }).generate_markdown(html.tostring(tree, encoding="unicode"), base_url=url, citations=False)
-    text = markdown.raw_markdown.strip()
+    text = restore_html_math(markdown.raw_markdown.strip(), formulas)
     if len(text) < 80 or text.startswith("Error converting HTML to markdown:"):
         raise CrawlExtractionError("no_readable_body")
     title = str((scraped.metadata or {}).get("title") or "")[:500]
     if not title:
         headings = tree.xpath(".//h1")
         title = headings[0].text_content().strip()[:500] if headings else ""
-    return {"title": title, "text": text[:MAX_TEXT], "partial": len(text) > MAX_TEXT,
+    title = restore_html_math(title, formulas)
+    return {"title": truncate_math(title, 500), "text": truncate_math(text, MAX_TEXT), "partial": len(text) > MAX_TEXT,
             "links": links, "extraction_engine": "crawl4ai", "extraction_version": CRAWL4AI_VERSION}
 
 

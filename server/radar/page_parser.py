@@ -6,6 +6,7 @@ import logging
 import sys
 
 from .links import normalize_link, text_references, useful_link
+from .math_text import protect_html_math, restore_html_math, truncate_math
 
 MAX_TEXT = 60_000
 
@@ -33,12 +34,13 @@ def parse_page(data: bytes, content_type: str, url: str) -> dict:
     elif "html" in content_type:
         from trafilatura import bare_extraction
 
-        doc = bare_extraction(data, url=url, include_comments=False, include_links=True,
+        html_source, formulas = protect_html_math(data)
+        doc = bare_extraction(html_source, url=url, include_comments=False, include_links=True,
                               with_metadata=True, prune_xpath="//nav|//header|//footer|//aside|//form")
         if not doc or doc.body is None:
             raise ValueError("no readable body")
-        title = doc.title or ""
-        text = doc.text or doc.raw_text or ""
+        title = restore_html_math(doc.title or "", formulas)
+        text = restore_html_math(doc.text or doc.raw_text or "", formulas)
         for node in doc.body.iter("ref"):
             link = normalize_link(node.get("target", ""), url)
             if link and useful_link(link):
@@ -50,7 +52,7 @@ def parse_page(data: bytes, content_type: str, url: str) -> dict:
         raise ValueError("unsupported document")
     if len(text.strip()) < 80:
         raise ValueError("no readable body")
-    return {"title": title[:500], "text": text[:MAX_TEXT],
+    return {"title": truncate_math(title, 500), "text": truncate_math(text, MAX_TEXT),
             "partial": partial or len(text) > MAX_TEXT, "links": links[:30]}
 
 

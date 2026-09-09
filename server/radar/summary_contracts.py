@@ -6,6 +6,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, model_validator
 
 from .schemas import DigestOutput, DocumentSummary, ReadingOutput, Story
+from .technical_language import TERMINOLOGY_INSTRUCTIONS
 
 IDENTIFIER = Annotated[str, Field(strict=True, min_length=1, max_length=240)]
 _SOURCE_IDENTIFIER = TypeAdapter(IDENTIFIER)
@@ -214,6 +215,7 @@ CORRECTION_INSTRUCTIONS = """你是中文摘要修订者。只依据 frozen_sour
 
 
 def _prompt(instructions: str, schema, payload: dict) -> str:
+    instructions += TERMINOLOGY_INSTRUCTIONS
     return (instructions + "\nJSON_SCHEMA:\n" + json.dumps(schema.model_json_schema(), ensure_ascii=False)
             + "\nUNTRUSTED_REVIEW_INPUT:\n" + json.dumps(payload, ensure_ascii=False))
 

@@ -11,6 +11,7 @@ from sqlalchemy import select
 
 from .config import RadarConfig
 from .links import mentioned_references, normalize_link, text_references, useful_link
+from .math_text import technical_document
 from .models import (
     Article,
     ArticleDocument,
@@ -25,7 +26,8 @@ from .page_parser import extract_page
 from .providers import make_provider
 from .summary_evidence import document_review_evidence, reserve_publication, review_evidence_fingerprint
 from .summary_review import SummaryReviewPending, SummaryReviewService, SummaryReviewYield
-from .translation import cache_key
+from .technical_language import TECHNICAL_POLICY
+from .translation import cache_key, part_audited
 from .web_reader import PageFetcher, PageUnavailable
 
 RESEARCH_SOURCES = frozenset({"hf-papers", "arxiv-theory"})
@@ -107,6 +109,12 @@ def fingerprint(*values) -> str:
 
 
 def analysis_key(session, document: WebDocument, config: RadarConfig) -> str:
+    if technical_document(document.title, document.text) and config.provider.kind != 'extractive':
+        zh = session.get(Translation, cache_key(document.title, document.text, config.translation))
+        reviewed = bool(zh and zh.status == 'ready' and all(part_audited(p, current=True) for p in zh.parts))
+        return fingerprint(document.content_hash, config.reading.revision, TECHNICAL_POLICY,
+                           document.id, document.final_url or document.url,
+                           [zh.title_zh, zh.text_zh] if reviewed else None)
     legacy = fingerprint(document.content_hash, config.reading.revision)
     existing = session.get(DocumentAnalysis, legacy)
     if document.analysis_id == legacy and existing is not None and existing.status == "ready":
@@ -117,6 +125,15 @@ def analysis_key(session, document: WebDocument, config: RadarConfig) -> str:
         return legacy
     return fingerprint(document.content_hash, config.reading.revision, "source-bound-summary-v1",
                        document.id, document.final_url or document.url)
+
+
+def terminology_ready(session, document: WebDocument, config: RadarConfig) -> bool:
+    if (not config.translation.enabled or config.provider.kind == "extractive"
+            or not technical_document(document.title, document.text)):
+        return True
+    row = session.get(Translation, cache_key(document.title, document.text, config.translation))
+    return bool(row and row.status == "ready" and row.parts
+                and all(part_audited(p, current=True) for p in row.parts))
 
 
 def remember_references(session, article: Article, references: list[dict]):
@@ -179,7 +196,7 @@ def sync_documents(session, article: Article, config: RadarConfig):
             session.delete(binding)
 
 
-def resource_views(session, article_ids: list[str], config, *, full=False) -> dict[str, list[dict]]:
+def resource_views(session, article_ids: list[str], config, *, full=False, radar_config=None) -> dict[str, list[dict]]:
     bindings = session.execute(select(ArticleDocument, WebDocument).join(WebDocument).where(
         ArticleDocument.article_id.in_(article_ids))).all()
     analyses = {a.id: a for a in session.scalars(select(DocumentAnalysis).where(
@@ -196,6 +213,10 @@ def resource_views(session, article_ids: list[str], config, *, full=False) -> di
             continue
         seen[binding.article_id].add(canonical)
         analysis = analyses.get(doc.analysis_id)
+        if (radar_config and technical_document(doc.title, doc.text)
+                and radar_config.provider.kind != "extractive"
+                and doc.analysis_id != analysis_key(session, doc, radar_config)):
+            analysis = None
         ready = analysis is not None and analysis.status == "ready"
         zh = translated.get(cache_key(doc.title, doc.text, config)) if config.enabled and doc.text else None
         zh_ready = zh is not None and zh.status == "ready"
@@ -244,6 +265,8 @@ class ReadingService:
                 if document.id not in research_roots and document.retry_at <= now:
                     return True
                 if not document.text:
+                    continue
+                if not terminology_ready(session, document, self.config):
                     continue
                 key = analysis_key(session, document, self.config)
                 analysis = session.get(DocumentAnalysis, key)
@@ -380,6 +403,8 @@ class ReadingService:
                         "document:" + key, [source], evidence=document_review_evidence([source]),
                     )
                 cached_translation = session.get(Translation, cache_key(doc.title, doc.text, self.config.translation))
+                if not terminology_ready(session, doc, self.config):
+                    needs_analysis = False  # Wait for terminology review, then reuse its exact Chinese text.
                 # Match the durable translation queue before the reading limit:
                 # terminal review/unknown calls and live leases are not work.
                 # Fully saved receipts can still finalize without another call.
@@ -417,7 +442,8 @@ class ReadingService:
                     if reviewed:
                         reserve_publication(session)
                         doc = session.get(WebDocument, source_documents[batch[0]["id"]])
-                        if doc is None or doc.analysis_id != batch[0]["id"]:
+                        if (doc is None or doc.analysis_id != batch[0]["id"]
+                                or analysis_key(session, doc, self.config) != doc.analysis_id):
                             raise SummaryReviewPending("摘要来源已更新，等待服务器使用新证据审核。")
                         current = document_review_evidence([{
                             "id": doc.analysis_id, "url": doc.final_url or doc.url,
@@ -449,7 +475,8 @@ class ReadingService:
 
     def evidence(self, articles: list[dict]) -> list[dict]:
         with self.sessions() as session:
-            resources = resource_views(session, [a["id"] for a in articles], self.config.translation)
+            resources = resource_views(session, [a["id"] for a in articles], self.config.translation,
+                                       radar_config=self.config)
         return [dict(a, evidence_type="source_excerpt", resources=[
             {k: v for k, v in resource.items() if k in {
                 "url", "resolved_url", "relation", "title", "title_zh", "summary_zh", "key_points_zh",

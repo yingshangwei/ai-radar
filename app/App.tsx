@@ -37,6 +37,7 @@ import {
 import { C, s } from "./src/theme";
 import { ArticleBody, ArticleByline, ReplyContext } from "./src/ArticleContent";
 import { displayHeadline } from "./src/articlePresentation";
+import MathText from "./src/MathText";
 import AuthorizationCenter from "./src/AuthorizationCenter";
 import DeviceReading from "./src/DeviceReading";
 import {
@@ -674,9 +675,12 @@ function Reader({
               </T>
             </View>
           )}
-          <T numberOfLines={2} style={s.feedTitle}>
-            {headline.text}
-          </T>
+          <MathText
+            preview
+            lines={2}
+            style={s.feedTitle}
+            text={headline.text}
+          />
         </View>
         <ArticleBody article={a} preview />
         <EarlySignal article={a} />
@@ -1358,16 +1362,15 @@ function Reader({
                       </T>
                     </View>
                   )}
-                  <T
+                  <MathText
                     style={{
                       color: C.ink,
                       fontSize: 26,
                       lineHeight: 37,
                       fontWeight: "700",
                     }}
-                  >
-                    {displayHeadline(currentArticle).text}
-                  </T>
+                    text={displayHeadline(currentArticle).text}
+                  />
                 </View>
                 <EarlySignal
                   article={currentArticle}
@@ -1849,28 +1852,26 @@ function ResourceCard({
             ? " · 手动选取"
             : ""}
       </T>
-      <T style={[s.cardTitle, { fontSize: 19 }]}>{r.title_zh || r.title}</T>
+      <MathText
+        style={[s.cardTitle, { fontSize: 19 }]}
+        text={r.title_zh || r.title}
+      />
       {r.status === "ready" ? (
         <>
-          <T selectable style={[s.body, { marginTop: 16, lineHeight: 27 }]}>
-            {r.summary_zh}
-          </T>
-          <View style={{ marginTop: 16, gap: 10 }}>
-            {r.key_points_zh.map((point, i) => (
-              <View key={i} style={{ flexDirection: "row", gap: 10 }}>
-                <T style={{ color: C.accent }}>•</T>
-                <T selectable style={[s.body, { flex: 1, lineHeight: 25 }]}>
-                  {point}
-                </T>
-              </View>
-            ))}
-          </View>
+          <MathText
+            style={[s.body, { marginTop: 16, lineHeight: 27 }]}
+            text={[
+              r.summary_zh || "",
+              ...r.key_points_zh.map((point) => "• " + point),
+            ].join("\n\n")}
+          />
           {!!r.why_it_matters_zh && (
             <View style={{ marginTop: 18 }}>
               <T style={[s.label, { marginBottom: 8 }]}>值得关注</T>
-              <T selectable style={[s.body, { lineHeight: 25 }]}>
-                {r.why_it_matters_zh}
-              </T>
+              <MathText
+                style={[s.body, { lineHeight: 25 }]}
+                text={r.why_it_matters_zh}
+              />
             </View>
           )}
         </>
@@ -1923,9 +1924,10 @@ function ResourceCard({
               中文正文尚待翻译或校对，当前显示原文。
             </T>
           )}
-          <T selectable style={[s.body, { lineHeight: 27 }]}>
-            {original || !r.text_zh ? r.text : r.text_zh}
-          </T>
+          <MathText
+            style={[s.body, { lineHeight: 27 }]}
+            text={(original || !r.text_zh ? r.text : r.text_zh) || ""}
+          />
         </View>
       )}
     </View>

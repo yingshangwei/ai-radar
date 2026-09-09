@@ -21,7 +21,13 @@ from radar.reading import (
     sync_documents,
 )
 from radar.schemas import IncomingArticle
-from radar.translation import TranslationService, cache_key, queue_article
+from radar.translation import (
+    RECHECK_POLICY,
+    TranslationService,
+    cache_key,
+    candidate_fingerprint,
+    queue_article,
+)
 from radar.web_reader import PageFetcher
 
 PAPER_ID = "2609.01234"
@@ -188,6 +194,12 @@ async def test_reading_uses_cached_partial_evidence_never_fetches_root_even_when
     _, doc_id = add(sessions, config)
     with sessions.begin() as session:
         session.get(WebDocument, doc_id).retry_at = "2000-01-01T00:00:00+00:00"
+        row = session.get(Translation, cache_key("AI research paper", ABSTRACT, config.translation))
+        row.parts = [{**p, "zh": "合成研究摘要。", "draft": "合成研究摘要。", "ok": True,
+                      "audit": {"policy": RECHECK_POLICY, "approved": True, "issues": [],
+                                "fingerprint": candidate_fingerprint(p["source"], "合成研究摘要。")}}
+                     for p in row.parts]
+        row.status, row.title_zh, row.text_zh = "ready", "合成研究摘要。", "合成研究摘要。"
     calls, seen = [], []
 
     class Model:
@@ -222,6 +234,17 @@ async def test_reading_uses_cached_partial_evidence_never_fetches_root_even_when
     assert first["summarized"] == 1 and second["summarized"] == 0
     assert calls == ["ReadingOutput", "SummaryAuditOutput"]
     assert seen[0]["text"] == ABSTRACT and seen[0]["partial"] is True
+    assert service.has_pending() is False
+
+
+@pytest.mark.asyncio
+async def test_paper_analysis_waits_for_current_translation_without_busy_queue(harness, monkeypatch):
+    sessions, config = harness
+    add(sessions, config)
+    service = ReadingService(sessions, config, TranslationService(sessions, config.translation))
+    assert service.has_pending() is False
+    result = await service.pending(translate=False)
+    assert result["summarized"] == result["fetched"] == 0
     assert service.has_pending() is False
 
 

@@ -1,6 +1,20 @@
 # 腾讯云部署
 
-## 当前：Crawl4AI 浏览器正文提取 · 2026-09-09
+## 当前：技术翻译语境与论文公式 · 2026-09-09
+
+仍运行 `/opt/ai-radar/releases/20260909-1a0b133`，最新服务端补丁 `32724ad64d9a188055c4670ee4e8614fbc40c9a4` 已激活，包含此前国内团队采集、Crawl4AI、持久队列及会话复用能力。当前 source manifest SHA-256 为 `81e80b1f4abaf4f68cad27d1ac86ddb97ac4eb78c1ac98a819d0c7e28cf11f04`。不要再使用下方历史 manifest 作为当前部署断言，也不要重跑已完成交接。
+
+通用技术翻译按原文语境辨析术语，独立审计核对概念和中文消歧，原有失败、未知调用与修订预算继续受持久记录约束；技术解读等待当前翻译完成，并随已审中文变化更新缓存。采集、翻译、分段保留明确 TeX，手机详情离线显示公式。规则和缓存说明见 [TRANSLATION.md](TRANSLATION.md)。
+
+最终 provider 暂存 `inv-m8fdps0a10`、主体暂存 `inv-n8fds1gwxh`、激活 `inv-m8fdu7guge` 均 SUCCESS / 0。沿用真实生产运行环境，Trafilatura 与 Crawl4AI 的离线数学页面 fixture 均保留原始 TeX；未引入服务端依赖或数据库迁移。激活等待在途模型任务完成，在固定 API 进程及数据库写锁内复核后切换；全部 22 张表与 schema 在重启前逐项相同。仅重启 AI Radar API，原 Caddy、浏览器服务、8080 服务和授权保持。`f600e32` 配置只增加 `translation.technical_review_provider`，沿用既有 Codex 命令和模型，超时 300 秒；解析后逐项确认其他配置完全相同，权限不变，部署清单同步记录配置的新指纹。此前 `32e131e` 仅替换四个源码模块，配置逐字未变；当前 `32724ad` 更新六个源码模块，只将技术 Agent 超时由 300 调到 600 秒。此前首次提交因网络中断未产生 invocation，查询确认后才重新提交；激活另有排他 claim 防止重入。
+
+最新一致性备份与回执位于 `/var/lib/ai-radar/technical-context-32724ad/`。此前本轮补丁 `a76763e`、`87dc571`、`8fdc9ba`、`4864ee1`、`61f76b0`、`f600e32`、`32e131e` 已被此版本接续，保留各自部署与验证历史；`8a7a965` 仅暂存、未激活。实际模型验收见 [VALIDATION.md](VALIDATION.md)，部署保护检查不等于真实模型语义验收。
+
+最终正式单篇历史复核 `inv-m8fe230chs` 完成，Job `da37bfd9-23af-4d4b-b8ed-9b0d28c9b901` 返回 ready=1。最终只读 `inv-e8fe8h0cq2` 验证当前源码/保护文件指纹、原文和三个公式完整性；公网与 Android 0.10.0 均已显示服务器审核后的新中文。对应诊断见 [VALIDATION.md](VALIDATION.md)，未重放已否决候选或手改文章。
+
+Android 当前安装包为 **0.10.0 / code 11**，详情见 [ANDROID.md](ANDROID.md)。公式排版需要升级 App；服务端规则自动生效。iOS 共享代码和资源导出通过，尚无此次签名 IPA 或 iOS 原生运行证明。
+
+## 历史：Crawl4AI 浏览器正文提取 · 2026-09-09
 
 当前 release `20260909-1a0b133`，基线源码 `1a0b1330e56cef02f25db92371bee5c17550abc5`，正文解析补丁 `7f9c736848371d22280956918cc451c9ddc108e5` 已激活。Crawl4AI 0.9.3 与 Playwright 1.62.0 使用独立 `.browser-venv`；主 API 依赖锁逐字未变。无需重装 App，现有 0.9.0 继续使用。接入及六站实测见 [Crawl4AI](CRAWL4AI.md)。
 

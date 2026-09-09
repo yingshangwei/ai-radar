@@ -98,6 +98,34 @@ async def test_saved_heading_reused_and_current_original_required(harness):
 
 
 @pytest.mark.asyncio
+async def test_technical_document_never_falls_back_to_an_old_separate_card_title(harness):
+    sessions, config, model = harness
+    with sessions.begin() as session:
+        article = add(session, platform="web")
+        article.text = r"The AI model uses an optimization rate $n^{-2}$."
+    service = ArticlePresentationService(sessions, config, lambda _: model)
+    assert (await service.pending())["ready"] == 1  # An earlier independent card cache exists.
+    before_calls = list(model.calls)
+    with sessions.begin() as session:
+        article = session.get(Article, "a")
+        session.add(WebDocument(id="doc", url=article.url, title=article.title, text=article.text,
+                                content_hash=fingerprint(article.title, article.text, False)))
+        session.flush()
+        session.add(ArticleDocument(article_id="a", document_id="doc", relation="source"))
+    with sessions() as session:
+        assert presentation_views(session, [session.get(Article, "a")], config)["a"] == {
+            "status": "pending", "title_zh": None}
+    assert await service.pending() == {"processed": 0, "ready": 0}
+    assert model.calls == before_calls
+    with sessions.begin() as session:
+        doc = session.get(WebDocument, "doc")
+        doc.analysis_id = analysis_key(session, doc, config)
+        session.add(DocumentAnalysis(id=doc.analysis_id, status="ready", title_zh="统一语境的论文标题"))
+    with sessions() as session:
+        assert presentation_views(session, [session.get(Article, "a")], config)["a"]["title_zh"] == "统一语境的论文标题"
+
+
+@pytest.mark.asyncio
 async def test_no_arbitrary_link_title_and_reuses_exact_current_source_page(harness):
     sessions, config, model = harness
     with sessions.begin() as session:

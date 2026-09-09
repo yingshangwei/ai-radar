@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
+from .math_text import technical_document
 from .models import (
     Article,
     ArticleDocument,
@@ -23,6 +24,17 @@ from .summary_review import SummaryReviewPending, SummaryReviewService
 from .translation import cache_key
 
 MAX_ARTICLES_PER_JOB = 3
+
+
+def technical_reading_owned(session, article, config):
+    """One technical title comes from the same reviewed source as its explanation."""
+    if (not config.reading.enabled or config.provider.kind == "extractive" or article.platform not in {"web", "rss"}
+            or not technical_document(article.title, article.text)):
+        return False
+    return any(doc.title == article.title and doc.text == article.text
+               and canonicalize(doc.url) == canonicalize(article.url)
+               for doc in session.scalars(select(WebDocument).join(ArticleDocument).where(
+                   ArticleDocument.article_id == article.id, ArticleDocument.relation == "source")))
 
 
 def article_evidence(article):
@@ -63,6 +75,11 @@ def presentation_views(session, articles, config):
         title = source_heading(session, article, config)
         if title:
             result[uid] = {"status": "ready", "title_zh": title}
+            continue
+        if technical_reading_owned(session, article, config):
+            # Do not fall back to an older independent card cache while the
+            # versioned technical translation/document review is still pending.
+            result[uid] = {"status": "pending", "title_zh": None}
             continue
         if not config.summary_review.enabled or config.provider.kind == "extractive":
             result[uid] = {"status": "disabled", "title_zh": None}
@@ -120,7 +137,7 @@ class ArticlePresentationService:
                                            .order_by(Article.published_at.desc(), Article.id)))
             views = presentation_views(session, articles, self.config)
             for article in articles:
-                if views[article.id]["status"] == "ready":
+                if views[article.id]["status"] == "ready" or technical_reading_owned(session, article, self.config):
                     continue
                 evidence = [article_evidence(article)]
                 sources = deepcopy(evidence)

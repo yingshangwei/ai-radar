@@ -13,6 +13,7 @@ from radar.translation import (
     CONTEXT_POLICY,
     LEGACY_POLICY,
     RECHECK_POLICY,
+    TITLE_POLICY,
     AuditedPart,
     TranslatedPart,
     TranslationService,
@@ -29,6 +30,16 @@ from radar.translation import (
 TITLE = "A rate for adaptive optimization"
 BODY = "arXiv preprint · Author abstract\n\nWe study the convergence rate of an adaptive optimization algorithm."
 GOOD = {"title": "自适应优化的收敛速率", "body-0": "arXiv 预印本 · 作者摘要\n\n我们研究自适应优化算法的收敛速率。"}
+
+
+def concept_check(candidate, **overrides):
+    return {"source_quote": "rate", "candidate_quote": candidate, "meaning_zh": "优化算法的收敛速度",
+            "meaning_preserved": True, "context_clear": True, "issue": "", **overrides}
+
+
+def audit_output(part, **check_overrides):
+    return json.dumps({'audits': [{'id': part['id'], 'approved': True, 'issues': [],
+                                  'concept_checks': [concept_check(part['candidate'], **check_overrides)]}]})
 
 
 @pytest.fixture
@@ -126,7 +137,7 @@ async def test_source_grounded_title_reuses_current_body_and_omits_old_title(sto
                                                  'source_terms': [{'term': 'rate', 'source_quote': TITLE, 'concept': 'metric',
                                                                    'meaning_zh': '收敛的速度', 'translation_zh': '收敛速率'}]}]})
         assert stage == 'audit' and part['candidate'] == GOOD['title']
-        return json.dumps({'audits': [{'id': 'title', 'approved': True, 'issues': []}]})
+        return audit_output(part)
 
     service._completion = completion
     await service.translate_one(key)
@@ -214,7 +225,7 @@ async def test_source_term_record_is_grounded_and_not_supplied_to_independent_au
         calls.append((stage, p['id']))
         if stage == 'audit':
             assert 'INTERNAL_TERM_NOTE' not in json.dumps(payload)
-            return json.dumps({'audits': [{'id': p['id'], 'approved': True, 'issues': []}]})
+            return audit_output(p)
         assert stage == 'correction' and 'draft' not in p
         assert p['id'] not in {c['id'] for c in payload['untrusted_document_context']['candidate_sections']}
         return json.dumps({'translations': [{'id': p['id'], 'zh': GOOD[p['id']], 'approved': True, 'issues': [],
@@ -249,6 +260,69 @@ async def test_invented_terminology_evidence_cannot_pass_machine_validation(stor
     try:
         with pytest.raises(TranslationValidationError):
             await service.request([{'id': 'title', 'source': TITLE}], review=True)
+    finally:
+        service._document_context.reset(token)
+    assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_concept_objection_blocks_approval_and_same_candidate_is_not_reaudited(store):
+    sessions, config = store
+    key, _ = seed(sessions, config)
+    with sessions.begin() as session:
+        row = session.get(Translation, key)
+        parts = deepcopy(row.parts)
+        for p in parts:
+            p['audit']['policy'] = p['review']['policy'] = TITLE_POLICY
+        row.parts = parts
+        assert review_policy(row) == TITLE_POLICY
+        ensure_translation(session, TITLE, BODY, config)
+    service, calls = TranslationService(sessions, config), []
+
+    async def correction(parts, *, review):
+        assert review
+        calls.append('correction')
+        return {p['id']: TranslatedPart(id=p['id'], zh=GOOD[p['id']], approved=True) for p in parts}
+
+    async def completion(payload, *, stage, **kwargs):
+        assert stage == 'audit'
+        calls.append(stage)
+        assert 'concept_checks' in payload['output_schema']['$defs']['ContextualAuditedPart']['required']
+        return audit_output(payload['untrusted_parts'][0], context_clear=False, issue='该候选未说明指标的衡量对象')
+
+    service.request, service._completion = correction, completion
+    await service.translate_one(key)
+    with sessions() as session:
+        row = session.get(Translation, key)
+        assert row.status == 'review_required' and row.original_text == BODY
+        part = row.parts[1]
+        assert not part_audited(part) and not part['ok']
+        assert '该候选未说明指标的衡量对象' in part['issues']
+        # Preserve the model's contradictory raw verdict and its specific objection.
+        record = next(h['result'] for h in part['workflow_history']
+                      if h['kind'] == 'result' and h['stage'] == 'audit')
+        assert record['approved'] is True and record['issues'] == []
+        assert record['concept_checks'][0]['context_clear'] is False
+        assert workflow.denied(part, RECHECK_POLICY, candidate_fingerprint(part['source'], part['draft']))
+    await service.translate_one(key, force=True, recheck=True)
+    assert calls == ['correction', 'audit', 'correction']
+
+
+@pytest.mark.parametrize('override', [{'source_quote': 'invented evidence'}, {'candidate_quote': '非候选内容'}])
+@pytest.mark.asyncio
+async def test_concept_audit_rejects_unbound_quotes_with_shared_format_budget(store, override):
+    sessions, config = store
+    service, calls = TranslationService(sessions, config), []
+    token = service._document_context.set({'technical': True, 'original_title': TITLE, 'original_sections': [BODY]})
+
+    async def completion(payload, **kwargs):
+        calls.append(payload)
+        return audit_output(payload['untrusted_parts'][0], **override)
+
+    service._completion = completion
+    try:
+        with pytest.raises(TranslationValidationError):
+            await service.audit([{'id': 'body-0', 'source': BODY, 'candidate': GOOD['body-0']}])
     finally:
         service._document_context.reset(token)
     assert len(calls) == 2

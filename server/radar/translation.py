@@ -34,7 +34,11 @@ from .models import (
     WebDocument,
     now_iso,
 )
-from .technical_language import TERMINOLOGY_INSTRUCTIONS, TRANSLATION_CONTEXT_INSTRUCTIONS
+from .technical_language import (
+    TECHNICAL_AUDIT_INSTRUCTIONS,
+    TERMINOLOGY_INSTRUCTIONS,
+    TRANSLATION_CONTEXT_INSTRUCTIONS,
+)
 from .translation_numbers import MONTHS as MONTHS
 from .translation_numbers import number_counts
 
@@ -44,9 +48,10 @@ MENTION = re.compile(r"(?<![A-Za-z0-9_.%+@-])@[A-Za-z0-9_]+(?![A-Za-z0-9_]|\.[A-
 QUOTE_HEADER = re.compile(r"\[引用帖[^\]]*\]")
 COMPACT_CURRENCY = re.compile(r"[$€£¥]\d+(?:[.,]\d+)*(?:[kKmMbB](?![A-Za-z]))?")
 CONTEXT_POLICY = "zh-context-audit-v2"
-RECHECK_POLICY = "zh-context-title-v3"
+TITLE_POLICY = "zh-context-title-v3"
+RECHECK_POLICY = "zh-context-clarity-v4"
 LEGACY_POLICY = "zh-independent-audit-v1"
-PUBLISHED_AUDIT_POLICIES = {LEGACY_POLICY, CONTEXT_POLICY, RECHECK_POLICY}
+PUBLISHED_AUDIT_POLICIES = {LEGACY_POLICY, CONTEXT_POLICY, TITLE_POLICY, RECHECK_POLICY}
 logger = logging.getLogger(__name__)
 VALIDATION_FAILURES = {
     "output_incomplete": "翻译输出不完整",
@@ -78,7 +83,11 @@ VALIDATION_ERROR_TYPES = frozenset({
     "bool_type", "bool_parsing", "list_type", "too_short", "too_long", "model_type",
     "model_attributes_type", "dict_type", "json_invalid", "json_type",
 })
-VALIDATION_LOCATION_FIELDS = frozenset({"audits", "translations", "id", "approved", "issues", "zh"})
+VALIDATION_LOCATION_FIELDS = frozenset({
+    "audits", "translations", "id", "approved", "issues", "zh", "source_terms", "term", "source_quote",
+    "concept", "meaning_zh", "translation_zh", "concept_checks", "candidate_quote", "meaning_preserved",
+    "context_clear", "issue",
+})
 
 
 def validation_diagnostics(exc: ValidationError) -> list[dict]:
@@ -182,7 +191,7 @@ issues 只列当前候选尚未解决、能从给定原文与译文定位的差�
 不得输出替换译文，不得因措辞不够华丽而拒绝；不提供无依据准确率。
 audits 必须完整覆盖每个输入 id，返回项数必须与输入一致；不得合并、遗漏、重复或另造 id。
 approved 只能是 JSON 布尔值 true 或 false，不得使用字符串。issues 必须是字符串数组，保留全部尚存疑点；
-存在疑点时 approved=false，通过时 issues=[]。每项只能含 id、approved、issues，
+存在疑点时 approved=false，通过时 issues=[]。默认每项只能含 id、approved、issues；如提供 output_schema，以它为准。
 顶层只能含 audits。若收到 format_feedback，它仅指出上次输出结构无效；请按给定结构重新独立审计，
 不能把结构错误或恢复请求理解为候选已获批准。
 逐项保留 id，只返回 JSON：{"audits":[{"id":"body-0","approved":true,"issues":[]}]}。
@@ -242,6 +251,29 @@ class ContextualTranslationOutput(BaseModel):
     translations: list[ContextualTranslatedPart] = Field(min_length=1, max_length=30)
 
 
+class ConceptCheck(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source_quote: str = Field(min_length=1, max_length=1200)
+    candidate_quote: str = Field(max_length=1200)
+    meaning_zh: str = Field(min_length=1, max_length=500)
+    meaning_preserved: bool = Field(strict=True)
+    context_clear: bool = Field(strict=True)
+    issue: str = Field(max_length=1200)
+
+
+class ContextualAuditedPart(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str
+    concept_checks: list[ConceptCheck] = Field(min_length=1, max_length=16)
+    approved: bool = Field(strict=True)
+    issues: list[str] = Field(default_factory=list)
+
+
+class ContextualAuditOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    audits: list[ContextualAuditedPart] = Field(min_length=1, max_length=30)
+
+
 def candidate_fingerprint(source: str, candidate: str) -> str:
     return hashlib.sha256(json.dumps([source, candidate], ensure_ascii=False).encode()).hexdigest()
 
@@ -254,7 +286,7 @@ def part_audited(part: dict, *, current=False) -> bool:
         return True
     audit = part.get("audit", {})
     return bool(
-        part.get("ok") and audit.get("approved") and not audit.get("issues")
+        part.get("ok") and audit.get("approved") and not audit.get("issues") and not workflow.concept_issues(audit)
         and audit.get("policy") in ({RECHECK_POLICY} if current else PUBLISHED_AUDIT_POLICIES)
         and audit.get("fingerprint") == candidate_fingerprint(part["source"], candidate)
     )
@@ -282,7 +314,8 @@ def review_policy(row: Translation) -> str:
     policies = {r.get("policy") for p in row.parts for previous in workflow.snapshots(p)
                 for r in [previous.get("audit", {}), previous.get("review", {})]
                 + previous.get("workflow_history", [])}
-    return next((p for p in (RECHECK_POLICY, CONTEXT_POLICY, LEGACY_POLICY) if p in policies), RECHECK_POLICY)
+    return next((p for p in (RECHECK_POLICY, TITLE_POLICY, CONTEXT_POLICY, LEGACY_POLICY)
+                 if p in policies), RECHECK_POLICY)
 
 
 def context_recheck_needed(row: Translation) -> bool:
@@ -898,9 +931,28 @@ class TranslationService:
         ]}
         if context := self.document_context():
             payload["untrusted_document_context"] = context
+        contextual = bool((context or {}).get("technical")) and self.policy == RECHECK_POLICY
+        output = ContextualAuditOutput if contextual else AuditOutput
+        if contextual:
+            payload["output_schema"] = output.model_json_schema()
+
+        def validate_quotes(result):
+            byid = {p.id: p for p in result.audits}
+            if len(byid) != len(result.audits) or set(byid) != {p['id'] for p in parts}:
+                raise TranslationValidationError("audit_part_mismatch")
+            errors = []
+            for index, part in enumerate(parts):
+                source = '\n'.join([part['source'], (context or {}).get('original_title', ''),
+                                    *(context or {}).get('original_sections', [])])
+                for check in getattr(byid[part['id']], 'concept_checks', []):
+                    if check.source_quote not in source or check.candidate_quote not in part['candidate']:
+                        errors.append({"input_index": index, "reason": "concept_quote_not_in_evidence"})
+            return errors
+
         result = await self._structured_completion(
-            payload, system=AUDIT, model=self.config.audit_model or self.config.review_model, output=AuditOutput,
-            stage="audit",
+            payload, system=AUDIT + (TECHNICAL_AUDIT_INSTRUCTIONS if contextual else ""),
+            model=self.config.audit_model or self.config.review_model, output=output,
+            stage="audit", validate_literals=validate_quotes,
         )
         byid = {part.id: part for part in result.audits}
         if len(byid) != len(result.audits) or set(byid) != {part["id"] for part in parts}:
@@ -937,6 +989,8 @@ class TranslationService:
                     "fingerprint": candidate_fingerprint(part["source"], part["draft"]),
                     "approved": audited.approved,
                     "issues": audited.issues or ([] if audited.approved else ["独立语义审计未通过"]),
+                    **({"concept_checks": [c.model_dump() for c in audited.concept_checks]}
+                       if isinstance(audited, ContextualAuditedPart) else {}),
                     "at": now_iso(),
                 }, fresh=True)
 
@@ -1080,6 +1134,7 @@ class TranslationService:
         # scheduler. Machine-only recovery remains a separate explicit helper.
         audit_issues = receipt.get("issues", []) or (
             [] if receipt.get("approved") else ["独立语义审计未通过"])
+        audit_issues = audit_issues + workflow.concept_issues(receipt)
         retained = [] if fresh else receipt.get("machine_issues", []) + receipt.get("correction_issues", [])
         issues = list(dict.fromkeys(machine_issues + correction_issues + audit_issues + retained))
         part.update(zh=part["draft"], ok=not issues, issues=issues, correction_required=bool(issues))

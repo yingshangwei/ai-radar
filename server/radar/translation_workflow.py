@@ -33,9 +33,17 @@ def receipts(part, kind, policy, target=None):
                 yield record
 
 
+def concept_issues(record):
+    """Preserve each explicit model objection even if its top-level verdict disagrees."""
+    return [check.get('issue') or '术语“' + check.get('candidate_quote', '') + '”的含义或语境未通过核对'
+            for check in record.get('concept_checks', [])
+            if check.get('meaning_preserved') is not True or check.get('context_clear') is not True
+            or check.get('issue')]
+
+
 def rejected(record, *, audit=False):
     return (record.get("approved") is not True or bool(record.get("issues")) or
-            (audit and bool(record.get("machine_issues") or record.get("correction_issues"))))
+            (audit and bool(record.get("machine_issues") or record.get("correction_issues") or concept_issues(record))))
 
 
 def audit_receipt(part, policy):

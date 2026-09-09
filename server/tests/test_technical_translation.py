@@ -16,6 +16,7 @@ from radar.translation import (
     AuditedPart,
     TranslatedPart,
     TranslationService,
+    TranslationValidationError,
     candidate_fingerprint,
     context_recheck_needed,
     ensure_translation,
@@ -94,18 +95,18 @@ async def test_context_upgrade_reuses_candidate_and_retains_history_once(store):
         before = deepcopy(row.parts)
         assert ensure_translation(session, TITLE, BODY, config).parts == before
     await service.translate_one(key, force=True, recheck=True)
-    assert calls == ["audit", "correction", "audit", "correction", "audit"]
+    assert calls == ["correction", "audit", "correction", "audit"]
 
 
 @pytest.mark.asyncio
-async def test_source_grounded_title_reuses_context_audited_body_and_omits_old_title(store):
+async def test_source_grounded_title_reuses_current_body_and_omits_old_title(store):
     sessions, config = store
     key, _ = seed(sessions, config)
     with sessions.begin() as session:
         row = session.get(Translation, key)
         parts = deepcopy(row.parts)
         for part in parts:
-            part['audit']['policy'] = CONTEXT_POLICY
+            part['audit']['policy'] = CONTEXT_POLICY if part['id'] == 'title' else RECHECK_POLICY
         row.parts = parts
         body_before = deepcopy(parts[1])
         ensure_translation(session, TITLE, BODY, config)
@@ -121,7 +122,9 @@ async def test_source_grounded_title_reuses_context_audited_body_and_omits_old_t
         calls.append(stage)
         if stage == 'correction':
             assert 'draft' not in part and part['translation_mode'] == 'source_grounded_title'
-            return json.dumps({'translations': [{'id': 'title', 'zh': GOOD['title'], 'approved': True, 'issues': []}]})
+            return json.dumps({'translations': [{'id': 'title', 'zh': GOOD['title'], 'approved': True, 'issues': [],
+                                                 'source_terms': [{'term': 'rate', 'source_quote': TITLE, 'concept': 'metric',
+                                                                   'meaning_zh': '收敛的速度', 'translation_zh': '收敛速率'}]}]})
         assert stage == 'audit' and part['candidate'] == GOOD['title']
         return json.dumps({'audits': [{'id': 'title', 'approved': True, 'issues': []}]})
 
@@ -196,6 +199,59 @@ async def test_model_receives_protected_math_and_source_context(store):
         service._document_context.reset(token)
     assert result["body-0"].zh == r"收敛速率为 $\frac{1}{n^2}$ 和 \(x_t\)。"
     assert len(seen) == 1
+
+
+@pytest.mark.asyncio
+async def test_source_term_record_is_grounded_and_not_supplied_to_independent_audit(store):
+    sessions, config = store
+    key, _ = seed(sessions, config)
+    with sessions.begin() as session:
+        ensure_translation(session, TITLE, BODY, config)
+    service, calls = TranslationService(sessions, config), []
+
+    async def completion(payload, *, system, model, stage):
+        p = payload['untrusted_parts'][0]
+        calls.append((stage, p['id']))
+        if stage == 'audit':
+            assert 'INTERNAL_TERM_NOTE' not in json.dumps(payload)
+            return json.dumps({'audits': [{'id': p['id'], 'approved': True, 'issues': []}]})
+        assert stage == 'correction' and 'draft' not in p
+        assert p['id'] not in {c['id'] for c in payload['untrusted_document_context']['candidate_sections']}
+        return json.dumps({'translations': [{'id': p['id'], 'zh': GOOD[p['id']], 'approved': True, 'issues': [],
+                                            'source_terms': [{'term': 'rate', 'source_quote': TITLE if p['id']=='title' else BODY,
+                                                              'concept': 'metric', 'meaning_zh': 'INTERNAL_TERM_NOTE',
+                                                              'translation_zh': '收敛速率'}]}]})
+
+    service._completion = completion
+    await service.translate_one(key)
+    assert calls == [('correction', 'body-0'), ('audit', 'body-0'), ('correction', 'title'), ('audit', 'title')]
+    with sessions() as session:
+        row = session.get(Translation, key)
+        assert row.status == 'ready' and row.original_text == BODY
+        assert 'INTERNAL_TERM_NOTE' in json.dumps(row.parts)  # Saved model result, not part of displayed prose.
+        assert 'INTERNAL_TERM_NOTE' not in row.text_zh
+
+
+@pytest.mark.asyncio
+async def test_invented_terminology_evidence_cannot_pass_machine_validation(store):
+    sessions, config = store
+    service, calls = TranslationService(sessions, config), []
+    token = service._document_context.set({'technical': True, 'original_title': TITLE, 'original_sections': [BODY]})
+
+    async def completion(payload, **kwargs):
+        calls.append(payload)
+        return json.dumps({'translations': [{'id': 'title', 'zh': GOOD['title'], 'approved': True, 'issues': [],
+                                            'source_terms': [{'term': 'unsupported', 'source_quote': 'unsupported fabricated quote',
+                                                              'concept': 'metric', 'meaning_zh': '未提供的概念',
+                                                              'translation_zh': '未提供的术语'}]}]})
+
+    service._completion = completion
+    try:
+        with pytest.raises(TranslationValidationError):
+            await service.request([{'id': 'title', 'source': TITLE}], review=True)
+    finally:
+        service._document_context.reset(token)
+    assert len(calls) == 2
 
 
 def test_publisher_tex_survives_html_extraction_without_duplicate_visual_math():

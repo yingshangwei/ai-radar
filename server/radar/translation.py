@@ -219,6 +219,29 @@ class AuditOutput(BaseModel):
     audits: list[AuditedPart] = Field(min_length=1, max_length=30)
 
 
+class SourceTerm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    term: str = Field(min_length=1, max_length=160)
+    source_quote: str = Field(min_length=1, max_length=1200)
+    concept: str = Field(pattern="^(name|object|method|parameter|metric|assumption|algorithm_setting|other)$")
+    meaning_zh: str = Field(min_length=1, max_length=300)
+    translation_zh: str = Field(min_length=1, max_length=160)
+
+
+class ContextualTranslatedPart(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str
+    source_terms: list[SourceTerm] = Field(min_length=1, max_length=12)
+    zh: str = Field(min_length=1)
+    approved: bool = Field(strict=True)
+    issues: list[str] = Field(default_factory=list)
+
+
+class ContextualTranslationOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    translations: list[ContextualTranslatedPart] = Field(min_length=1, max_length=30)
+
+
 def candidate_fingerprint(source: str, candidate: str) -> str:
     return hashlib.sha256(json.dumps([source, candidate], ensure_ascii=False).encode()).hexdigest()
 
@@ -232,8 +255,7 @@ def part_audited(part: dict, *, current=False) -> bool:
     audit = part.get("audit", {})
     return bool(
         part.get("ok") and audit.get("approved") and not audit.get("issues")
-        and audit.get("policy") in (({RECHECK_POLICY} if part["id"] == "title"
-                                     else {CONTEXT_POLICY, RECHECK_POLICY}) if current else PUBLISHED_AUDIT_POLICIES)
+        and audit.get("policy") in ({RECHECK_POLICY} if current else PUBLISHED_AUDIT_POLICIES)
         and audit.get("fingerprint") == candidate_fingerprint(part["source"], candidate)
     )
 
@@ -622,7 +644,7 @@ class TranslationService:
     def policy(self):
         return self._policy.get()
 
-    def document_context(self):
+    def document_context(self, *, exclude_ids=()):
         context = self._document_context.get()
         if context is None:
             return {}
@@ -631,6 +653,8 @@ class TranslationService:
         if call:
             remaining, candidates = 12000, []
             for part in call[2]:
+                if part["id"] in exclude_ids:
+                    continue
                 if context.get("technical") and part["id"] == "title":
                     continue  # Do not let an old translated headline anchor body or title review.
                 candidate = part.get("draft") or part.get("zh") or ""
@@ -788,6 +812,7 @@ class TranslationService:
 
     async def request(self, parts: list[dict], *, review: bool) -> dict[str, TranslatedPart]:
         config = self.config
+        contextual = review and bool((self._document_context.get() or {}).get("technical"))
         protected, literals = [], {}
         for part in parts:
             copy = dict(part)
@@ -820,8 +845,10 @@ class TranslationService:
                         copy[field] = pattern.sub(protect, copy[field])
             protected.append(copy)
         payload = {"glossary": config.glossary, "untrusted_parts": protected}
-        if context := self.document_context():
+        if context := self.document_context(exclude_ids=[p['id'] for p in parts] if contextual else ()):
             payload["untrusted_document_context"] = context
+        if contextual:
+            payload["output_schema"] = ContextualTranslationOutput.model_json_schema()
 
         def validate_literals(result):
             byid = {p.id: p for p in result.translations}
@@ -835,11 +862,19 @@ class TranslationService:
                     if actual != expected:
                         errors.append({"input_index": index, "marker": marker,
                                        "expected_count": expected, "actual_count": actual})
+                if contextual:
+                    context = payload.get("untrusted_document_context", {})
+                    source = '\n'.join([part['source'], context.get('original_title', ''),
+                                        *context.get('original_sections', [])])
+                    for term in byid[part['id']].source_terms:
+                        if term.source_quote not in source or term.term.casefold() not in term.source_quote.casefold():
+                            errors.append({"input_index": index, "reason": "terminology_quote_not_in_source"})
             return errors
 
         result = await self._structured_completion(
             payload, system=POLICY + (REVIEW if review else ""),
-            model=config.review_model if review else config.model, output=TranslationOutput,
+            model=config.review_model if review else config.model,
+            output=ContextualTranslationOutput if contextual else TranslationOutput,
             validate_literals=validate_literals, stage="correction" if review else "draft",
         )
         byid = {p.id: p for p in result.translations}
@@ -851,6 +886,9 @@ class TranslationService:
                 if translated.zh.count(marker) != original.count(marker):
                     raise TranslationValidationError("protected_literal_mismatch")
                 translated.zh = translated.zh.replace(marker, literal)
+                for term in getattr(translated, 'source_terms', []):
+                    for field in ('term', 'source_quote', 'meaning_zh', 'translation_zh'):
+                        setattr(term, field, getattr(term, field).replace(marker, literal))
         return byid
 
     async def audit(self, parts: list[dict]) -> dict[str, AuditedPart]:
@@ -1077,8 +1115,8 @@ class TranslationService:
             for name in list(part):
                 if name.startswith("editorial_") or name in ("audit", "review", "context_recheck_requested"):
                     part.pop(name, None)
-            source_title = bool((self._document_context.get() or {}).get("technical") and part["id"] == "title")
-            part.update(ok=False, issues=[], correction_required=source_title or not bool(part.get("draft")),
+            source_grounded = bool((self._document_context.get() or {}).get("technical"))
+            part.update(ok=False, issues=[], correction_required=source_grounded or not bool(part.get("draft")),
                         recheck_pending=True)
             if not needs_translation(part["source"]) and not editorial:
                 part.update(zh=part["source"], draft=part["source"], ok=True)
@@ -1106,9 +1144,9 @@ class TranslationService:
                            "checks": list(dict.fromkeys(quality_issues(p["source"], p["draft"])
                               + p.get("issues", [])))} for p in group]
                 for item in inputs:
-                    if technical and item["id"] == "title":
+                    if technical:
                         item.pop("draft")
-                        item["translation_mode"] = "source_grounded_title"
+                        item["translation_mode"] = "source_grounded_title" if item["id"] == "title" else "source_grounded_body"
 
                 def apply(result, group=group, before=before, seen=seen, rounds=rounds):
                     for part in group:

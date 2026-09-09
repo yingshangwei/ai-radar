@@ -1,6 +1,6 @@
 """Shared semantic requirements, not article-specific replacement translations."""
 
-TECHNICAL_POLICY = 'technical-context-v3'
+TECHNICAL_POLICY = 'technical-context-v4'
 
 TERMINOLOGY_INSTRUCTIONS = """\n先从完整原文语境识别领域、研究对象，以及术语指代的方法、数学量或算法设定，再选择中文词义。
 不能仅按单个英文词的日常字典义直译；中文必须保留概念的类型及它与方法/结果的关系。
@@ -34,6 +34,8 @@ source_terms 只是内部核对记录，不得把这些额外解释插入译文�
 """
 
 TECHNICAL_AUDIT_INSTRUCTIONS = """\n本次技术文档审计须按 output_schema 输出，使用 concept_checks，而不是校对阶段的 source_terms。
+只返回 audit_target_ids 指定的项。untrusted_document_context 仅有原文上下文，不能把它另当一个待审段落，
+不能增添正文项、标题项或输出校对 source_terms。每个输入候选只出现于 untrusted_parts，没有其他候选作为旁证。
 先从原文独立判定关键概念，再核对候选：source_quote 逐字引用原文，candidate_quote 逐字引用本项候选，
 meaning_zh 写原文在研究语境中所指的对象、数学量、变量或运行条件。
 meaning_preserved 判断概念是否忠实；context_clear 判断中文是否让读者识别该概念，避免将其误认成另一个领域或日常事物。

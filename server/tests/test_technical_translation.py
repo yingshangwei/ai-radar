@@ -10,6 +10,7 @@ from radar.db import database
 from radar.math_text import formula_issues, math_spans, protect_html_math, restore_html_math, truncate_math
 from radar.models import Translation
 from radar.translation import (
+    CLARITY_POLICY,
     CONTEXT_POLICY,
     LEGACY_POLICY,
     RECHECK_POLICY,
@@ -25,6 +26,7 @@ from radar.translation import (
     parts_for,
     quality_issues,
     review_policy,
+    scoped_audit_recovery,
 )
 
 TITLE = "A rate for adaptive optimization"
@@ -129,14 +131,16 @@ async def test_source_grounded_title_reuses_current_body_and_omits_old_title(sto
         assert len(payload['untrusted_parts']) == 1 and part['id'] == 'title'
         context = payload['untrusted_document_context']
         assert context['original_sections'] == [BODY]
-        assert [c['id'] for c in context['candidate_sections']] == ['body-0']
         calls.append(stage)
         if stage == 'correction':
+            assert [c['id'] for c in context['candidate_sections']] == ['body-0']
             assert 'draft' not in part and part['translation_mode'] == 'source_grounded_title'
             return json.dumps({'translations': [{'id': 'title', 'zh': GOOD['title'], 'approved': True, 'issues': [],
                                                  'source_terms': [{'term': 'rate', 'source_quote': TITLE, 'concept': 'metric',
                                                                    'meaning_zh': '收敛的速度', 'translation_zh': '收敛速率'}]}]})
         assert stage == 'audit' and part['candidate'] == GOOD['title']
+        assert 'candidate_sections' not in context and payload['audit_target_ids'] == ['title']
+        assert payload['output_schema']['$defs']['ContextualAuditedPart']['properties']['id']['enum'] == ['title']
         return audit_output(part)
 
     service._completion = completion
@@ -178,6 +182,75 @@ def test_formula_boundaries_currency_and_code_are_distinct():
     assert formula_issues(source, source.replace("x_2", "x_3"))
     assert not quality_issues(r"The rate is $n^{-2}$.", r"收敛速率为 $n^{-2}$。")
     assert quality_issues("The price is $5 and $10.", "价格是 $5 和 $11。")
+
+
+def seed_unusable_scoped_audit(sessions, config, *, objection=False, unknown=False, rounds=1):
+    key, _ = seed(sessions, config)
+    with sessions.begin() as session:
+        row = session.get(Translation, key)
+        parts = deepcopy(row.parts)
+        for p in parts:
+            p.update(zh=GOOD[p['id']], draft=GOOD[p['id']], recheck_pending=True)
+            p['review'].update(policy=CLARITY_POLICY, round=rounds)
+            p['audit'].update(policy=CLARITY_POLICY, fingerprint=candidate_fingerprint(p['source'], p['draft']))
+        title = parts[0]
+        title['ok'] = False
+        title.pop('audit')
+        target = workflow.target_for(title, 'audit')
+        title['workflow_history'] = [
+            workflow.event(title, CLARITY_POLICY, 'baseline', correction_rounds=rounds),
+            workflow.event(title, CLARITY_POLICY, 'reserved', call_id='shape', stage='audit', target=target),
+            workflow.event(title, CLARITY_POLICY, 'result', call_id='shape', stage='audit', target=target,
+                           outcome='invalid_output', code='audit_part_mismatch'),
+        ]
+        if objection:
+            title['audit'] = dict(policy=CLARITY_POLICY, fingerprint=target, approved=False, issues=['仍有语义差错'])
+        if unknown:
+            title['workflow_history'].append(workflow.event(title, CLARITY_POLICY, 'reserved', call_id='unknown',
+                                                           stage='audit', target=target))
+        row.parts, row.status = parts, 'error'
+        return key, deepcopy(parts)
+
+
+@pytest.mark.asyncio
+async def test_scoped_protocol_repair_keeps_failed_part_budget_and_old_receipts(store):
+    sessions, config = store
+    key, before = seed_unusable_scoped_audit(sessions, config)
+    with sessions() as session:
+        assert scoped_audit_recovery(session.get(Translation, key))
+    service, calls = TranslationService(sessions, config), []
+
+    async def request(parts, *, review):
+        calls.append(('correction', [p['id'] for p in parts]))
+        return {p['id']: TranslatedPart(id=p['id'], zh=GOOD[p['id']], approved=True) for p in parts}
+
+    async def audit(parts):
+        calls.append(('audit', [p['id'] for p in parts]))
+        return {p['id']: AuditedPart(id=p['id'], approved=True) for p in parts}
+
+    service.request, service.audit = request, audit
+    await service.translate_one(key, recheck=True)
+    with sessions.begin() as session:
+        row = session.get(Translation, key)
+        assert row.status == 'ready' and row.original_text == BODY
+        assert workflow.correction_rounds(row.parts[0], RECHECK_POLICY) == 2
+        assert row.parts[0]['review_history'][-1]['previous']['workflow_history'][:-1] == before[0]['workflow_history']
+        assert all(part_audited(p, current=True) for p in row.parts)
+        final = deepcopy(row.parts)
+        assert ensure_translation(session, TITLE, BODY, config).parts == final
+    await service.translate_one(key, force=True, recheck=True)
+    assert calls == [('correction', ['body-0']), ('audit', ['body-0']), ('correction', ['title']), ('audit', ['title'])]
+
+
+@pytest.mark.parametrize('options', [{'objection': True}, {'unknown': True}, {'rounds': 2}])
+def test_scoped_protocol_repair_never_reopens_semantic_rejection_unknown_or_exhausted_budget(store, options):
+    sessions, config = store
+    key, before = seed_unusable_scoped_audit(sessions, config, **options)
+    with sessions.begin() as session:
+        row = session.get(Translation, key)
+        assert not scoped_audit_recovery(row)
+        assert not context_recheck_needed(row)
+        assert ensure_translation(session, TITLE, BODY, config).parts == before
 
 
 def test_chunking_never_splits_multiline_or_oversized_formula():
@@ -225,6 +298,7 @@ async def test_source_term_record_is_grounded_and_not_supplied_to_independent_au
         calls.append((stage, p['id']))
         if stage == 'audit':
             assert 'INTERNAL_TERM_NOTE' not in json.dumps(payload)
+            assert 'candidate_sections' not in payload['untrusted_document_context']
             return audit_output(p)
         assert stage == 'correction' and 'draft' not in p
         assert p['id'] not in {c['id'] for c in payload['untrusted_document_context']['candidate_sections']}
@@ -326,6 +400,29 @@ async def test_concept_audit_rejects_unbound_quotes_with_shared_format_budget(st
     finally:
         service._document_context.reset(token)
     assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_technical_audit_scope_has_one_format_recovery_without_relabeling(store):
+    sessions, config = store
+    service, calls = TranslationService(sessions, config), []
+    token = service._document_context.set({'technical': True, 'original_title': TITLE, 'original_sections': [BODY]})
+
+    async def completion(payload, **kwargs):
+        calls.append(deepcopy(payload))
+        part = payload['untrusted_parts'][0]
+        return audit_output({**part, 'id': 'not-in-this-batch'})
+
+    service._completion = completion
+    try:
+        with pytest.raises(TranslationValidationError) as error:
+            await service.audit([{'id': 'title', 'source': TITLE, 'candidate': GOOD['title']}])
+        assert error.value.code == 'audit_scope_mismatch'
+    finally:
+        service._document_context.reset(token)
+    assert len(calls) == 2 and calls[0]['untrusted_parts'] == calls[1]['untrusted_parts']
+    assert calls[1]['format_feedback']['errors'] == [{'reason': 'audit_target_ids_mismatch', 'expected_ids': ['title']}]
+    assert 'not-in-this-batch' not in json.dumps(calls)
 
 
 def test_publisher_tex_survives_html_extraction_without_duplicate_visual_math():

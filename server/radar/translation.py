@@ -49,9 +49,10 @@ QUOTE_HEADER = re.compile(r"\[引用帖[^\]]*\]")
 COMPACT_CURRENCY = re.compile(r"[$€£¥]\d+(?:[.,]\d+)*(?:[kKmMbB](?![A-Za-z]))?")
 CONTEXT_POLICY = "zh-context-audit-v2"
 TITLE_POLICY = "zh-context-title-v3"
-RECHECK_POLICY = "zh-context-clarity-v4"
+CLARITY_POLICY = "zh-context-clarity-v4"
+RECHECK_POLICY = "zh-source-audit-v5"
 LEGACY_POLICY = "zh-independent-audit-v1"
-PUBLISHED_AUDIT_POLICIES = {LEGACY_POLICY, CONTEXT_POLICY, TITLE_POLICY, RECHECK_POLICY}
+PUBLISHED_AUDIT_POLICIES = {LEGACY_POLICY, CONTEXT_POLICY, TITLE_POLICY, CLARITY_POLICY, RECHECK_POLICY}
 logger = logging.getLogger(__name__)
 VALIDATION_FAILURES = {
     "output_incomplete": "翻译输出不完整",
@@ -59,6 +60,7 @@ VALIDATION_FAILURES = {
     "translation_part_mismatch": "翻译段落未一一对应",
     "protected_literal_mismatch": "原文公式、链接、金额或引用元信息未完整保留",
     "audit_part_mismatch": "审计段落未一一对应",
+    "audit_scope_mismatch": "审计段落或引文与本次输入不对应",
 }
 
 
@@ -314,12 +316,32 @@ def review_policy(row: Translation) -> str:
     policies = {r.get("policy") for p in row.parts for previous in workflow.snapshots(p)
                 for r in [previous.get("audit", {}), previous.get("review", {})]
                 + previous.get("workflow_history", [])}
-    return next((p for p in (RECHECK_POLICY, TITLE_POLICY, CONTEXT_POLICY, LEGACY_POLICY)
+    return next((p for p in (RECHECK_POLICY, CLARITY_POLICY, TITLE_POLICY, CONTEXT_POLICY, LEGACY_POLICY)
                  if p in policies), RECHECK_POLICY)
 
 
-def context_recheck_needed(row: Translation) -> bool:
-    return bool(row.parts and row.status == "ready" and row.lease_until < now_iso()
+def scoped_audit_recovery(row: Translation, max_rounds=2) -> bool:
+    """The v4 context could invite extra IDs. Recover only known unusable responses, with old budgets."""
+    policy = review_policy(row)
+    if row.status != 'error' or policy != CLARITY_POLICY:
+        return False
+    for part in row.parts:
+        if workflow.blocked(part, policy):
+            return False
+        if part_audited(part):
+            continue
+        target = workflow.target_for(part, 'audit')
+        results = [e for e in workflow.events(part, policy)
+                   if e.get('kind') == 'result' and e.get('stage') == 'audit' and e.get('target') == target]
+        if (not results or results[-1].get('outcome') != 'invalid_output'
+                or results[-1].get('code') != 'audit_part_mismatch' or workflow.denied(part, policy, target)
+                or workflow.correction_rounds(part, policy) >= max_rounds):
+            return False
+    return True
+
+
+def context_recheck_needed(row: Translation, max_rounds=2) -> bool:
+    return bool(row.parts and (row.status == "ready" or scoped_audit_recovery(row, max_rounds)) and row.lease_until < now_iso()
                 and technical_document(row.original_title, row.original_text)
                 and not all(part_audited(p, current=True) for p in row.parts)
                 and not any(workflow.blocked(p, review_policy(row)) for p in row.parts))
@@ -473,10 +495,14 @@ def ensure_translation(session, title: str, text: str, config: TranslationConfig
         )
         session.add(row)
         session.flush()
-    elif context_recheck_needed(row):
+    elif context_recheck_needed(row, config.review_max_rounds):
         # A versioned server-owned recheck, with exact old candidates/receipts
         # retained. Only technical documents migrate; no fresh draft is needed.
-        row.parts = [{**part, 'context_recheck_requested': True} if not part_audited(part, current=True)
+        preserve = {p['id']: workflow.correction_rounds(p, review_policy(row)) for p in row.parts
+                    if row.status != 'ready' and not part_audited(p)}
+        row.parts = [{**part, 'context_recheck_requested': True,
+                      **({'context_recheck_preserve_rounds': preserve[part['id']]} if part['id'] in preserve else {})}
+                     if not part_audited(part, current=True)
                      else part for part in row.parts]
         row.status, row.retry_at, row.attempts = 'pending', '', 0
     return row
@@ -711,7 +737,7 @@ class TranslationService:
             if row is None:
                 counts["runnable"] += 1
             elif row.status == "ready":
-                if context_recheck_needed(row):
+                if context_recheck_needed(row, self.config.review_max_rounds):
                     counts["runnable"] += 1
                 continue
             elif row.lease_until > at:
@@ -798,7 +824,7 @@ class TranslationService:
 
     async def _structured_completion(
         self, payload: dict, *, system: str, model: str, stage: TranslationStage,
-        output: type[BaseModel], validate_literals=None,
+        output: type[BaseModel], validate_literals=None, validation_code="protected_literal_mismatch",
     ):
         for attempt in range(2):
             context = self._workflow_call.get()
@@ -834,12 +860,12 @@ class TranslationService:
             if not errors:
                 return result
             if attempt:
-                raise TranslationValidationError("protected_literal_mismatch")
+                raise TranslationValidationError(validation_code)
             # Literal correspondence and JSON shape share one recovery budget.
             # Ask the model to regenerate from the same evidence; never append
             # missing links, repair prose, or forward an invalid raw response.
             payload = {**payload, "format_feedback": {
-                "reason": "protected_literal_mismatch", "errors": errors,
+                "reason": validation_code, "errors": errors,
                 "required_schema": output.model_json_schema(),
             }}
 
@@ -930,15 +956,23 @@ class TranslationService:
             {key: part[key] for key in ("id", "source", "candidate")} for part in parts
         ]}
         if context := self.document_context():
+            # Other Chinese candidates are not source evidence. They also
+            # introduce IDs outside this exact audit batch.
+            context = {k: v for k, v in context.items() if k != 'candidate_sections'}
             payload["untrusted_document_context"] = context
         contextual = bool((context or {}).get("technical")) and self.policy == RECHECK_POLICY
         output = ContextualAuditOutput if contextual else AuditOutput
         if contextual:
             payload["output_schema"] = output.model_json_schema()
+            payload["output_schema"]["$defs"]["ContextualAuditedPart"]["properties"]["id"]["enum"] = [
+                p['id'] for p in parts]
+            payload['audit_target_ids'] = [p['id'] for p in parts]
 
         def validate_quotes(result):
             byid = {p.id: p for p in result.audits}
             if len(byid) != len(result.audits) or set(byid) != {p['id'] for p in parts}:
+                if contextual:
+                    return [{"reason": "audit_target_ids_mismatch", "expected_ids": [p['id'] for p in parts]}]
                 raise TranslationValidationError("audit_part_mismatch")
             errors = []
             for index, part in enumerate(parts):
@@ -952,7 +986,7 @@ class TranslationService:
         result = await self._structured_completion(
             payload, system=AUDIT + (TECHNICAL_AUDIT_INSTRUCTIONS if contextual else ""),
             model=self.config.audit_model or self.config.review_model, output=output,
-            stage="audit", validate_literals=validate_quotes,
+            stage="audit", validate_literals=validate_quotes, validation_code="audit_scope_mismatch",
         )
         byid = {part.id: part for part in result.audits}
         if len(byid) != len(result.audits) or set(byid) != {part["id"] for part in parts}:
@@ -1150,7 +1184,7 @@ class TranslationService:
         for part in parts:
             if migration and part_audited(part, current=True):
                 continue  # Body approvals under the context policy remain valid and unchanged.
-            if part.get("recheck_pending"):
+            if part.get("recheck_pending") and not part.get('context_recheck_requested'):
                 continue  # Resume the persisted machine candidate and completed review stage.
             previous = deepcopy({k: v for k, v in part.items() if k != "review_history"})
             part.setdefault("review_history", []).append({
@@ -1168,7 +1202,9 @@ class TranslationService:
                     for name in ("draft", "zh", "initial_draft"):
                         part.pop(name, None)
             for name in list(part):
-                if name.startswith("editorial_") or name in ("audit", "review", "context_recheck_requested"):
+                if name.startswith("editorial_") or name in (
+                    "audit", "review", "context_recheck_requested", "context_recheck_preserve_rounds"
+                ):
                     part.pop(name, None)
             source_grounded = bool((self._document_context.get() or {}).get("technical"))
             part.update(ok=False, issues=[], correction_required=source_grounded or not bool(part.get("draft")),
@@ -1243,8 +1279,10 @@ class TranslationService:
         if max_stage_calls is not None and (type(max_stage_calls) is not int or max_stage_calls < 1):
             raise ValueError("Stage limit must be a positive integer")
         token = self._stage_budget.set(None if max_stage_calls is None else [max_stage_calls])
-        with self.sessions() as session:
+        with self.sessions.begin() as session:
             row = session.get(Translation, key)
+            if recheck and row and context_recheck_needed(row, self.config.review_max_rounds):
+                row = ensure_translation(session, row.original_title, row.original_text, self.config)
             policy_token = self._policy.set(review_policy(row) if row else RECHECK_POLICY)
             text = row.original_text if row else ""
             context = {"original_title": row.original_title if row else "",
@@ -1309,8 +1347,9 @@ class TranslationService:
                 for part in parts:
                     if not workflow.events(part, self.policy) and not part_audited(part):
                         self._record([part], "baseline", correction_rounds=(
-                            0 if recheck and part.get('audit', {}).get('policy') != self.policy
-                            else workflow.legacy_rounds(part)))
+                            part.get('context_recheck_preserve_rounds',
+                                     0 if recheck and part.get('audit', {}).get('policy') != self.policy
+                                     else workflow.legacy_rounds(part))))
                 if recheck and not finalize:
                     self.prepare_recheck(row, parts, provenance)
                 for part in parts:

@@ -65,7 +65,7 @@ def audit_inputs(payload, system, model):
     ]
     context = payload["untrusted_document_context"]
     assert context["original_title"] == TITLE and context["original_sections"] == [SOURCE]
-    assert all(set(p) == {"id", "candidate"} for p in context["candidate_sections"])
+    assert 'candidate_sections' not in context
     if "format_feedback" in payload:
         assert payload["format_feedback"]["reason"] == "output_schema_invalid"
         assert payload["format_feedback"]["required_schema"] == AuditOutput.model_json_schema()

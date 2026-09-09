@@ -24,6 +24,16 @@ WATCHLIST = [
     ("Andrej Karpathy", "karpathy", "Independent", "技术与思想"),
     ("Tibo", "thsottiaux", "OpenAI", "Codex 与 ChatGPT"),
     ("Hugging Face", "huggingface", "Hugging Face", "开源生态"),
+    ("Qwen", "Alibaba_Qwen", "Alibaba / Qwen", "通义千问 · 官方动态"),
+    ("DeepSeek", "deepseek_ai", "DeepSeek", "模型与研究 · 官方动态"),
+    ("Kimi", "Kimi_Moonshot", "Moonshot AI", "月之暗面 · 官方动态"),
+    ("MiniMax", "MiniMax_AI", "MiniMax", "模型与产品 · 官方动态"),
+    ("Z.ai", "Zai_org", "Z.ai / 智谱", "GLM · 官方动态"),
+    ("Simon Willison", "simonw", "Independent", "LLM 工具、Agent 与工程实践"),
+    ("Sebastian Raschka", "rasbt", "Independent", "模型训练、推理与论文解读"),
+    ("Jim Fan", "DrJimFan", "NVIDIA", "具身智能与机器人研究"),
+    ("Binyuan Hui", "huybery", "Independent", "代码模型研究 · 曾参与 Qwen"),
+    ("Shunyu Yao", "ShunyuYao12", "", "语言智能体、ReAct 与评测研究"),
 ]
 
 

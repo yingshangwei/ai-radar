@@ -7,7 +7,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from .schemas import IncomingArticle
 
 TOPICS = {
-    "模型": r"\b(llm|model|gpt|claude|gemini|deepseek|inference|reasoning|multimodal)\b|大模型|多模态|推理",
+    "模型": r"\b(llm|models?|gpt|claude|gemini|deepseek|qwen(?:\d+(?:\.\d+)*)?|kimi|minimax|glm|seedance|seedream|inference|reasoning|multimodal)\b|大模型|多模态|推理|通义千问|智谱|豆包|混元",
     "产品": r"\b(agent|codex|chatgpt|copilot|launch|release|app)\b|产品|发布|智能体",
     "技术": r"\b(ai|artificial intelligence|machine learning|training|benchmark|robot|robotics|paper)\b|人工智能|训练|机器人|论文",
     "开源": r"\b(open.source|hugging.?face|weights|github)\b|开源|权重",
@@ -34,12 +34,16 @@ def article_id(article: IncomingArticle) -> str:
 
 
 def classify(article: IncomingArticle) -> list[str]:
+    from .official_news import NEWS_IDS
+
     text = f"{article.title} {article.text}"
     topics = [topic for topic, pattern in TOPICS.items() if re.search(pattern, text, re.I)]
     if article.source_id in {"hf-papers", "arxiv-theory"} and article.platform == "web":
         # Dedicated collectors already enforce AI categories and research selection.
         # Theory abstracts need not contain marketing terms such as 'AI' or 'model'.
         return ["学界", "技术", *[topic for topic in topics if topic != "技术"]]
+    if article.source_id in NEWS_IDS and article.platform == "web":
+        return topics or ["技术"]
     return topics
 
 

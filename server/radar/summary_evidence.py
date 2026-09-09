@@ -118,7 +118,8 @@ def digest_review_evidence(session, articles: list[dict], config: RadarConfig) -
                 "id": uid, "title": row["title"], "text": row["text"], "url": row["url"],
                 "author": row["author"], "handle": row["handle"], "published_at": row["published_at"],
                 "published_precision": row["published_precision"],
-                "partial": row["source_id"] in {"hf-papers", "arxiv-theory"},
+                "partial": row["source_id"] in {"hf-papers", "arxiv-theory", "official-seed",
+                                                  "official-deepseek", "official-kimi", "official-minimax"},
                 "evidence_type": ("paper_abstract" if row["source_id"] in {"hf-papers", "arxiv-theory"}
                                   else "source_excerpt"), "resources": [],
             }

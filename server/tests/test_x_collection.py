@@ -110,6 +110,28 @@ async def test_seventeen_accounts_get_fresh_heads_within_day_under_three_request
     assert "opaque-next" not in str(result.coverage) + result.message
 
 
+async def test_freshness_priority_reallocates_budget_for_28_watches_then_resumes_discovery(store, respx_mock):
+    clock = Clock()
+    cfg = config(x_request_budget=3, x_discovery_requests=1, x_watch_freshness_first=True)
+    handles = [f"expert{i:02}" for i in range(28)]
+    queries = []
+
+    def page(request):
+        queries.append(request.url.params["query"])
+        return response(str(len(queries)), next_token="backfill-later")
+
+    respx_mock.get(ENDPOINT).mock(side_effect=page)
+    for cycle in range(10):
+        result = await run(store, cfg, handles, clock)
+        assert result.request_count <= 3
+        if cycle != 9:
+            clock.advance()
+    assert result.coverage["watched_fresh"] == 28
+    assert all(q.startswith("from:") for q in queries[:27])
+    assert any(not q.startswith("from:") for q in queries[27:])
+    assert state(store, "watch:expert00")["windows"]  # Backfill was retained, not silently discarded.
+
+
 @pytest.mark.asyncio
 async def test_page_restart_preserves_fixed_window_and_atomic_watermark(store, respx_mock):
     clock, cfg = Clock(), config(x_request_budget=1, x_discovery_requests=0)

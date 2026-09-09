@@ -14,6 +14,7 @@ from .models import (
     Translation,
     WebDocument,
 )
+from .official_news import NEWS_IDS
 from .ranking import canonicalize
 from .reading import analysis_key
 from .schemas import DirectReference
@@ -29,6 +30,8 @@ def article_evidence(article):
         "id", "title", "text", "url", "author", "handle", "published_at", "published_precision")}
     if article.source_id in {"hf-papers", "arxiv-theory"}:
         evidence.update(partial=True, evidence_type="paper_abstract")
+    elif article.source_id in NEWS_IDS:
+        evidence.update(partial=True, evidence_type="source_excerpt")
     return evidence
 
 

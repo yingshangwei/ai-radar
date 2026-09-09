@@ -330,6 +330,15 @@ class XCollector:
                 if not choice:
                     break
                 await fetch(*choice)
+            # Reallocate (never increase) the reserved discovery requests when
+            # watched accounts are overdue. Once their heads are fresh, broad
+            # discovery keeps its normal allocation; older pages stay bounded.
+            if self.config.x_watch_freshness_first:
+                while result.request_count < total_budget:
+                    choice = self.choose_priority(["watch:" + handle for handle in handles], used)
+                    if not choice or not choice[1]:
+                        break
+                    await fetch(*choice)
             # Discovery never follows an old window before its current fresh head.
             for page in range(discovery_budget):
                 if result.request_count >= total_budget:
@@ -371,5 +380,7 @@ class XCollector:
             result.message += "本轮广泛发现未启用，覆盖统计仅包括关注账号。"
         if result.coverage["partial_response"]:
             result.message += "平台部分返回信息不完整，可能仅涉及引用或附加信息；可读主帖已保留。"
+        if self.config.x_watch_freshness_first and discovery_budget and used[DISCOVERY] == 0:
+            result.message += "本轮优先补齐关注账号的最新窗口，广泛发现等待后续额度；总请求上限未增加。"
         result.message += error_message
         return result

@@ -162,12 +162,16 @@ class RadarConfig(BaseModel):
     collect_minutes: int = Field(default=120, ge=15)
     lookback_hours: int = Field(default=168, ge=1, le=168)
     anthropic_news_enabled: bool = True
+    official_news_sources: list[Literal["seed", "deepseek", "kimi", "minimax"]] = Field(
+        default_factory=list, max_length=4,
+    )
     enrich_official_articles: bool = True
     min_engagement: int = Field(default=30, ge=0)
     x_max_pages: int = Field(default=2, ge=1, le=10)
     x_page_size: int = Field(default=100, ge=10, le=100)
     x_request_budget: int | None = Field(default=None, strict=True, ge=1, le=1000)
     x_discovery_requests: int | None = Field(default=None, strict=True, ge=0, le=1000)
+    x_watch_freshness_first: bool = False
     x_initial_lookback_hours: int = Field(default=24, strict=True, ge=1, le=168)
     x_head_refresh_hours: int = Field(default=24, strict=True, ge=1, le=168)
     x_query: str = '(AI OR "artificial intelligence" OR LLM OR agents OR robotics) -is:retweet'
@@ -185,6 +189,13 @@ class RadarConfig(BaseModel):
     @classmethod
     def valid_timezone(cls, value: str):
         ZoneInfo(value)
+        return value
+
+    @field_validator("official_news_sources")
+    @classmethod
+    def unique_news_sources(cls, value):
+        if len(value) != len(set(value)):
+            raise ValueError("Announcement sources must be unique")
         return value
 
 

@@ -13,6 +13,7 @@ from .discovery import DiscoveryService, queue_candidate
 from .discovery_watches import apply_candidate, article_signal, maintain_watches
 from .discovery_watches import approved_signal as validate_approved_signal
 from .models import Article, ArticleReading, Digest, Job, SourceState, Watch, now_iso
+from .official_news import NEWS_SOURCES, NewsResult, fetch_news
 from .providers import make_provider
 from .ranking import article_id, canonicalize, classify, engagement, rank
 from .reading import ReadingService, cache_research_abstract, remember_references, sync_documents
@@ -153,6 +154,8 @@ class Pipeline:
         with sessions.begin() as session:
             sources = [("x", "X / Twitter", "x"), ("facebook", "Facebook", "facebook")]
             sources += [(f.id, f.name, "rss") for f in config.feeds]
+            sources += [("official-" + key, NEWS_SOURCES[key][0], "web")
+                        for key in config.official_news_sources]
             if config.anthropic_news_enabled:
                 sources.append(("anthropic", "Anthropic News", "web"))
             if config.research.hf_enabled:
@@ -191,6 +194,8 @@ class Pipeline:
             entries += [
                 (f.id, f.authority, lambda feed=f: fetch_rss(client, feed)) for f in self.config.feeds
             ]
+            entries += [("official-" + key, 2.0, lambda source=key: fetch_news(client, source))
+                        for key in self.config.official_news_sources]
             if self.config.anthropic_news_enabled:
                 entries.append(("anthropic", 2.0, lambda: fetch_anthropic(client)))
             if self.config.research.hf_enabled and self.research_due("hf-papers"):
@@ -214,7 +219,7 @@ class Pipeline:
                                 state.last_success_at = now_iso()
                             total += items.accepted_count
                             continue
-                        if isinstance(items, ResearchResult):
+                        if isinstance(items, (ResearchResult, NewsResult)):
                             count = ingest(session, items.items, self.config, authority)
                             state.status, state.message = items.status, items.message + f" 新增 {count} 篇。"
                             state.item_count = len(items.items)

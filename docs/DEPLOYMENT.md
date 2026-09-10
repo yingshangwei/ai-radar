@@ -1,6 +1,20 @@
 # 腾讯云部署
 
-## 当前：技术翻译语境与论文公式 · 2026-09-09
+## 当前：百炼翻译 · 2026-09-10
+
+运行目录仍为 `/opt/ai-radar/releases/20260909-1a0b133`，最新源码补丁 **`f4acd225a65e861e49d55984f6baf97059bca78d`**。当前 source manifest SHA-256 **`2052be38902847ddef3bf98c50ff433e39339037c44a06d6ce527e77bb3f4400`**；下方历史指纹仅用于追溯，不是当前部署基线。
+
+用户授权的官方百炼 CLI **bl 1.22.0** 安装于独立系统账户 `ai-radar-bailian`，配置目录为其家目录下 `.bailian`，不修改既有 Codex 账户、授权或全局 Node 环境。生产翻译通过现有 SDK 使用北京业务空间的 OpenAI 兼容接口：Flash 初稿、Qwen Plus 普通校对与独立审计，统一 `enable_thinking=false`。技术论文保留 Codex；摘要、网页解读、发现与前瞻 Provider 仍为 Codex。具体模型配置见 [翻译机制](TRANSLATION.md)。
+
+激活 **`inv-f8gff2g3f2` SUCCESS / 0**。只更新 `translation.py`、私有 translation 配置和 `server.env` 中新增的 `DASHSCOPE_API_KEY`，保留旧密钥以便回滚；不改变缓存 revision / 术语表 / 审核预算。等待无在途模型调用的保存检查点，固定 PID 并在数据库写锁下复核，重启前全部 **22 张表及 schema 逐项一致**。只重启 AI Radar API；Caddy、浏览器服务、8080 服务与授权保持。未引入依赖或数据库迁移。
+
+收据、一致性备份和私有回滚配置：`/var/lib/ai-radar/bailian-migration-20260910/`。上线前隔离的真实翻译和错误候选审核均通过，服务端 **1556 passed / 18 skipped**，详见 [验证记录](VALIDATION.md)。上线只读验证 **`inv-j8gffwgx74` SUCCESS / 0**：公网健康、无令牌 401、密钥载入、供应商/model 状态及全部源码/保护文件指纹通过；194 份原有 ready 行逐字段不变，正常翻译任务自动接续。旧 DeepSeek 欠费历史保留，新百炼账户告警为空；未通过 / 未知 / 耗尽预算的内容仍受原规则约束，不能把切换上线当作积压全部完成。
+
+后续只读 `inv-h8gfhhgkns` SUCCESS / 0 确认上线后有 8 份去重百炼请求预约和 1 份 Codex 请求预约，已保存 Flash 初稿、Qwen Plus 普通校对以及 Codex 技术校对结果。队列仍在推进，尚未完成的正文不会提前发布。
+
+Android / iOS 无须为本次服务端切换重建；当前 Android 安装包仍为 0.10.0。
+
+## 历史：技术翻译语境与论文公式 · 2026-09-09
 
 仍运行 `/opt/ai-radar/releases/20260909-1a0b133`，最新服务端补丁 `32724ad64d9a188055c4670ee4e8614fbc40c9a4` 已激活，包含此前国内团队采集、Crawl4AI、持久队列及会话复用能力。当前 source manifest SHA-256 为 `81e80b1f4abaf4f68cad27d1ac86ddb97ac4eb78c1ac98a819d0c7e28cf11f04`。不要再使用下方历史 manifest 作为当前部署断言，也不要重跑已完成交接。
 

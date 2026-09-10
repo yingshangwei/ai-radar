@@ -326,3 +326,14 @@ sudo -u ai-radar python3 /opt/ai-radar/current/scripts/backup.py \
 使用 SQLite backup API，避免单独复制主库遗漏 WAL 数据。升级前备份并保留旧 release。本次采用新增独立表，不改既有列；未来涉及既有结构修改时须提供明确迁移，不能仅依靠 `create_all` 升级旧库。不要将旧版代码和不兼容的新库混用。
 
 Docker Compose 是另一个可选方案，配置在 `deploy/compose.yaml`。目标主机尚未装 Docker，当前不为部署强制安装它。不要同时启动 systemd 方案与 Compose 方案。
+
+
+## 模型用量统计：2026-09-10
+
+服务端 e786f8d 于北京时间 21:20 后启用独立用量账本；7e76c6a 修正 exporter 的 SQLite 共享锁目录权限，仅重启 exporter。最终 source-manifest SHA-256 `31e57d2ae0cc6dfa180f37ab597beb85d0d57c2e42e50a74d4d030d72e21c086`，current 仍为 `/opt/ai-radar/releases/20260909-1a0b133`。
+
+安装 inv-h8gmi3gmww、隔离真实回执验收 inv-h8gmm200pb、安全切换 inv-j8gmq80acw、exporter 修正 inv-j8gmur05vb、最终生产验收 inv-h8gmw8gs0k 均 SUCCESS。真实探针验证百炼及 Codex 的两份回执共 11,863 Token，保存在隔离探针账本，不注入生产统计或业务内容。
+
+生产验收时 20 次预约、17 份完整用量、3 次进行中、0 次未知、0 次统计写入错误；已报告 207,628 Token。Prometheus 标签包含模型、功能和阶段，账本可读指标为 1，目标 up；exporter/Prometheus 内存约 17/21 MB。统计数字会随正式任务继续增加。
+
+切换前后主业务 22 张表和 schema 保持相同；242 份原 ready 译文逐字段相同。未改模型密钥、审计结果或预算，未重启 Caddy、浏览器和原 8080 服务。仅通过环境固定探针已确认的 Codex 默认 gpt-6-astra，并启用 usage.db。部署回执与备份在 `/var/lib/ai-radar/usage-meter-20260910/`；不要重跑旧激活脚本。操作说明见 [MODEL-USAGE.md](MODEL-USAGE.md)。

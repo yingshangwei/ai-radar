@@ -6,15 +6,16 @@
 
 ## 配置
 
-将 `DEEPSEEK_API_KEY` 保存在 `/etc/ai-radar/server.env`（0600），不要放入仓库、移动端或日志。在 `/etc/ai-radar/config.toml` 中启用：
+将 `DASHSCOPE_API_KEY` 保存在 `/etc/ai-radar/server.env`（0600），不要放入仓库、移动端或日志。在 `/etc/ai-radar/config.toml` 中启用：
 
 ```toml
 [translation]
 enabled = true
-base_url = "https://api.deepseek.com"
-api_key_env = "DEEPSEEK_API_KEY"
-model = "deepseek-v4-flash"
-review_model = "deepseek-v4-pro"
+base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+api_key_env = "DASHSCOPE_API_KEY"
+model = "qwen3.7-flash"
+review_model = "qwen-plus"
+request_options = { enable_thinking = false }
 # audit_model 可单独指定；省略时使用 review_model，但仍是独立调用。
 review_max_rounds = 2
 revision = "zh-v1"
@@ -23,7 +24,7 @@ max_documents = 100
 max_attempts = 3
 ```
 
-摘要的 `[provider]` 独立配置，仍可使用 Codex CLI、Claude CLI 或模型 API。翻译使用现有 OpenAI SDK 的兼容接口，可通过 endpoint、密钥环境变量、模型和 `request_options` 替换。其他服务不支持 DeepSeek 的 `thinking` 参数时，配置 `request_options = {}`。
+摘要的 `[provider]` 独立配置，仍可使用 Codex CLI、Claude CLI 或模型 API。翻译使用现有 OpenAI SDK 的兼容接口，可通过 endpoint、密钥环境变量、模型和 `request_options` 替换。百炼北京业务空间密钥也可使用官方提供的 `https://<WorkspaceId>.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`；必须与密钥区域和空间一致。百炼显式使用 `enable_thinking=false`，从 DeepSeek 迁移时也要移除各阶段的 `thinking` / `reasoning_effort`，因为阶段对象会完整替换公共 options。
 
 技术论文可另配校对 Provider；初稿与非技术内容仍使用上面的翻译模型。线上采用已授权的 Codex CLI：
 
@@ -35,13 +36,23 @@ timeout_seconds = 600
 # model 可指定；省略时使用 CLI 默认模型。
 ```
 
-该配置复用摘要/解读的通用适配器，支持 Claude CLI、通用命令、OpenAI 兼容接口和 Anthropic；不接受 extractive。校对和审计各使用独立调用，Codex 会话为临时隔离会话，禁用工具、联网搜索及用户指令，审计不继承校对的上下文。每次调用先持久化预约，回执记录实际 Provider/模型；租约覆盖该 Provider 的超时。Agent 失败不静默回退、不当作 DeepSeek 余额不足。未解决的执行状态保持暂停；禁用工具的 Codex/Claude CLI 只有在超时后本地进程组已终止、没有返回结果时，才沿用最多两次传输重试和退避，并逐次记录预约。取消、失联和任意通用命令不使用这一自动恢复。CLI 在预约外部请求前检查可执行文件，缺失时记录明确的未启动错误，仍受原有次数限制。原有修订与格式恢复次数不增加。没有此配置时保持原翻译接口；`stage_request_options` 只作用于该接口，不传给独立 Provider。
+该配置复用摘要/解读的通用适配器，支持 Claude CLI、通用命令、OpenAI 兼容接口和 Anthropic；不接受 extractive。校对和审计各使用独立调用，Codex 会话为临时隔离会话，禁用工具、联网搜索及用户指令，审计不继承校对的上下文。每次调用先持久化预约，回执记录实际 Provider/模型；租约覆盖该 Provider 的超时。Agent 失败不静默回退、不当作翻译 API 账户余额不足。未解决的执行状态保持暂停；禁用工具的 Codex/Claude CLI 只有在超时后本地进程组已终止、没有返回结果时，才沿用最多两次传输重试和退避，并逐次记录预约。取消、失联和任意通用命令不使用这一自动恢复。CLI 在预约外部请求前检查可执行文件，缺失时记录明确的未启动错误，仍受原有次数限制。原有修订与格式恢复次数不增加。没有此配置时保持原翻译接口；`stage_request_options` 只作用于该接口，不传给独立 Provider。
 
 `stage_request_options` 可分别配置 `draft`（初稿）、`correction`（修订）、`audit`（独立审计）。没有配置该阶段时使用公共 `request_options`；阶段键存在时，其对象**完整替换**公共对象，不做合并，显式 `{}` 表示不发送额外参数。其他服务的参数仍可透传，供应商自己的嵌套对象（如 `thinking`）可以使用；不要再包一层 `extra_body`。空对象不等于关闭供应商默认推理模式，关闭时须按该供应商的接口显式配置。
 
 公共及阶段 options 均不能覆盖 `messages`、`model`、`response_format`、`tools`、`tool_choice`、`functions`、`function_call`、`stream`、`stream_options`、`max_tokens`、`max_completion_tokens` 或 `extra_body` 等正式流程字段。模型使用上述专用字段；输出预算使用 `max_tokens` 和 `stage_max_tokens`，均为 256–65536 的整数。公共预算默认 12000，阶段未指定时继承公共预算。配置校验报错不回显输入值。
 
-下面的推理配置示例说明如何单独启用修订和审计。初稿继承默认的非推理模式与 12000 token；修订和审计分别完整配置推理参数，并使用 32768 token 预算：
+### 百炼用量与成本
+
+初稿使用 `qwen3.7-flash`；普通校对、独立审计使用 `qwen-plus`，仍各自独立调用。技术论文的校对和审计继续走配置的 Codex，摘要、解读、动态发现和前瞻预判的 `[provider]` 不随本次翻译供应商切换而改变。CLI 只用于官方安装和授权管理，翻译通过现有 OpenAI 兼容 SDK 调用，无须为每段运行 CLI，也不增加服务端依赖。
+
+2026-09-10 根据“比较英译中高用量模型方案”任务及官方价格复核，北京地域 Qwen3.7-Flash 单次输入不超过 32K 时每百万输入 / 输出 token 为 **¥0.2 / ¥0.8**；Qwen Plus 非思考且输入不超过 128K 时为 **¥0.8 / ¥2**。超过区间适用阶梯价格；实际总费用包含初稿、修订、审计及允许的恢复调用，不能套用只计算 Flash 的月费估算。本次不接入 Batch、Token Plan 或其他套餐，不宣称已取得批处理折扣。来源：[Qwen3.7-Flash](https://help.aliyun.com/zh/model-studio/qwen3-7-flash)、[Qwen Plus](https://help.aliyun.com/zh/model-studio/qwen-plus)、[思考模式开关](https://help.aliyun.com/en/model-studio/deep-thinking)。
+
+迁移保留 `revision`、术语表、原文和所有审核 / 调用预算；已有批准缓存不重新付费翻译。旧账户明确欠费的未完成步骤可由正常队列恢复；未知调用、已否决的同一候选及耗尽的修订预算仍不能借供应商切换重置。手机无需升级。
+
+### 历史 DeepSeek 配置
+
+以下仅在选择 DeepSeek endpoint 和模型时使用，不能与上面的百炼配置合并。下面的推理配置示例说明如何单独启用修订和审计。初稿继承默认的非推理模式与 12000 token；修订和审计分别完整配置推理参数，并使用 32768 token 预算：
 
 ```toml
 [translation]
@@ -62,7 +73,7 @@ correction = 32768
 audit = 32768
 ```
 
-分阶段配置于 `20260908-4d196af` 部署时启用，后续代码升级沿用该配置：`correction`、`audit` 均为 `thinking.type=enabled`、`reasoning_effort=high`、32768 token，单次 SDK 调用整体超时为 300 秒；初稿仍为 disabled、12000 token。当次配置切换只改这七个字段，14 张数据表、七组历史记录、其他配置与既有服务保护检查均通过。
+历史分阶段配置于 `20260908-4d196af` 部署时启用，在百炼迁移前沿用：`correction`、`audit` 均为 `thinking.type=enabled`、`reasoning_effort=high`、32768 token，单次 SDK 调用整体超时为 300 秒；初稿仍为 disabled、12000 token。当次配置切换只改这七个字段，14 张数据表、七组历史记录、其他配置与既有服务保护检查均通过。
 
 正式单条错误恢复任务于 2026-09-07 21:18:13 UTC 完成。修订和独立审计各两次 DeepSeek Pro 调用均以 `stop` 结束，四次返回的推理 token 数分别为 14725、9990、4363、5016，证实推理模式已真实使用。唯一 `error` 转为 `review_required`，没有新增整篇 ready；候选尚未通过完整质量门槛，没有继续重跑。最终全量为主消息 46 ready、已保存网页正文 13 ready / 34 review_required / 0 error；原文、60 份既有 ready 缓存、所有未选译文、七组历史记录与当前配置保持不变。公网仍隐藏未通过的全文中文。运行证据见 [验证记录](VALIDATION.md)。
 
@@ -135,7 +146,7 @@ radar translate --revalidate-machine --limit 100
 
 ## 余额不足提示
 
-DeepSeek 返回 HTTP 402 时，服务端持久保存账户告警，手机首页、文章详情和设置显示“DeepSeek 余额不足”。已有译文与原文继续可读。识别依据为官方 [错误码说明](https://api-docs.deepseek.com/zh-cn/quick_start/error_codes/)，401 授权错误、429 限流和服务器错误不会误报为余额不足。
+DeepSeek 的 HTTP 402 和百炼的 HTTP 400 + 结构化错误码 `Arrearage` 会持久保存账户告警，手机首页、文章详情和设置按供应商显示“DeepSeek 余额不足”或“阿里云百炼 余额不足”。已有译文与原文继续可读。依据为 [DeepSeek 错误码](https://api-docs.deepseek.com/zh-cn/quick_start/error_codes/)和[百炼错误码](https://help.aliyun.com/zh/model-studio/error-code)。不从任意错误文字推断欠费；百炼 403 `AccessDenied.Unpurchased` 表示服务未开通/无访问权限，401、429、5xx 也不会误报。账户状态按 endpoint 和密钥环境变量隔离；切换供应商不会抹掉旧账户记录。
 
 同一批剩余翻译停止发起新调用，已经在途的调用可能完成；保存的翻译草稿不会丢失，余额错误也不占用内容的最大重试次数。充值后，下次定时或管理员触发的翻译调用成功会清除告警，未完成翻译从已有进度恢复。服务重启不会清除未解决的告警，较早开始的成功请求也不能覆盖后来发生的余额错误。
 
@@ -149,7 +160,7 @@ App 在前台每 30 秒更新服务状态，重新进入前台也会刷新；离
 
 多段审计若返回的 ID 有缺失、重复或错位，整批批准结论作废，服务器改为逐段请求，仍要求每个 ID 精确对应。每段完成后立即保存原有质量检查与审计结果；中途失败时，已通过段落保留，剩余段落沿用逐段方式。单段 ID 错误仍拒绝，语义否决仍进入有界修订，不通过重映射 ID 或补写批准结论来恢复。
 
-初稿、修订和独立审计共用结构化响应恢复：若输出不是合法 JSON 或违反本地结构约束，服务器最多补充一次格式说明并重新请求，原文、保护占位符与输入候选保持相同。结构错误的说明只含当前阶段的本地 JSON Schema 和白名单错误类型/字段位置，不包含模型先前的响应、批准结论或任意错误文本。缺少 `approved` 等必填字段时由模型重新完整输出，服务器不补默认批准。原文保护占位符缺失或重复时，共用这一次恢复机会：仅反馈输入序号、生成标记和原文/输出次数，由模型根据相同输入重新完整生成。程序不会自动补链接、修改译文或返回上次失败正文；JSON 与占位符错误交替出现时也不会增加调用上限。第二次仍不合格则保留错误；有效的语义否决不会触发格式重试，ID 错误继续直接拒绝，恢复后的候选仍须通过完整质量门槛。当前使用 DeepSeek 的 [Chat JSON 模式](https://api-docs.deepseek.com/guides/json_mode/)，最终结构与质量仍由本地严格校验，不声称模型接口强制执行全部 Schema。
+初稿、修订和独立审计共用结构化响应恢复：若输出不是合法 JSON 或违反本地结构约束，服务器最多补充一次格式说明并重新请求，原文、保护占位符与输入候选保持相同。结构错误的说明只含当前阶段的本地 JSON Schema 和白名单错误类型/字段位置，不包含模型先前的响应、批准结论或任意错误文本。缺少 `approved` 等必填字段时由模型重新完整输出，服务器不补默认批准。原文保护占位符缺失或重复时，共用这一次恢复机会：仅反馈输入序号、生成标记和原文/输出次数，由模型根据相同输入重新完整生成。程序不会自动补链接、修改译文或返回上次失败正文；JSON 与占位符错误交替出现时也不会增加调用上限。第二次仍不合格则保留错误；有效的语义否决不会触发格式重试，ID 错误继续直接拒绝，恢复后的候选仍须通过完整质量门槛。使用所选兼容接口的 `response_format=json_object` JSON 模式，最终结构与质量仍由本地严格校验，不声称模型接口强制执行全部 Schema。
 
 校对和审计的疑点列表完整保存，不因超过固定条数而丢弃审核意见。任意未解决疑点仍会阻止通过并进入有界修订；即使模型同时返回 `approved=true`，非空疑点也不能发布。模型响应总长度、输出段落数、并发与修订轮次仍受限制；文章级状态展示前 30 条问题仅为摘要，不影响段落内完整的纠错依据和审计历史。
 
@@ -187,9 +198,9 @@ App 使用锁定版本的 [KaTeX 0.18.7](https://github.com/KaTeX/KaTeX/releases
 
 ## 可选免费辅助
 
-默认使用 DeepSeek 加本地免费规则校验，不额外占用服务器运行另一个翻译模型。若已部署官方 [LibreTranslate](https://github.com/LibreTranslate/LibreTranslate)，可配置 `auxiliary_url`；如需鉴权，设置 `LIBRETRANSLATE_API_KEY`。该服务基于 [Argos Translate](https://github.com/argosopentech/argos-translate)，有额外内存、模型下载与许可证要求（LibreTranslate 为 AGPL-3.0），本项目未捆绑其运行时或模型。
+使用所配置的翻译模型加本地免费规则校验，不额外占用服务器运行另一个翻译模型。若已部署官方 [LibreTranslate](https://github.com/LibreTranslate/LibreTranslate)，可配置 `auxiliary_url`；如需鉴权，设置 `LIBRETRANSLATE_API_KEY`。该服务基于 [Argos Translate](https://github.com/argosopentech/argos-translate)，有额外内存、模型下载与许可证要求（LibreTranslate 为 AGPL-3.0），本项目未捆绑其运行时或模型。
 
-辅助输出只作为 DeepSeek 的候选参考，不能跳过模型校对直接发布；辅助不可用时继续由 DeepSeek 完成。没有配置时不会把内容发送到未知公共翻译服务。
+辅助输出只作为翻译模型的候选参考，不能跳过模型校对直接发布；辅助不可用时继续由所配置的模型完成。没有配置时不会把内容发送到未知公共翻译服务。
 
 ## 网页全文补读
 
@@ -199,7 +210,7 @@ App 使用锁定版本的 [KaTeX 0.18.7](https://github.com/KaTeX/KaTeX/releases
 
 正式翻译命令可加 `--translation-diagnostics`，例如 `radar translate --limit 1 --force --translation-diagnostics`。该开关仅适用于 `translate`，默认关闭。启用时，`radar.translation` 的 INFO 日志通过独立 handler 写入 stderr；stdout 仍只输出原有任务 JSON。不会提升 root、HTTPX 或 OpenAI SDK 的日志级别，命令结束或失败后恢复原有日志状态，重复调用不会累积 handler。
 
-`translation_completion` 行只包含阶段、安全模型标识、耗时、固定结束原因，以及供应商报告的输入、输出和推理 token 数；缺失的 token 数为 `null`，不能据此推断是否实际进行了推理。已知 DeepSeek 模型别名直接记录，其他模型使用短哈希标识。日志不包含原文、候选、思考内容、URL 或密钥；这项诊断不会改变队列范围、翻译内容、审核门槛或重试次数。
+`translation_completion` 行只包含阶段、安全模型标识、耗时、固定结束原因，以及供应商报告的输入、输出和推理 token 数；缺失的 token 数为 `null`，不能据此推断是否实际进行了推理。已知 DeepSeek 和百炼模型别名直接记录，其他模型使用短哈希标识。日志不包含原文、候选、思考内容、URL 或密钥；这项诊断不会改变队列范围、翻译内容、审核门槛或重试次数。
 
 
 ### 运维确认 CLI 未启动

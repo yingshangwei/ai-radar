@@ -122,6 +122,31 @@ def validation_diagnostics(exc: ValidationError) -> list[dict]:
     ]
 
 
+def translation_vendor(base_url: str) -> str:
+    host = urlsplit(base_url).hostname or ""
+    if host == "api.deepseek.com":
+        return "deepseek"
+    if host == "dashscope.aliyuncs.com" or host.endswith((".maas.aliyuncs.com", ".dashscope.aliyuncs.com")):
+        return "bailian"
+    return "openai_chat"
+
+
+def insufficient_translation_balance(exc: BaseException) -> bool:
+    if not isinstance(exc, APIStatusError):
+        return False
+    if exc.status_code == 402:
+        return True
+    # Bailian reports arrears as HTTP 400 with an exact structured error code.
+    # Never infer account state from a provider's arbitrary message text.
+    if exc.status_code != 400 or translation_vendor(str(exc.request.url)) != "bailian":
+        return False
+    body = exc.body
+    if not isinstance(body, dict):
+        return False
+    error = body.get("error", body)
+    return isinstance(error, dict) and error.get("code") == "Arrearage"
+
+
 def failure_diagnostic(key: str, stage: str, exc: BaseException) -> dict:
     """Only fixed codes, class names and numeric status; never format an exception."""
     status = None
@@ -144,7 +169,7 @@ def failure_diagnostic(key: str, stage: str, exc: BaseException) -> dict:
     elif isinstance(exc, ValidationError):
         code = "output_schema_invalid"
     elif status is not None:
-        code = "insufficient_balance" if status == 402 else "provider_http_error"
+        code = "insufficient_balance" if status == 402 or insufficient_translation_balance(exc) else "provider_http_error"
     elif isinstance(exc, (APITimeoutError, httpx.TimeoutException, TimeoutError)):
         code = "request_timeout"
     elif isinstance(exc, (APIConnectionError, httpx.TransportError)):
@@ -647,7 +672,7 @@ def balance_alert(session, config: TranslationConfig) -> dict | None:
     row = session.get(TranslationAccountState, account_scope(config)) if config.enabled else None
     if not row or row.code != "insufficient_balance":
         return None
-    name = "DeepSeek" if urlsplit(config.base_url).hostname == "api.deepseek.com" else "翻译服务"
+    name = {"deepseek": "DeepSeek", "bailian": "阿里云百炼"}.get(translation_vendor(config.base_url), "翻译服务")
     return {
         "code": row.code,
         "title": f"{name} 余额不足",
@@ -691,6 +716,8 @@ def translation_status(session, config: TranslationConfig) -> dict:
         "configured": bool(secret(config.api_key_env)),
         "model": config.model,
         "review_model": config.review_model,
+        "audit_model": config.audit_model or config.review_model,
+        "provider": translation_vendor(config.base_url),
         "technical_review_provider": ({"kind": config.technical_review_provider.kind,
                                        "model": config.technical_review_provider.model}
                                       if config.technical_review_provider else None),
@@ -840,7 +867,8 @@ class TranslationService:
         details = getattr(usage, "completion_tokens_details", None)
         finish = response.choices[0].finish_reason if response.choices else None
         safe_models = {"deepseek-chat", "deepseek-reasoner", "deepseek-v4-flash", "deepseek-v4-pro",
-                       "deepseek-v4-flash-0731", "deepseek-v4-pro-0813"}
+                       "deepseek-v4-flash-0731", "deepseek-v4-pro-0813", "qwen3.7-flash",
+                       "qwen3.7-flash-2026-07-15", "qwen-plus", "qwen-plus-2025-07-28"}
         model_id = model if model in safe_models else "sha256:" + hashlib.sha256(model.encode()).hexdigest()[:12]
         logger.info("translation_completion %s", json.dumps({
             "stage": stage if stage in {"draft", "correction", "audit"} else "unknown",
@@ -880,7 +908,7 @@ class TranslationService:
                 key, owner, parts, group, call_id = context
                 self._record(parts=group, kind="request_reserved", call_id=call_id,
                              request_id=request_id, stage=stage,
-                             transport=provider_config.kind if provider_config else "deepseek",
+                             transport=provider_config.kind if provider_config else translation_vendor(self.config.base_url),
                              timeout_seconds=provider_config.timeout_seconds if provider_config else self.config.timeout_seconds,
                              sdk_request_upper_bound=None if provider_config else 2)
                 self.save_parts(key, owner, parts)
@@ -1199,7 +1227,7 @@ class TranslationService:
             diagnostic = failure_diagnostic(key, stage, exc)
             status = diagnostic["http_status"]
             outcome = ("not_started" if isinstance(exc, ProviderNotStartedError) else
-                       "known_balance" if status == 402 else "known_transport" if
+                       "known_balance" if diagnostic["code"] == "insufficient_balance" else "known_transport" if
                        status == 429 or (status is not None and status >= 500) or
                        isinstance(exc, (APITimeoutError, httpx.TimeoutException, TimeoutError,
                                         APIConnectionError, httpx.TransportError)) else
@@ -1485,7 +1513,7 @@ class TranslationService:
             except BaseException as exc:
                 diagnostic = failure_diagnostic(key, progress["stage"], exc)
                 logger.warning("translation_failure %s", json.dumps(diagnostic, ensure_ascii=False, sort_keys=True))
-                insufficient = isinstance(exc, APIStatusError) and exc.status_code == 402
+                insufficient = insufficient_translation_balance(exc)
                 if insufficient:
                     self.balance_blocked = True
                 with self.sessions.begin() as session:

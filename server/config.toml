@@ -40,15 +40,16 @@ max_prompt_chars = 400000
 
 [translation]
 enabled = false
-base_url = "https://api.deepseek.com"
-api_key_env = "DEEPSEEK_API_KEY"
-model = "deepseek-v4-flash"
-review_model = "deepseek-v4-pro"
+base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+api_key_env = "DASHSCOPE_API_KEY"
+model = "qwen3.7-flash"
+review_model = "qwen-plus"
+request_options = { enable_thinking = false }
 # Increase revision to explicitly regenerate cached translations after a policy change.
 revision = "zh-v1"
 concurrency = 2
 max_documents = 100
-# Optional self-hosted LibreTranslate draft aid, always reviewed by DeepSeek:
+# Optional self-hosted LibreTranslate draft aid, always reviewed by the configured translation provider:
 # auxiliary_url = "http://127.0.0.1:5000"
 
 [reading]

@@ -113,6 +113,26 @@ def private_files(root):
     return [p for p in root.rglob("*") if p.name != "invoked.json"]
 
 
+async def test_metering_uses_selected_model_and_counts_reused_receipt_once(setup, monkeypatch):
+    from radar import usage
+
+    root, config = setup
+    monkeypatch.setenv("RADAR_USAGE_DATABASE_PATH", str(root / "usage.db"))
+    monkeypatch.setenv("RADAR_CODEX_DEFAULT_MODEL", "gpt-test-default")
+    work = root / "metered-batch"
+    with usage.scope("discovery_foresight"):
+        await run(config(), work, "batch-metered", Decision)
+        recovered = await run(config(), work, "batch-metered", Decision)
+    assert recovered.recovered
+    args = json.loads((work / "invoked.json").read_text())["argv"]
+    assert args[args.index("--model") + 1] == "gpt-test-default"
+    report = usage.store().report("all")
+    assert report["totals"]["calls"] == 1
+    assert report["totals"]["total_tokens"] == 15
+    assert report["groups"][0]["model"] == "gpt-test-default"
+    assert report["groups"][0]["feature"] == "discovery_foresight"
+
+
 @pytest.mark.asyncio
 async def test_first_call_persists_thread_before_callback_and_uses_official_flags(setup):
     root, config = setup

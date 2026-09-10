@@ -1,4 +1,5 @@
 import secrets
+import sqlite3
 from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime, timedelta
 from typing import Literal
@@ -9,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import case, func, or_, select
 
+from . import usage
 from .config import Settings
 from .daily_schedule import DAILY_CHECK_MINUTES, DailySchedule
 from .db import database
@@ -103,6 +105,16 @@ def create_app(settings: Settings | None = None):
     def health(session=Depends(session_dep)):
         session.execute(select(1))
         return {"status": "ok", "service": "ai-radar"}
+
+    @app.get("/v1/usage", dependencies=[Depends(authenticated)])
+    def model_usage(period: Literal["today", "7d", "30d", "all"] = "7d"):
+        try:
+            ledger = usage.store(settings.usage_database_path)
+            result = ledger.report(period, config.timezone) if ledger else {"enabled": False, "available": False}
+        except (OSError, sqlite3.Error):
+            result = {"enabled": True, "available": False, "error": "用量记录暂时无法读取，请稍后重试。"}
+        return {**result, "allocation": usage.allocation(config),
+            "features": usage.FEATURES, "stages": usage.STAGES}
 
     @app.get("/v1/status", dependencies=[Depends(authenticated)])
     def status(session=Depends(session_dep)):

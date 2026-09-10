@@ -22,6 +22,12 @@ class ProviderConfig(BaseModel):
     env_allowlist: list[str] = Field(default_factory=list)
 
 
+def provider_model(config: ProviderConfig):
+    # Explicit provider configuration always wins. The deployment may pin the
+    # currently verified CLI default without invalidating saved content reviews.
+    return config.model or (os.environ.get("RADAR_CODEX_DEFAULT_MODEL") if config.kind == "codex" else None)
+
+
 class SummaryReviewConfig(BaseModel):
     model_config = ConfigDict(hide_input_in_errors=True)
 
@@ -210,6 +216,7 @@ class RadarConfig(BaseModel):
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="RADAR_", env_file=".env", extra="ignore")
     database_url: str = "sqlite:///./data/radar.db"
+    usage_database_path: str = ""
     config_path: str = "config.toml"
     reader_token: str = ""
     admin_token: str = ""

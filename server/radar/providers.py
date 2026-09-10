@@ -9,7 +9,8 @@ from typing import Protocol
 
 from pydantic import BaseModel
 
-from .config import ProviderConfig, secret
+from . import usage
+from .config import ProviderConfig, provider_model, secret
 from .schemas import DigestOutput, ReadingOutput, Story
 from .technical_language import TERMINOLOGY_INSTRUCTIONS
 
@@ -94,7 +95,8 @@ class StructuredProvider:
         raise NotImplementedError
 
     async def generate(self, articles: list[dict], date: str) -> DigestOutput:
-        return validate_result(await self.complete(prompt_for(articles, date), DigestOutput), articles)
+        with usage.scope("digest", default_only=True):
+            return validate_result(await self.complete(prompt_for(articles, date), DigestOutput), articles)
 
     async def analyze(self, documents: list[dict]) -> ReadingOutput:
         prompt = (
@@ -102,7 +104,8 @@ class StructuredProvider:
             + json.dumps(ReadingOutput.model_json_schema(), ensure_ascii=False)
             + "\nUNTRUSTED_DOCUMENTS:\n" + json.dumps(documents, ensure_ascii=False)
         )
-        return validate_reading_result(await self.complete(prompt, ReadingOutput), documents)
+        with usage.scope("web_reading", default_only=True):
+            return validate_reading_result(await self.complete(prompt, ReadingOutput), documents)
 
 
 class CLIStoppedTimeout(TimeoutError):
@@ -128,6 +131,7 @@ class CLIProvider(StructuredProvider):
             if config.kind == "codex":
                 argv += [
                     "exec",
+                    "--json",
                     "--ignore-user-config",
                     "--ephemeral",
                     "--skip-git-repo-check",
@@ -146,8 +150,8 @@ class CLIProvider(StructuredProvider):
                     "--color",
                     "never",
                 ]
-                if config.model:
-                    argv += ["--model", config.model]
+                if provider_model(config):
+                    argv += ["--model", provider_model(config)]
                 argv += ["-"]
             elif config.kind == "claude_cli":
                 argv += [
@@ -183,47 +187,69 @@ class CLIProvider(StructuredProvider):
                 ]
                 if k in os.environ
             }
-            process = await asyncio.create_subprocess_exec(
-                *argv,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=root,
-                env=env,
-                start_new_session=True,
-            )
+            receipt = usage.Call(config.kind, provider_model(config))
             try:
-                stdout, _stderr = await asyncio.wait_for(
-                    process.communicate(prompt.encode()), timeout=config.timeout_seconds
-                )
-            except (TimeoutError, asyncio.CancelledError) as exc:
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                await process.wait()
-                if isinstance(exc, TimeoutError):
-                    raise CLIStoppedTimeout(config.timeout_seconds) from None
+                return await self._execute(argv, prompt, root, env, output, receipt)
+            except BaseException:
+                if receipt.row["finished_at"] is None:
+                    receipt.finish(outcome="unknown")
                 raise
-            if process.returncode:
-                # stderr can contain provider credentials, URLs or user config: never expose it.
-                raise RuntimeError(
-                    f"Agent exited with code {process.returncode}; check login and model access"
-                )
-            if len(stdout) > 4_000_000 or (output.exists() and output.stat().st_size > 1_000_000):
-                raise ValueError("Agent output exceeded allowed size")
-            text = output.read_text() if config.kind == "codex" and output.exists() else stdout.decode()
-            if config.kind == "claude_cli":
-                envelope = json.loads(text)
-                if envelope.get("is_error"):
-                    raise RuntimeError("Claude CLI reported an error")
-                text = (
-                    json.dumps(envelope["structured_output"])
-                    if "structured_output" in envelope
-                    else envelope.get("result", "")
-                )
-            return text
 
+    async def _execute(self, argv, prompt, root, env, output, receipt):
+        config = self.config
+        process = await asyncio.create_subprocess_exec(
+            *argv,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=root,
+            env=env,
+            start_new_session=True,
+        )
+        try:
+            stdout, _stderr = await asyncio.wait_for(
+                process.communicate(prompt.encode()), timeout=config.timeout_seconds
+            )
+        except (TimeoutError, asyncio.CancelledError) as exc:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            await process.wait()
+            if isinstance(exc, TimeoutError):
+                raise CLIStoppedTimeout(config.timeout_seconds) from None
+            raise
+        if config.kind == "codex":
+            tokens, selected = usage.codex_receipt(stdout, _stderr)
+            receipt.finish(tokens, model=selected,
+                outcome="error" if process.returncode else "completed")
+        elif config.kind == "claude_cli":
+            try:
+                envelope = json.loads(stdout)
+                tokens = envelope.get("usage") if isinstance(envelope, dict) else None
+            except (ValueError, UnicodeError):
+                tokens = None
+            receipt.finish(tokens, outcome="error" if process.returncode else "completed")
+        else:
+            receipt.finish(outcome="error" if process.returncode else "completed")
+        if process.returncode:
+            # stderr can contain provider credentials, URLs or user config: never expose it.
+            raise RuntimeError(
+                f"Agent exited with code {process.returncode}; check login and model access"
+            )
+        if len(stdout) > 4_000_000 or (output.exists() and output.stat().st_size > 1_000_000):
+            raise ValueError("Agent output exceeded allowed size")
+        text = output.read_text() if config.kind == "codex" and output.exists() else stdout.decode()
+        if config.kind == "claude_cli":
+            envelope = json.loads(text)
+            if envelope.get("is_error"):
+                raise RuntimeError("Claude CLI reported an error")
+            text = (
+                json.dumps(envelope["structured_output"])
+                if "structured_output" in envelope
+                else envelope.get("result", "")
+            )
+        return text
 
 class OpenAIProvider(StructuredProvider):
     def __init__(self, config: ProviderConfig):
@@ -239,6 +265,8 @@ class OpenAIProvider(StructuredProvider):
             base_url=self.config.base_url,
             timeout=self.config.timeout_seconds,
             max_retries=2,
+            http_client=usage.UsageHTTPClient(usage.vendor(self.config.base_url),
+                self.config.model, self.config.timeout_seconds),
         ) as client:
             response = await client.responses.parse(
                 model=self.config.model, input=prompt, text_format=schema_type
@@ -262,6 +290,7 @@ class AnthropicProvider(StructuredProvider):
             base_url=self.config.base_url.rstrip("/").removesuffix("/v1") if self.config.base_url else None,
             timeout=self.config.timeout_seconds,
             max_retries=2,
+            http_client=usage.UsageHTTPClient("anthropic", self.config.model, self.config.timeout_seconds),
         ) as client:
             response = await client.messages.create(
                 model=self.config.model,
@@ -287,6 +316,8 @@ class OpenAIChatProvider(StructuredProvider):
             base_url=self.config.base_url,
             timeout=self.config.timeout_seconds,
             max_retries=2,
+            http_client=usage.UsageHTTPClient(usage.vendor(self.config.base_url),
+                self.config.model, self.config.timeout_seconds),
         ) as client:
             messages = [{"role": "user", "content": prompt}]
             if self.config.structured_outputs:

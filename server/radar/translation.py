@@ -24,6 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import func, select, update
 
 from . import translation_workflow as workflow
+from . import usage
 from .config import TranslationConfig, TranslationStage, secret
 from .math_text import formula_issues, math_spans, technical_document, without_math
 from .models import (
@@ -848,6 +849,7 @@ class TranslationService:
                 base_url=config.base_url,
                 timeout=config.timeout_seconds,
                 max_retries=1,
+                http_client=usage.UsageHTTPClient(usage.vendor(config.base_url), model, config.timeout_seconds),
             ) as client:
                 response = await client.chat.completions.create(
                     model=model,
@@ -863,8 +865,8 @@ class TranslationService:
         def token_count(value):
             return value if type(value) is int and 0 <= value <= 1_000_000_000 else None
 
-        usage = getattr(response, "usage", None)
-        details = getattr(usage, "completion_tokens_details", None)
+        response_usage = getattr(response, "usage", None)
+        details = getattr(response_usage, "completion_tokens_details", None)
         finish = response.choices[0].finish_reason if response.choices else None
         safe_models = {"deepseek-chat", "deepseek-reasoner", "deepseek-v4-flash", "deepseek-v4-pro",
                        "deepseek-v4-flash-0731", "deepseek-v4-pro-0813", "qwen3.7-flash",
@@ -877,8 +879,8 @@ class TranslationService:
             "finish_reason": finish if isinstance(finish, str) and
             finish in {"stop", "length", "content_filter", "tool_calls", "function_call"}
             else (None if finish is None else "unknown"),
-            "input_tokens": token_count(getattr(usage, "prompt_tokens", None)),
-            "output_tokens": token_count(getattr(usage, "completion_tokens", None)),
+            "input_tokens": token_count(getattr(response_usage, "prompt_tokens", None)),
+            "output_tokens": token_count(getattr(response_usage, "completion_tokens", None)),
             "reasoning_tokens": token_count(getattr(details, "reasoning_tokens", None)),
         }, sort_keys=True))
         with self.sessions.begin() as session:
@@ -913,26 +915,27 @@ class TranslationService:
                              sdk_request_upper_bound=None if provider_config else 2)
                 self.save_parts(key, owner, parts)
             try:
-                if provider_config:
-                    prompt = (system + "\nJSON_SCHEMA:\n" + json.dumps(output.model_json_schema(), ensure_ascii=False)
-                              + "\nUNTRUSTED_TRANSLATION_DATA:\n" + json.dumps(payload, ensure_ascii=False))
-                    try:
-                        content = await make_provider(provider_config).complete(prompt, output)
-                    except CLIStoppedTimeout as exc:
-                        if provider_config.kind in {"codex", "claude_cli"}:
-                            # These adapters disable tools. A stopped read-only
-                            # call with no verdict follows the existing bounded
-                            # transport recovery, rather than losing its cause.
-                            raise
-                        raise TechnicalProviderError("Configured command timed out") from exc
-                    except Exception as exc:
-                        # No silent fallback or guessed retry: an agent may have
-                        # consumed its request before failing to return a result.
-                        raise TechnicalProviderError("Technical translation provider failed") from exc
-                    if not isinstance(content, str) or not content or len(content) > 180000:
-                        raise TranslationValidationError("output_empty_or_oversized")
-                else:
-                    content = await self._completion(payload, system=system, model=model, stage=stage)
+                with usage.scope("technical_translation" if self.technical_provider("correction") else "translation", stage):
+                    if provider_config:
+                        prompt = (system + "\nJSON_SCHEMA:\n" + json.dumps(output.model_json_schema(), ensure_ascii=False)
+                                  + "\nUNTRUSTED_TRANSLATION_DATA:\n" + json.dumps(payload, ensure_ascii=False))
+                        try:
+                            content = await make_provider(provider_config).complete(prompt, output)
+                        except CLIStoppedTimeout as exc:
+                            if provider_config.kind in {"codex", "claude_cli"}:
+                                # These adapters disable tools. A stopped read-only
+                                # call with no verdict follows the existing bounded
+                                # transport recovery, rather than losing its cause.
+                                raise
+                            raise TechnicalProviderError("Configured command timed out") from exc
+                        except Exception as exc:
+                            # No silent fallback or guessed retry: an agent may have
+                            # consumed its request before failing to return a result.
+                            raise TechnicalProviderError("Technical translation provider failed") from exc
+                        if not isinstance(content, str) or not content or len(content) > 180000:
+                            raise TranslationValidationError("output_empty_or_oversized")
+                    else:
+                        content = await self._completion(payload, system=system, model=model, stage=stage)
             except BaseException:
                 # The enclosing logical result classifies known failures. A
                 # process death leaves the reservation visibly unresolved.

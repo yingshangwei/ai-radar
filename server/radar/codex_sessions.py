@@ -20,7 +20,8 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel
 
-from .config import ProviderConfig
+from . import usage
+from .config import ProviderConfig, provider_model
 
 MAX_STREAM_BYTES = 8_000_000
 MAX_LINE_BYTES = 2_000_000
@@ -254,6 +255,7 @@ def _completed(root, turn, schema_type=None):
             raise CodexSessionError("artifact_result_mismatch")
     elif schema_type is None:
         raise CodexSessionError("result_validation_missing")
+    usage.recover_session(root, key, events.usage)
     return result, events_hash, request
 
 
@@ -291,8 +293,8 @@ def _argv(config, schema_path, session_id):
              "-c", 'approval_policy="never"', "-c", 'sandbox_mode="read-only"',
              "-c", "features.shell_tool=false", "-c", 'web_search="disabled"',
              "--output-schema", str(schema_path)]
-    if config.model:
-        argv += ["--model", config.model]
+    if provider_model(config):
+        argv += ["--model", provider_model(config)]
     return argv + ([session_id] if session_id else []) + ["-"]
 
 
@@ -459,6 +461,7 @@ async def _run_locked(config, root, prompt, schema_type, session_id, on_thread, 
     _write_json(turn / "request.json", request)
     _write_json(turn / "schema.json", request["schema"])
     process = None
+    receipt = usage.Call("codex", provider_model(config), key=usage.session_key(root, key))
     try:
         argv = _argv(config, turn / "schema.json", session_id)
         spawning = asyncio.create_task(asyncio.create_subprocess_exec(*argv, stdin=asyncio.subprocess.PIPE,
@@ -471,6 +474,8 @@ async def _run_locked(config, root, prompt, schema_type, session_id, on_thread, 
             raise
         async with asyncio.timeout(config.timeout_seconds):
             await _stream(process, root, turn, request, prompt, on_thread)
+        tokens, selected = usage.codex_receipt(_read_bytes(turn / "events.jsonl", MAX_STREAM_BYTES))
+        receipt.finish(tokens, model=selected)
         result, events_hash, _ = _completed(root, turn, schema_type)
         _write_json(turn / "result.json", {"result": asdict(result), "events_sha256": events_hash,
                                            "schema_sha256": _hash(request["schema"])})
@@ -478,6 +483,12 @@ async def _run_locked(config, root, prompt, schema_type, session_id, on_thread, 
     except BaseException as exc:
         if process is not None:
             await _kill_wait(process)
+        if receipt.row["finished_at"] is None:
+            try:
+                tokens, selected = usage.codex_receipt(_read_bytes(turn / "events.jsonl", MAX_STREAM_BYTES))
+            except (CodexSessionError, OSError):
+                tokens, selected = {}, None
+            receipt.finish(tokens, model=selected, outcome="error")
         code = exc.code if isinstance(exc, CodexSessionError) else (
             "timeout_unknown" if isinstance(exc, TimeoutError) else
             "cancelled_unknown" if isinstance(exc, asyncio.CancelledError) else "transport_unknown")

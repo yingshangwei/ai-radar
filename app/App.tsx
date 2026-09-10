@@ -38,6 +38,7 @@ import { C, s } from "./src/theme";
 import { ArticleBody, ArticleByline, ReplyContext } from "./src/ArticleContent";
 import { displayHeadline } from "./src/articlePresentation";
 import MathText from "./src/MathText";
+import UsagePanel from "./src/UsagePanel";
 import AuthorizationCenter from "./src/AuthorizationCenter";
 import DeviceReading from "./src/DeviceReading";
 import {
@@ -442,6 +443,7 @@ function Reader({
   const [original, setOriginal] = useState(false);
   useEffect(() => setOriginal(false), [detail?.article?.id]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [usageOpen, setUsageOpen] = useState(false);
   const [authorizationOpen, setAuthorizationOpen] = useState(false);
   const [deviceReadingStatus, setDeviceReadingStatus] = useState("");
   const [error, setError] = useState("");
@@ -775,6 +777,24 @@ function Reader({
       {state?.translation?.alert && (
         <View style={{ paddingHorizontal: 24, paddingVertical: 8 }}>
           <TranslationNotice status={state} offline={!!status.data?.offline} />
+          {!demo && (
+            <Pressable
+              accessibilityRole="button"
+              style={[s.note, s.spread, { marginBottom: 20 }]}
+              onPress={() => {
+                setSettingsOpen(false);
+                setUsageOpen(true);
+              }}
+            >
+              <View>
+                <T style={{ fontWeight: "600" }}>模型用量</T>
+                <T style={[s.muted, { marginTop: 5 }]}>
+                  模型分工 · 功能消耗 · 调用明细
+                </T>
+              </View>
+              <Icon name="bar-chart-2" color={C.green} />
+            </Pressable>
+          )}
         </View>
       )}
       {!!activeError && (
@@ -1795,6 +1815,13 @@ function Reader({
         onStatus={setDeviceReadingStatus}
         onComplete={refresh}
       />
+      <Sheet
+        open={usageOpen}
+        onClose={() => setUsageOpen(false)}
+        title="模型用量"
+      >
+        {usageOpen && <UsagePanel connection={connection} />}
+      </Sheet>
       <AuthorizationCenter
         connection={connection}
         open={authorizationOpen}

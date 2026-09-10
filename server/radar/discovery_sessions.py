@@ -15,7 +15,7 @@ from uuid import uuid4
 
 from sqlalchemy import func, select
 
-from . import codex_sessions
+from . import codex_sessions, usage
 from .discovery_contracts import DiscoveryBatchDecision, batch_prompt, validate_batch
 from .models import AgentBatch, AgentSession, DiscoveryCall, DiscoveryCandidate, now_iso
 
@@ -250,9 +250,10 @@ class DiscoverySessions:
                 batch, expected_thread = reservation
                 result["processed"] += len(batch.members)
                 try:
-                    response = await codex_sessions.run(self.provider, batch.workdir, batch.prompt,
-                        DiscoveryBatchDecision, session_id=expected_thread, lock_fd=fd,
-                        on_thread=lambda thread_id: self._bind_thread(batch.id, thread_id))
+                    with usage.scope("discovery_foresight"):
+                        response = await codex_sessions.run(self.provider, batch.workdir, batch.prompt,
+                            DiscoveryBatchDecision, session_id=expected_thread, lock_fd=fd,
+                            on_thread=lambda thread_id: self._bind_thread(batch.id, thread_id))
                 except BaseException as exc:
                     if isinstance(exc, codex_sessions.CodexSessionError) and not exc.outcome_unknown:
                         self._fail(batch.id, "format_invalid" if exc.failure_kind == "format" else

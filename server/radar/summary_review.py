@@ -17,6 +17,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
+from . import usage
 from .config import RadarConfig
 from .models import SummaryReview, now_iso
 from .providers import (
@@ -323,8 +324,12 @@ class SummaryReviewService:
                 budget[0] -= 1
             call_id, actual_prompt = self._reserve(key, owner, stage, target, timeout, unit_id, prompt)
             try:
-                async with asyncio.timeout(timeout):
-                    response = await invoke(actual_prompt)
+                snapshot = self._read(key, owner)
+                feature = ("digest" if snapshot["kind"] == "digest" else
+                    "radar_heading" if snapshot["scope"].startswith("article:") else "web_reading")
+                with usage.scope(feature, stage):
+                    async with asyncio.timeout(timeout):
+                        response = await invoke(actual_prompt)
                 parsed = validate(response)
             except BaseException as exc:
                 code, exception_type = _failure(exc)

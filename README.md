@@ -129,3 +129,7 @@ pnpm exec expo export --platform all
 浏览器正文提取支持 Crawl4AI 0.9.3，安装到独立 `.browser-venv`（锁定环境需要 Python 3.12+），主 API 的依赖保持独立。接入方式与实际网页验收见 [Crawl4AI 接入](docs/CRAWL4AI.md)。
 
 This product includes software developed by UncleCode (https://x.com/unclecode) as part of the Crawl4AI project (https://github.com/unclecode/crawl4ai).
+
+### 模型与 Token 用量
+
+App 0.11 在「你的雷达 → 模型用量」显示模型分工、按功能/阶段消耗、时间筛选和调用回执；单位自动 K / M / B。服务端集成官方 OpenTelemetry SDK 与 Prometheus，详见 [用量统计与部署](docs/MODEL-USAGE.md)。

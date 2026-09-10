@@ -1,0 +1,4 @@
+# Isolated exporter runtime. No provider SDK, credentials, prompts, or article content.
+opentelemetry-sdk==1.44.0
+opentelemetry-exporter-prometheus==0.65b0
+prometheus-client==0.26.0

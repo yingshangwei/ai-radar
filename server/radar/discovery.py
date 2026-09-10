@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from sqlalchemy import func, select
 
+from . import usage
 from .discovery_contracts import DiscoveryDecision, decision_prompt, validate_decision
 from .models import DiscoveryCall, DiscoveryCandidate, now_iso
 from .providers import make_provider
@@ -392,8 +393,9 @@ class DiscoveryService:
                 continue
             candidate_id, owner, call_id, payload, prompt = reservation
             try:
-                async with asyncio.timeout(self.provider_config.timeout_seconds):
-                    response = await make_provider(self.provider_config).complete(prompt, DiscoveryDecision)
+                with usage.scope("discovery_foresight"):
+                    async with asyncio.timeout(self.provider_config.timeout_seconds):
+                        response = await make_provider(self.provider_config).complete(prompt, DiscoveryDecision)
             except BaseException as exc:
                 self._failure(candidate_id, owner, call_id, exc)
                 result["failed"] += 1

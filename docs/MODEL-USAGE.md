@@ -1,6 +1,50 @@
 # 模型分工与 Token 用量
 
-App 0.11 的「你的雷达 → 模型用量」提供今天、7 天、30 天、累计统计，按模型、业务功能、阶段展开，并显示最近 50 次调用。读取使用现有设备访问令牌；手机不持有模型密钥。
+App 0.12 的「你的雷达 → 模型用量」先展示厂商账户余额与额度，下方提供今天、7 天、30 天、累计统计，按模型、业务功能、阶段展开，并显示最近 50 次调用。读取使用现有设备访问令牌；手机不持有模型密钥。
+
+## 账户余额与额度
+
+| 账户 | 官方查询能力 | 展示范围与授权 |
+| --- | --- | --- |
+| DeepSeek | [`GET /user/balance`](https://api-docs.deepseek.com/zh-cn/api/get-user-balance/) | 使用现有模型 API key，展示各币种总余额、充值余额和赠金，保留负数；当前配置为备用账户 |
+| 阿里百炼 | [阿里云 BSS `QueryAccountBalance`](https://help.aliyun.com/zh/user-center/developer-reference/api-bssopenapi-2017-12-14-queryaccountbalance) | 额外 RAM 只读凭据；展示阿里云账户可用额度与现金，不代表百炼资源包或免费 Token 余量 |
+| Codex / ChatGPT | [官方 app-server](https://learn.chatgpt.com/zh-Hans/docs/app-server) `account/rateLimits/read` | 复用服务器现有 ChatGPT 登录，优先显示 Codex 主额度；其他模型额度可展开，按实际周期展示剩余百分比、重置时间和可选 credits |
+
+余额和额度属于厂商账户，可能包含其他应用的消耗。Codex credits 保留厂商单位，不解释为现金；不同币种、不同额度窗口不合计。API 用量/成本查询不能代替余额查询，普通 OpenAI API 和 Anthropic 账户目前明确为不支持已接入的官方余额查询。
+
+服务每 5 分钟查询一次，手机每 30 秒读服务缓存；点击刷新无需管理员令牌，同一账户最多每 60 秒实际刷新一次。查询不生成模型回答，不创建推理会话，也不兑换 credits、充值或切换模型。余额不足、低余额、授权缺失、响应异常、查询失败和历史数据分别展示。查询失败保留上次成功数值并明确标记；到达额度重置时间后等待厂商确认，不能自行恢复为 100%。
+
+账户查询配置、缓存与业务模型路由独立，默认未配置时关闭。安装百炼查询 SDK 时，在 `server/billing` 运行 `sh install.sh`：官方 SDK 和全部依赖使用版本与哈希锁定，安装到 `/opt/ai-radar/billing/venv`，不修改模型调用环境。
+
+复制 `server/accounts.example.toml` 为 `/etc/ai-radar/accounts.toml`，按环境调整 CLI、SDK Python 和凭据路径，再设置主服务环境：
+
+```dotenv
+RADAR_ACCOUNTS_CONFIG_PATH=/etc/ai-radar/accounts.toml
+RADAR_ACCOUNTS_DATABASE_PATH=/var/lib/ai-radar/accounts/status.db
+```
+
+独立 SQLite 仅保存账户查询快照、重试时间和查询租约；不迁移业务数据库。失败采用退避，租约超时可恢复，查询有超时和进程清理；重启后保留上次状态和刷新限频。授权更新使缓存失效并自动重新查询。手机只在内存缓存账户财务信息，不写入文章离线缓存。
+
+百炼查询需要单独 RAM 身份，最小权限策略如下（`DescribeAcccount` 拼写遵循官方文档）：
+
+```json
+{
+  "Version": "1",
+  "Statement": [{"Effect": "Allow", "Action": ["bss:DescribeAcccount"], "Resource": ["*"]}]
+}
+```
+
+凭据保存为 `/etc/ai-radar/billing.env`，所有者 `ai-radar`、权限 `0600`：
+
+```dotenv
+ALIBABA_CLOUD_ACCESS_KEY_ID=
+ALIBABA_CLOUD_ACCESS_KEY_SECRET=
+ALIBABA_CLOUD_SECURITY_TOKEN=
+```
+
+长期 AccessKey 的 SecurityToken 留空，STS 临时凭据应提供该字段并在过期前更新。此文件按查询重新读取，填好后不需要再次重启服务。已有百炼模型 API key 不能代替 RAM 财务查询凭据；缺少授权时不影响翻译和模型业务。
+
+接口为 `GET /v1/accounts`、`POST /v1/accounts/refresh`，均接受现有 reader 或 admin 令牌；返回归一化数值、查询时间和状态，不返回密钥、厂商原始错误或模型内容。默认低余额阈值为 CNY 10 / USD 2，低额度阈值为剩余 10%，可在账户配置中调整。告警在 App 账户卡片中展示，本模块不新增系统推送。
 
 当前生产分工（2026-09-10 实测）：
 

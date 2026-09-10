@@ -15,7 +15,7 @@ const source = ts.transpileModule(
 ).outputText;
 const mod = { exports: {} };
 vm.runInThisContext(`(function(exports){${source}\n})`)(mod.exports);
-const { money, windowName, accountBadge } = mod.exports;
+const { money, windowName, accountBadge, orderedLimits } = mod.exports;
 
 test("financial amounts distinguish unknown from zero or debt", () => {
   assert.equal(money(null, "CNY"), "—");
@@ -23,6 +23,16 @@ test("financial amounts distinguish unknown from zero or debt", () => {
   assert.equal(money("0.00", "CNY"), "¥0.00");
   assert.equal(money("-2.50", "USD"), "$-2.50");
   assert.equal(money("NaN", "USD"), "—");
+});
+test("Codex main quota remains visible when the vendor lists reserve capacity first", () => {
+  const limits = [
+    { id: "base_model_inference" },
+    { id: "codex" },
+    { id: "codex_bengalfox" },
+  ];
+  assert.equal(orderedLimits(limits)[0].id, "codex");
+  assert.equal(orderedLimits(limits).length, 3);
+  assert.equal(limits[0].id, "base_model_inference");
 });
 test("actual quota windows, auth, expired snapshots and offline status stay distinct", () => {
   assert.equal(windowName(300), "5 小时额度");

@@ -18,6 +18,7 @@ export type AccountStatus = {
   last_success_at: string | null;
   checked_at: string | null;
   next_check_at: string | null;
+  low_remaining_percent?: number;
   scope?: string;
   plan?: string | null;
   balances: {
@@ -55,6 +56,12 @@ export function windowName(minutes: number) {
   if (minutes % 1440 === 0) return `${minutes / 1440} 天额度`;
   if (minutes % 60 === 0) return `${minutes / 60} 小时额度`;
   return `${minutes} 分钟额度`;
+}
+
+export function orderedLimits(limits: AccountStatus["limits"]) {
+  return [...limits].sort(
+    (a, b) => Number(b.id === "codex") - Number(a.id === "codex"),
+  );
 }
 
 export function accountBadge(

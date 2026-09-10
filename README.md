@@ -60,7 +60,7 @@ ai-radar/
 
 日报引用可中英切换。此前真实日报重建验证了 40 份翻译缓存的调用次数与时间戳均未改变。模型密钥仅配置在服务端，摘要引擎仍为独立的 Codex CLI。
 
-Android 0.11.0 签名安装包位于本机 `dist/ai-radar-0.11.0-android.apk`，沿用原应用 ID 与签名，可覆盖安装；新增按模型、功能和阶段的 Token 用量统计，保留离线公式显示。覆盖升级、阅读连接保留、真实用量和滚动已在 Android 模拟器验证。[网页采集中心](docs/WEB-AUTHORIZATION.md)支持公开网页自动读取、按网站一次手机许可及 App 前台自动补采；包含网页与文章解读、中文阅读、原文切换、离线缓存和余额不足提示。iOS 共享代码与 0.11.0 资源导出通过；原生构建条件见 [IOS.md](docs/IOS.md)，本机缺完整 Xcode 和运行时，尚未实际运行 iOS 或生成真机 IPA。Facebook 账号正在审核；Meta 官方新闻和 Meta 的 X 帖子不代表 Facebook 社交帖已接通。
+Android 0.12.0 签名安装包位于本机 `dist/ai-radar-0.12.0-android.apk`，沿用原应用 ID 与签名，可覆盖安装；新增厂商余额与 Codex 额度查询，保留按模型、功能和阶段的 Token 用量统计及离线公式显示。覆盖升级、阅读连接保留及真实账户页面已在 Android 模拟器验证。[网页采集中心](docs/WEB-AUTHORIZATION.md)支持公开网页自动读取、按网站一次手机许可及 App 前台自动补采；包含网页与文章解读、中文阅读、原文切换、离线缓存和余额不足提示。iOS 共享代码与 0.12.0 资源导出通过；原生构建条件见 [IOS.md](docs/IOS.md)，本机缺完整 Xcode 和运行时，尚未实际运行 iOS 或生成真机 IPA。Facebook 账号正在审核；Meta 官方新闻和 Meta 的 X 帖子不代表 Facebook 社交帖已接通。
 
 手机 0.7.0 优化[雷达发言布局](docs/ARTICLE-LAYOUT.md)：作者和时间、服务端 AI 标题、三行正文预览、独立引用卡片与回复身份，详情完整阅读和中英切换。服务端新增标题缓存的发布状态见该说明。
 
@@ -132,4 +132,4 @@ This product includes software developed by UncleCode (https://x.com/unclecode) 
 
 ### 模型与 Token 用量
 
-App 0.11 在「你的雷达 → 模型用量」显示模型分工、按功能/阶段消耗、时间筛选和调用回执；单位自动 K / M / B。服务端集成官方 OpenTelemetry SDK 与 Prometheus，详见 [用量统计与部署](docs/MODEL-USAGE.md)。
+App 0.12 在「你的雷达 → 模型用量」显示厂商余额、Codex 共享额度与重置时间，并保留模型分工、按功能/阶段消耗、时间筛选和调用回执；单位自动 K / M / B。账户查询有独立缓存、限频和失败恢复，百炼余额需要额外 RAM 财务只读授权。服务端集成官方 OpenTelemetry SDK 与 Prometheus，详见 [账户查询、用量统计与部署](docs/MODEL-USAGE.md)。

@@ -1,6 +1,10 @@
 # iOS 构建与签名
 
-## 当前源码：0.7.0 / build 8，未构建新 iOS 包
+## 当前源码：0.12.0 / build 13，未构建新 iOS 包
+
+共享 UI 增加厂商账户余额与 Codex 额度，保留模型用量、离线公式和中文阅读。Expo、Info.plist 和 Xcode 工程版本均为 0.12.0 / 13，TypeScript 与 iOS 生产资源导出通过，产物位于忽略目录 `dist/account-status/ios`。本轮未进行 iOS 原生或云构建，没有新 IPA，也没有 iOS 运行验收。最近已构建的模拟器包仍为下文的 0.5.0。
+
+## 历史源码：0.7.0 / build 8，未构建新 iOS 包
 
 共享 UI 已同步雷达列表、文章详情与中英文正文的阅读排版；`app/app.json`、iOS `Info.plist` 和 Xcode 工程现有版本字段均更新为 0.7.0 / 8。共享界面类型检查通过，布局已在 Web 和 Android 验证；这些结果不代表 iOS 原生运行通过。
 

@@ -13,6 +13,7 @@ import type { Connection } from "./types";
 import {
   accountBadge,
   money,
+  orderedLimits,
   windowName,
   type AccountReport,
 } from "./accountView";
@@ -87,7 +88,8 @@ export default function AccountsPanel({
           "invalid_response",
         ].includes(account.status);
         const stale = account.stale || query.isError;
-        const limits = expanded ? account.limits : account.limits.slice(0, 1);
+        const ordered = orderedLimits(account.limits);
+        const limits = expanded ? ordered : ordered.slice(0, 1);
         return (
           <View key={account.id} style={a.card}>
             <View style={s.spread}>
@@ -147,7 +149,8 @@ export default function AccountsPanel({
                               backgroundColor:
                                 stale || expired
                                   ? C.muted
-                                  : w.remaining_percent <= 10
+                                  : w.remaining_percent <=
+                                      (account.low_remaining_percent ?? 10)
                                     ? C.accent
                                     : C.green,
                             },

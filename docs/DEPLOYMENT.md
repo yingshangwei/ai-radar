@@ -337,3 +337,11 @@ Docker Compose 是另一个可选方案，配置在 `deploy/compose.yaml`。目�
 生产验收时 20 次预约、17 份完整用量、3 次进行中、0 次未知、0 次统计写入错误；已报告 207,628 Token。Prometheus 标签包含模型、功能和阶段，账本可读指标为 1，目标 up；exporter/Prometheus 内存约 17/21 MB。统计数字会随正式任务继续增加。
 
 切换前后主业务 22 张表和 schema 保持相同；242 份原 ready 译文逐字段相同。未改模型密钥、审计结果或预算，未重启 Caddy、浏览器和原 8080 服务。仅通过环境固定探针已确认的 Codex 默认 gpt-6-astra，并启用 usage.db。部署回执与备份在 `/var/lib/ai-radar/usage-meter-20260910/`；不要重跑旧激活脚本。操作说明见 [MODEL-USAGE.md](MODEL-USAGE.md)。
+
+## 账户余额与额度：2026-09-11
+
+服务端 `e818ba0` 已启用独立账户查询模块，current 仍为 `/opt/ai-radar/releases/20260909-1a0b133`，source-manifest SHA-256 `cfb1509499f3475b54404cc51a54833f624afed068c951778ff8d83b142d3abb`。DeepSeek、Codex 的真实只读查询及鉴权接口通过；阿里云官方财务 SDK 已安装到独立环境，缺少 RAM 凭据时显示待授权。财务数值只存于受保护的服务端缓存，不提交公开仓库。
+
+配置 `/etc/ai-radar/accounts.toml`，缓存 `/var/lib/ai-radar/accounts/status.db`；仅在主服务环境增加两个 `RADAR_ACCOUNTS_*` 路径。业务配置、模型密钥、模型分工和提示词未变。等待所有模型调用完成并确认持久状态后切换 API，切换前 22 张业务表与 schema 一致；上线后复核原 250 份 ready 译文逐字段一致。Caddy、浏览器、OpenTelemetry exporter、Prometheus 及原 8080 服务均保留。
+
+回执、备份、私有真实查询验收在 `/var/lib/ai-radar/account-status-20260911/`。部署没有额外模型调用、业务数据库迁移或内容修订。不要重跑旧激活脚本；RAM 最小权限和配置说明见 [MODEL-USAGE.md](MODEL-USAGE.md)。

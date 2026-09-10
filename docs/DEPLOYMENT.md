@@ -342,6 +342,8 @@ Docker Compose 是另一个可选方案，配置在 `deploy/compose.yaml`。目�
 
 服务端 `e818ba0` 已启用独立账户查询模块，current 仍为 `/opt/ai-radar/releases/20260909-1a0b133`，source-manifest SHA-256 `cfb1509499f3475b54404cc51a54833f624afed068c951778ff8d83b142d3abb`。DeepSeek、Codex 的真实只读查询及鉴权接口通过；阿里云官方财务 SDK 已安装到独立环境，缺少 RAM 凭据时显示待授权。财务数值只存于受保护的服务端缓存，不提交公开仓库。
 
+RAM 只读授权已于同日补齐：专用身份仅授予 `bss:DescribeAcccount`，凭据通过服务器公钥加密传输，落盘 `/etc/ai-radar/billing.env`（`ai-radar`、`0600`）。实际余额查询和公网 reader 接口通过；凭据按查询读取，本次未重启服务，原有服务 PID、源文件清单及受保护配置均未变化。App 0.12 无需重建或重新安装。
+
 配置 `/etc/ai-radar/accounts.toml`，缓存 `/var/lib/ai-radar/accounts/status.db`；仅在主服务环境增加两个 `RADAR_ACCOUNTS_*` 路径。业务配置、模型密钥、模型分工和提示词未变。等待所有模型调用完成并确认持久状态后切换 API，切换前 22 张业务表与 schema 一致；上线后复核原 250 份 ready 译文逐字段一致。Caddy、浏览器、OpenTelemetry exporter、Prometheus 及原 8080 服务均保留。
 
 回执、备份、私有真实查询验收在 `/var/lib/ai-radar/account-status-20260911/`。部署没有额外模型调用、业务数据库迁移或内容修订。不要重跑旧激活脚本；RAM 最小权限和配置说明见 [MODEL-USAGE.md](MODEL-USAGE.md)。

@@ -71,7 +71,8 @@ User=ai-radar
 Group=ai-radar
 ExecStart=/opt/ai-radar/observability/venv/bin/python /opt/ai-radar/observability/exporter.py --database /var/lib/ai-radar/usage/usage.db --port 18476
 MemoryMax=128M
-ReadOnlyPaths=-/var/lib/ai-radar/usage
+# SQLite opens the database mode=ro, but may create WAL shared-memory lock files.
+ReadWritePaths=-/var/lib/ai-radar/usage
 InaccessiblePaths=/etc/ai-radar -/var/lib/ai-radar/codex -/var/lib/ai-radar/radar.db
 ''' + common,
  'ai-radar-prometheus': f'''[Unit]

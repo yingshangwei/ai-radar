@@ -53,6 +53,8 @@ RADAR_CODEX_DEFAULT_MODEL=gpt-6-astra
 
 两服务启用 systemd 故障重启、进程和 CPU 限制；没有额外开放公网端口。Exporter 没有业务 SDK 或模型密钥。Prometheus 不可用不阻塞 App；恢复后直接读取持久累计数，进程重启不会归零。短暂停采期间累计总数能恢复，但监控曲线的采样时间缺口不能精确重建。需要查看内置网页时用 SSH 转发 18477，不公开无登录的监控页面。
 
+Exporter 使用 SQLite `mode=ro` 查询账本；systemd 允许在独立 usage 目录创建 SQLite WAL 共享内存/锁文件，否则数据库暂时没有这些辅助文件时会读失败。不会给业务数据库或模型凭据目录增加权限。
+
 认证接口：`GET /v1/usage?period=today|7d|30d|all`。精确业务时间统计以此接口为准；Prometheus 用于趋势和运维。示例 PromQL：
 
 ```promql

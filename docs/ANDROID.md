@@ -4,7 +4,7 @@
 
 增加「你的雷达 → 模型用量」：时间筛选、当前模型分工、模型与功能阶段汇总、最近调用明细，Token 自动 K / M / B，未知用量独立显示。覆盖安装沿用原签名和设备连接。
 
-交付包 `dist/ai-radar-0.11.0-android.apk`，70,306,390 字节，SHA-256 `ace447ebc44e013baf8220f986f7d1927c3b501197d0b0e08010506bc96b26b1`。Android code 12、原证书 SHA-256 `b166858aae76fd673083b3fe3860ede1a1732d03d1995e671aa751008f0c89e9`、最低 API 24 / 目标 36，签名和版本验证通过。App 45 项测试通过、1 项既有跳过，类型检查通过；iOS 共享资源导出通过，未生成新 IPA。详见 [模型用量](MODEL-USAGE.md)。
+交付包 `dist/ai-radar-0.11.0-android.apk`，70,306,374 字节，SHA-256 `43c86179910a31ae452518402d79c8cdbc773ff67a7888fcb026a1390040ccee`。Android code 12、原证书 SHA-256 `b166858aae76fd673083b3fe3860ede1a1732d03d1995e671aa751008f0c89e9`、最低 API 24 / 目标 36，签名和版本验证通过。App 45 项测试通过、1 项既有跳过，类型检查通过；iOS 共享资源导出通过，未生成新 IPA。详见 [模型用量](MODEL-USAGE.md)。
 
 ## 历史版本：0.10.0 / code 11
 

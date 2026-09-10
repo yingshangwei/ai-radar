@@ -777,24 +777,6 @@ function Reader({
       {state?.translation?.alert && (
         <View style={{ paddingHorizontal: 24, paddingVertical: 8 }}>
           <TranslationNotice status={state} offline={!!status.data?.offline} />
-          {!demo && (
-            <Pressable
-              accessibilityRole="button"
-              style={[s.note, s.spread, { marginBottom: 20 }]}
-              onPress={() => {
-                setSettingsOpen(false);
-                setUsageOpen(true);
-              }}
-            >
-              <View>
-                <T style={{ fontWeight: "600" }}>模型用量</T>
-                <T style={[s.muted, { marginTop: 5 }]}>
-                  模型分工 · 功能消耗 · 调用明细
-                </T>
-              </View>
-              <Icon name="bar-chart-2" color={C.green} />
-            </Pressable>
-          )}
         </View>
       )}
       {!!activeError && (
@@ -1621,6 +1603,24 @@ function Reader({
         title="你的雷达"
       >
         <TranslationNotice status={state} offline={!!status.data?.offline} />
+        {!demo && (
+          <Pressable
+            accessibilityRole="button"
+            style={[s.note, s.spread, { marginBottom: 20 }]}
+            onPress={() => {
+              setSettingsOpen(false);
+              setUsageOpen(true);
+            }}
+          >
+            <View>
+              <T style={{ fontWeight: "600" }}>模型用量</T>
+              <T style={[s.muted, { marginTop: 5 }]}>
+                模型分工 · 功能消耗 · 调用明细
+              </T>
+            </View>
+            <Icon name="bar-chart-2" color={C.green} />
+          </Pressable>
+        )}
         <View style={[s.note, { marginBottom: 25 }]}>
           <T style={s.label}>连接状态</T>
           <T style={[s.body, { marginTop: 7 }]}>

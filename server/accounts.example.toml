@@ -1,0 +1,27 @@
+# Account queries do not run models, change routing, buy credits, or reset limits.
+refresh_seconds = 300
+timeout_seconds = 30
+
+[[accounts]]
+id = "bailian"
+provider = "bailian"
+name = "阿里百炼"
+# Production uses an isolated environment with the official Alibaba BSS SDK.
+billing_python = "/opt/ai-radar/billing/venv/bin/python"
+credentials_file = "/etc/ai-radar/billing.env"
+
+[[accounts]]
+id = "codex"
+provider = "codex"
+name = "Codex / ChatGPT"
+codex_command = ["codex"]
+
+[[accounts]]
+id = "deepseek"
+provider = "deepseek"
+name = "DeepSeek"
+in_use = false
+
+# OpenAI API and Anthropic have cost reports, but no integrated public balance API.
+# They can be explicitly configured with provider="openai" / "anthropic";
+# the result is "unsupported", never a fabricated zero balance.

@@ -26,6 +26,7 @@ Pods/
 *.p8
 *.mobileprovision
 credentials/
+server/.billing-venv/
 credentials.json
 secrets/
 app/src/generated/

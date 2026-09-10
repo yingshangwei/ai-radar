@@ -11,6 +11,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import case, func, or_, select
 
 from . import usage
+from .account_status import AccountMonitor
 from .config import Settings
 from .daily_schedule import DAILY_CHECK_MINUTES, DailySchedule
 from .db import database
@@ -29,11 +30,19 @@ def create_app(settings: Settings | None = None):
     pipeline = Pipeline(sessions, config)
     supervisor = JobSupervisor(pipeline, automatic=settings.scheduler_enabled)
     daily = DailySchedule(pipeline, submit=supervisor.submit)
+    accounts = AccountMonitor(settings.accounts_config_path, settings.accounts_database_path)
+
+    async def poll_accounts():
+        accounts.kick()
 
     @asynccontextmanager
     async def lifespan(_app):
         scheduler = AsyncIOScheduler(timezone=config.timezone)
         await supervisor.start()
+        if accounts.enabled:
+            accounts.kick()
+            scheduler.add_job(poll_accounts, "interval", seconds=30, id="account_status", max_instances=1,
+                coalesce=True)
         if settings.scheduler_enabled:
             scheduler.add_job(
                 supervisor.schedule_collect,
@@ -62,16 +71,19 @@ def create_app(settings: Settings | None = None):
                 max_instances=1,
                 coalesce=True,
             )
+        if settings.scheduler_enabled or accounts.enabled:
             scheduler.start()
         yield
         if scheduler.running:
             scheduler.shutdown(wait=False)
         await supervisor.stop()
+        await accounts.close()
         engine.dispose()
 
     app = FastAPI(title="AI Radar", version="0.1.0", lifespan=lifespan)
     app.state.sessions, app.state.pipeline = sessions, pipeline
     app.state.supervisor = supervisor
+    app.state.accounts = accounts
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -115,6 +127,16 @@ def create_app(settings: Settings | None = None):
             result = {"enabled": True, "available": False, "error": "用量记录暂时无法读取，请稍后重试。"}
         return {**result, "allocation": usage.allocation(config),
             "features": usage.FEATURES, "stages": usage.STAGES}
+
+    @app.get("/v1/accounts", dependencies=[Depends(authenticated)])
+    def account_status():
+        return accounts.report()
+
+    @app.post("/v1/accounts/refresh", dependencies=[Depends(authenticated)])
+    async def refresh_accounts():
+        # This refreshes read-only account data; it never enqueues inference or payment.
+        accounts.kick(force=True)
+        return accounts.report()
 
     @app.get("/v1/status", dependencies=[Depends(authenticated)])
     def status(session=Depends(session_dep)):

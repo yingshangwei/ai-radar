@@ -9,6 +9,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { cached } from "./api";
 import { C, s } from "./theme";
+import AccountsPanel from "./AccountsPanel";
 import type { Connection } from "./types";
 import {
   modelName,
@@ -48,6 +49,7 @@ export default function UsagePanel({ connection }: { connection: Connection }) {
   const stage = (value: string) => data?.stages[value] || value;
   return (
     <View>
+      <AccountsPanel connection={connection} />
       <Text style={[s.muted, { marginBottom: 18 }]}>
         每一份前沿信息，模型用了多少 Token。
       </Text>

@@ -1,0 +1,2 @@
+# Official Alibaba Cloud SDK, isolated from the inference/API environment.
+alibabacloud-bssopenapi20171214==5.1.1

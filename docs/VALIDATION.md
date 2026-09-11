@@ -410,3 +410,5 @@ Android API 36 模拟器 `5560` 完成 0.7 → 0.8 覆盖安装，演示首页�
 - 覆盖常规 Sol 单次调用、low 直接完成、有效证据才升级一次、缺证据/错误/超时不升级、并发相同确认合并、前瞻 low 会话复用，以及 low 完成后进程中断恢复 medium、维护模式只读恢复。使用本地假 CLI 的 JSONL 协议与真实 SQLite 验证状态管理，不依赖额外付费测试。
 - 服务器隔离探针 `inv-r8i8tf0fv0` 成功：明确传入 `gpt-5.6-sol` / `medium` 和 `gpt-6-astra` / `low`，均通过合成材料判断；回执分别为 10,747 和 12,784 Token，保存于独立探针账本。low 直接完成，没有调用 Astra medium。未将这些探针混入生产用量。
 - 未新增 App 原生能力；现有用量面板动态读取服务端分工和阶段标签，不需要新安装包。
+- 正式激活 `inv-q8i939g4sd` 和服务器复验 `inv-i8i953083s` 均 SUCCESS / 0；22 张业务表及 schema 在切换前后相同，301 份旧 ready 译文逐字段保持。业务配置原字节不变，新增路由配置进入部署指纹；API、浏览器、Caddy、exporter、Prometheus、OTA 服务均 active，其他服务未重启。
+- 公网使用现有 reader 实测三档分工、百炼保留和“疑难决断（按需）”标签；健康 200、未登录 401、授权后 200。原 Android stable OTA 清单 ID 未变，公钥验签通过。证据在忽略目录 `dist/model-tiers/public-verification.json`。未触发生产文章重跑。

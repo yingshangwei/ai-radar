@@ -1,6 +1,18 @@
 # 腾讯云部署
 
-## 当前：百炼翻译 · 2026-09-10
+## 当前：Codex 三档路由 · 2026-09-12
+
+运行目录仍为 `/opt/ai-radar/releases/20260909-1a0b133`，最新服务端源码补丁 **`4ee6b20834f7a8fb645e05ba0a6ae1c619490170`**，当前 source manifest SHA-256 **`2bb932058c7500e9d1ee282023ba197f9441f8bde8e1804cab2c3c0b816058ac`**。下方其他指纹均为历史记录。
+
+独立 `/etc/ai-radar/model-routing.toml`：Sol medium 负责常规生成与修正，Astra low 负责确认和前瞻判断，只有证据充分但仍无法决断的争议才进入 Astra medium。主服务新增 `RADAR_MODEL_ROUTING_CONFIG`，既有业务 `config.toml` 逐字相同，百炼翻译和历史缓存指纹保持。每次 Codex 请求显式传入型号及推理档位，覆盖旧 CLI 默认模型；详细规则见[模型路由](MODEL-ROUTING.md)。
+
+暂存及隔离实测 **`inv-r8i8tf0fv0`**、激活 **`inv-q8i939g4sd`**、最终服务器复验 **`inv-i8i953083s`** 均 SUCCESS / 0。切换在无在途模型调用的保存检查点完成，重启前全部 **22 张业务表及 schema** 一致，无迁移。上线复验原 **301 份 ready 译文逐字段不变**，全部来源/受保护配置指纹匹配。只重启 API；browser、Caddy、原 8080 服务、用量 exporter、Prometheus 和 OTA 分发服务保持原进程。
+
+本轮同时将 source manifest 中此前 OTA 增加的 Caddy 路由指纹同步为已验证的当前值；Caddy 文件和进程均未修改。私有一致性备份、激活与验证回执位于 `/var/lib/ai-radar/model-tiers-20260912/`；激活已完成，不可重跑该部署命令。
+
+Android 当前安装版本 **0.13.0 / code 14**，内容版本 **0.13.0.1**。此服务端切换无需新 APK 或 OTA；现有模型用量页动态读取分工及阶段标签，历史用量不重新归类。iOS 原生发布限制仍见 [IOS.md](IOS.md)。
+
+## 历史：百炼翻译 · 2026-09-10
 
 运行目录仍为 `/opt/ai-radar/releases/20260909-1a0b133`，最新源码补丁 **`f4acd225a65e861e49d55984f6baf97059bca78d`**。当前 source manifest SHA-256 **`2052be38902847ddef3bf98c50ff433e39339037c44a06d6ce527e77bb3f4400`**；下方历史指纹仅用于追溯，不是当前部署基线。
 

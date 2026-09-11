@@ -22,3 +22,13 @@ allprojects {
 
 apply plugin: "expo-root-project"
 apply plugin: "com.facebook.react.rootproject"
+
+// expo-updates 55 has C++ sources but does not inherit Expo's pinned NDK.
+// Keep it on the same NDK as React Native and expo-modules-core.
+subprojects { subproject ->
+  subproject.plugins.withId('com.android.library') {
+    if (subproject.name == 'expo-updates') {
+      subproject.android.ndkVersion = rootProject.ext.ndkVersion
+    }
+  }
+}

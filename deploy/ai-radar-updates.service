@@ -1,0 +1,25 @@
+[Unit]
+Description=AI Radar signed Expo update distribution
+After=network.target
+
+[Service]
+User=ai-radar-updates
+Group=ai-radar-updates
+WorkingDirectory=/opt/ai-radar/updates
+Environment=RADAR_UPDATES_ROOT=/var/lib/ai-radar-updates
+ExecStart=/opt/ai-radar/updates/venv/bin/python -m uvicorn updates:app --host 127.0.0.1 --port 18478 --workers 1 --no-access-log
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+MemoryMax=192M
+CPUQuota=25%
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target

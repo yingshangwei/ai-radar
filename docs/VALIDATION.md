@@ -393,3 +393,13 @@ Android API 36 模拟器 `5560` 完成 0.7 → 0.8 覆盖安装，演示首页�
 - App 全量 47 passed、1 skipped，最终主额度排序调整后 3 项账户展示回归和 TypeScript 通过。真实厂商顺序中备用额度可能在前，页面仍优先显示 Codex 主额度。
 - Android 0.12.0/code13 原签名构建通过；专用 API 36 模拟器实测覆盖安装保留 reader、真实余额及主额度、待授权提示、手动刷新、其他额度展开、滚动到原 Token 统计。截图和验收回执在忽略目录 `dist/account-status/`，模拟器已停止。
 - APK 版本、证书、四 ABI、ZIP、Hermes bundle 一致性与 6 个已知私密值扫描通过。iOS 共享资源导出成功，无新 IPA 或 iOS 原生运行验证。凭据、财务数值、APK、截图和隔离虚拟环境不提交公开仓库。
+## 2026-09-11：Expo 签名热更新
+
+- 新增独立只读分发服务 `ai-radar-updates` / `127.0.0.1:18478`，安装及 Caddy 路由验证成功，原 API PID 未变。主 API、browser、Caddy、更新进程均 active。未修改业务配置、模型路由或内容数据。
+- Expo Updates v1 协议、签名发布、资源完整性、平台/runtime/channel 隔离、损坏发布不切指针、回退指令和路径访问测试 **15 通过**。App **50 通过、1 项既有跳过**；TypeScript、Prettier、Ruff 通过。实际临时修改原生 Gradle 文件后，发布工具因 fingerprint 不符拒绝发布，文件随后恢复。
+- Android **0.13.0 / code 14**，APK **74,364,304 bytes**，SHA-256 `1d504d4d8ad039b50b7b91993db7a4dad3022deb00fbc77cbdf56ec18c31081a`。原签名、四 ABI、ZIP 完整性、6 个已知私密值扫描通过。APK、导出资源和私钥均受 Git 忽略；仅公钥证书及原生指纹基线提交。
+- 专用 Android 模拟器 5560 从 0.12 覆盖安装后保留原连接；设置页位置及状态实际检查。启动自动下载签名更新，显示“更新已就绪”，冷启动后内容版本从 **0.13.0 → 0.13.0.1**，Android 安装版本仍为 **0.13.0 / code 14**，未通过再次安装 APK 应用热更新。公网清单逐字一致、全部 2 个资源哈希匹配。
+- iOS 最终共享资源导出通过；没有执行新 iOS 原生构建或真机运行，没有登记 iOS 原生基线或发布 iOS OTA。回退指令经过签名与协议测试，未在生产设备注入故障验证所有崩溃恢复；Expo 错误恢复存在首次内容展示前后的边界。
+- 本机证据：`dist/ota/final-base.png`、`downloaded.png`、`applied.png`、`artifact-verification.json`、`public-final-verification.json`、`native-guard.json`、构建/测试日志。最终 stable 清单 ID `828ac3ea-51c8-4d85-9f4d-388b19ad1782`；发行目录 `3ebdc52e-6907-4a82-9438-895702e48132`。部署调用 `inv-j8hurc09un`、最终 preview `inv-f8hv43g28u`、stable 激活 `inv-f8hv4x06w1` 均成功。
+
+- 断网验收：确认模拟器 `Active default network: none` 后冷启动，仍显示 **0.13.0.1**，提示暂时无法获取更新但当前版本可继续使用；联网恢复后保留原应用。证据 `dist/ota/offline-final.png` 与 `native-verification.json`。

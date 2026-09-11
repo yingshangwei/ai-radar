@@ -12,9 +12,14 @@
     </intent>
   </queries>
   <application android:name=".MainApplication" android:label="@string/app_name" android:icon="@mipmap/ic_launcher" android:allowBackup="true" android:theme="@style/AppTheme" android:supportsRtl="true" android:enableOnBackInvokedCallback="false" android:fullBackupContent="@xml/secure_store_backup_rules" android:dataExtractionRules="@xml/secure_store_data_extraction_rules">
-    <meta-data android:name="expo.modules.updates.ENABLED" android:value="false"/>
+    <meta-data android:name="expo.modules.updates.CODE_SIGNING_CERTIFICATE" android:value="-----BEGIN CERTIFICATE-----&#xD;&#xA;MIIC2zCCAcOgAwIBAgIJRSECtCeGMl7+MA0GCSqGSIb3DQEBCwUAMBcxFTATBgNV&#xD;&#xA;BAMTDEFJIFJhZGFyIE9UQTAeFw0yNjA5MTExMTE4NDlaFw0zNjA5MTExMTE4NDla&#xD;&#xA;MBcxFTATBgNVBAMTDEFJIFJhZGFyIE9UQTCCASIwDQYJKoZIhvcNAQEBBQADggEP&#xD;&#xA;ADCCAQoCggEBAKJ673cfkEJSh9YQ+rKkNULu9qVTpznY+90Fqn6LgNNGY7hhquO5&#xD;&#xA;OUw8px97LhlIEPm+CKiW2590e0AV1vIafQ27baPZxUrdAjq6FaSPStkDD0rQ/W69&#xD;&#xA;BWqvu0yHyQE+qOCSeb3wW14U48cytRNP30mzBpG0dGcRinEbUm++b1LUeI8uN406&#xD;&#xA;Qs7OwECRydnIXTHMNUrudqT684ZvVdntUoIeyAglr6l/I4S37reDP9oMtUWain/E&#xD;&#xA;rIjVnYsRg8TctzBmn/LSj6BhztgW4X11ls6FD/weY/7DzLOlH/jY0rYxmNFrrE5k&#xD;&#xA;YZBF5ZH97PDpkw7yoV/EBf34uLBbUyX8VCMCAwEAAaMqMCgwDgYDVR0PAQH/BAQD&#xD;&#xA;AgeAMBYGA1UdJQEB/wQMMAoGCCsGAQUFBwMDMA0GCSqGSIb3DQEBCwUAA4IBAQBv&#xD;&#xA;YM96/dGufpdDsi+z0BfpJTvrrl+b39CdGS2q3oUP/d6/9DpY0hcZV03l78/hWD4G&#xD;&#xA;Dw3jC2J5Y9hrOgqZuvGlrCwiJyUGwRWSmHhIi4aNqGpXVo3X6A/oPDI17WOHkuqR&#xD;&#xA;vd4XzTbt0Fx4+bLKYRH5t2M7NU9qFjLwTbpLLn0Y7Up2lL2ZWO+PRSto95ZQyplN&#xD;&#xA;sAK4ifeqg62UsMAPmlt1z7u+9whHVR3B28mGERPk4HuKnUcbMgwzDKxFFnAhu8Si&#xD;&#xA;9W0lZ1FWgcafJvrBBb/qk1dUFkCWzB1X3G/71zvka802zH7JgmaLD4z7Bh5OqAt3&#xD;&#xA;PbWzdGNq7MH5C0Stjogu&#xD;&#xA;-----END CERTIFICATE-----&#xD;&#xA;"/>
+    <meta-data android:name="expo.modules.updates.CODE_SIGNING_METADATA" android:value="{&quot;keyid&quot;:&quot;ai-radar-ota-2026&quot;,&quot;alg&quot;:&quot;rsa-v1_5-sha256&quot;}"/>
+    <meta-data android:name="expo.modules.updates.ENABLED" android:value="true"/>
+    <meta-data android:name="expo.modules.updates.EXPO_RUNTIME_VERSION" android:value="@string/expo_runtime_version"/>
     <meta-data android:name="expo.modules.updates.EXPO_UPDATES_CHECK_ON_LAUNCH" android:value="ALWAYS"/>
     <meta-data android:name="expo.modules.updates.EXPO_UPDATES_LAUNCH_WAIT_MS" android:value="0"/>
+    <meta-data android:name="expo.modules.updates.EXPO_UPDATE_URL" android:value="https://radar.yswdra.cn/updates/v1/manifest"/>
+    <meta-data android:name="expo.modules.updates.UPDATES_CONFIGURATION_REQUEST_HEADERS_KEY" android:value="{&quot;expo-channel-name&quot;:&quot;stable&quot;}"/>
     <activity android:name=".MainActivity" android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode|smallestScreenSize" android:launchMode="singleTask" android:windowSoftInputMode="adjustResize" android:theme="@style/Theme.App.SplashScreen" android:exported="true" android:screenOrientation="portrait">
       <intent-filter>
         <action android:name="android.intent.action.MAIN"/>

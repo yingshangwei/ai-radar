@@ -39,6 +39,7 @@ import { ArticleBody, ArticleByline, ReplyContext } from "./src/ArticleContent";
 import { displayHeadline } from "./src/articlePresentation";
 import MathText from "./src/MathText";
 import UsagePanel from "./src/UsagePanel";
+import AppUpdates, { UpdateLifecycle } from "./src/AppUpdates";
 import AuthorizationCenter from "./src/AuthorizationCenter";
 import DeviceReading from "./src/DeviceReading";
 import {
@@ -1603,6 +1604,7 @@ function Reader({
         title="你的雷达"
       >
         <TranslationNotice status={state} offline={!!status.data?.offline} />
+        <AppUpdates />
         {!demo && (
           <Pressable
             accessibilityRole="button"
@@ -2053,6 +2055,7 @@ export default function App() {
     <SafeAreaProvider>
       <QueryClientProvider client={queryClient}>
         <StatusBar style="dark" />
+        <UpdateLifecycle />
         {!ready ? (
           <View style={[s.screen, { justifyContent: "center" }]}>
             <ActivityIndicator color={C.accent} />

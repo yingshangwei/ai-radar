@@ -30,6 +30,10 @@ FEATURES = {
     "discovery_foresight": "动态关注与前瞻预判", "other": "其他调用",
 }
 STAGES = {"draft": "初稿", "generation": "生成", "correction": "校对", "audit": "独立审计"}
+for _stage, _label in list(STAGES.items()):
+    for _role, _role_label in {"standard": "常规处理", "confirmation": "前置确认", "adjudication": "疑难决断（按需）"}.items():
+        for _effort in ("low", "medium"):
+            STAGES[f"{_stage}_{_role}_{_effort}"] = f"{_label} · {_role_label} · {_effort}"
 TOKEN_FIELDS = ("input_tokens", "output_tokens", "cached_tokens", "cache_write_tokens", "reasoning_tokens")
 
 
@@ -41,6 +45,10 @@ def scope(feature, stage="generation", *, default_only=False):
         yield
     finally:
         _scope.reset(token)
+
+
+def current_scope():
+    return _scope.get()
 
 
 def vendor(base_url, fallback="openai"):
@@ -302,6 +310,16 @@ def allocation(config):
             "model": label(model) or "auto-unreported"})
 
     def engine(feature, stage, provider):
+        from . import model_router
+
+        if model_router.active(provider):
+            role = model_router.role_for(feature, stage)
+            profile = getattr(model_router.config(), role)
+            add(feature, model_router.stage_for(stage, role, profile), "codex", profile.model)
+            if role == "confirmation":
+                final = model_router.config().adjudication
+                add(feature, model_router.stage_for(stage, "adjudication", final), "codex", final.model)
+            return
         add(feature, stage, vendor(provider.base_url, provider.kind)
             if provider.kind in {"openai", "openai_chat"} else provider.kind, provider_model(provider))
 

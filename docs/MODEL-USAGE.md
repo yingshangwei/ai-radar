@@ -48,16 +48,19 @@ ALIBABA_CLOUD_SECURITY_TOKEN=
 
 接口为 `GET /v1/accounts`、`POST /v1/accounts/refresh`，均接受现有 reader 或 admin 令牌；返回归一化数值、查询时间和状态，不返回密钥、厂商原始错误或模型内容。默认低余额阈值为 CNY 10 / USD 2，低额度阈值为剩余 10%，可在账户配置中调整。告警在 App 账户卡片中展示，本模块不新增系统推送。
 
-当前生产分工（2026-09-10 实测）：
+三档路由分工（2026-09-12）：
 
 | 功能 | 生成 / 初稿 | 校对及独立审计 |
 | --- | --- | --- |
 | 普通中文翻译 | 百炼 Qwen3.7-Flash | 百炼 Qwen Plus |
-| 技术论文 / 技术内容翻译 | 百炼 Qwen3.7-Flash | Codex CLI / gpt-6-astra |
-| 每日汇报、网页解读、雷达标题 | Codex CLI / gpt-6-astra | Codex CLI / gpt-6-astra |
-| 动态关注与前瞻预判 | Codex CLI / gpt-6-astra，前瞻批次复用会话 | 同一批判断，不按候选数量倍增用量 |
+| 技术论文 / 技术内容翻译 | 百炼 Qwen3.7-Flash | Sol medium 修正；Astra low 审计 |
+| 每日汇报、网页解读、雷达标题 | Codex CLI / Sol medium | Astra low 确认 |
+| 动态关注与前瞻预判 | Astra low，前瞻批次复用会话 | 同一批判断，不按候选数量倍增用量 |
+| 有实质证据争议的疑难问题 | 仅由 low 明确升级 | Astra medium 决断一次 |
 
-配置分工与历史实际用量分别展示。API 返回的模型版本优先于请求中的别名。Codex 的 JSON 回执有 Token 数，未保证报告型号；部署通过 `RADAR_CODEX_DEFAULT_MODEL=gpt-6-astra` 固定服务器探针已验证的现用默认值，并实际传入 `--model`。显式 `ProviderConfig.model` 优先。此默认值的固定不改变业务配置指纹、现有译文、审计结果或预算，也不会引发历史内容重新审核。以后换模型应使用现有各 Provider 的 `model` 配置，使会话和配置变更遵循原状态管理规则。
+配置分工与历史实际用量分别展示。API 返回的模型版本优先于请求中的别名。Codex 的 JSON 回执有 Token 数，未保证报告型号；三档路由为每次调用明确传入 `--model` 和 `model_reasoning_effort`，覆盖 CLI 默认值。用户所说的 light 对应 CLI 的 low。历史用量保持原样，新调用的阶段标签包含职责和推理档位。
+
+独立策略文件 `/etc/ai-radar/model-routing.toml` 控制三档分工，不修改业务配置指纹或触发历史内容重审；普通调用不追加更强模型，缺材料、超时、网络和格式错误不升级。仅有可核对证据的争议才进入 medium，详见[路由、升级条件与会话恢复](MODEL-ROUTING.md)。百炼翻译流程保持原分工。
 
 ## 开源组件选择
 
@@ -86,6 +89,7 @@ Prometheus 3.14.0 从[官方发布](https://prometheus.io/download/)下载并验
 ```dotenv
 RADAR_USAGE_DATABASE_PATH=/var/lib/ai-radar/usage/usage.db
 RADAR_CODEX_DEFAULT_MODEL=gpt-6-astra
+RADAR_MODEL_ROUTING_CONFIG=/etc/ai-radar/model-routing.toml
 ```
 
 独立 SQLite 保存只含用量的预约和回执，WAL、主键去重、事务落盘；不包含提示词、正文、凭据、原始错误或模型回答。主业务数据库没有结构或数据迁移。写入失败保留可见的统计错误计数，并继续业务；极端磁盘/权限故障可能导致统计缺口，不承诺任意系统故障下零丢失。

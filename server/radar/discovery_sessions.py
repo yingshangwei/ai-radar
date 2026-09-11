@@ -15,7 +15,7 @@ from uuid import uuid4
 
 from sqlalchemy import func, select
 
-from . import codex_sessions, usage
+from . import codex_sessions, model_router, usage
 from .discovery_contracts import DiscoveryBatchDecision, batch_prompt, validate_batch
 from .models import AgentBatch, AgentSession, DiscoveryCall, DiscoveryCandidate, now_iso
 
@@ -28,7 +28,16 @@ class DiscoverySessions:
         self.service = service
         self.sessions = service.sessions
         self.settings = service.settings
-        self.provider = service.provider_config
+        self.base_provider = service.provider_config
+        self.routed = model_router.active(self.base_provider)
+        self.provider = (model_router.provider_for(self.base_provider, "confirmation")
+            if self.routed else self.base_provider)
+        self.schema = (model_router.confirmation_schema(DiscoveryBatchDecision)
+            if self.routed else DiscoveryBatchDecision)
+
+    def _prompt(self, batch_id, members):
+        prompt = batch_prompt(batch_id, members)
+        return model_router.confirmation_prompt(prompt) if self.routed else prompt
 
     @contextmanager
     def _exclusive(self):
@@ -91,7 +100,7 @@ class DiscoverySessions:
             identity = {"kind": "codex", "model": self.provider.model,
                 "config_fingerprint": _hash(self.provider.model_dump(mode="json")),
                 "request_upper_bound": None, "batch_id": batch_id}
-            lease = (datetime.now(UTC) + timedelta(seconds=self.provider.timeout_seconds + 60)).isoformat()
+            lease = (datetime.now(UTC) + timedelta(seconds=self.base_provider.timeout_seconds + 60)).isoformat()
             for row in rows:
                 if len(members) >= limit:
                     break
@@ -99,10 +108,10 @@ class DiscoverySessions:
                     continue
                 member = {"candidate_id": row.id, "fingerprint": row.fingerprint,
                     "payload": deepcopy(row.payload), "metrics": deepcopy(row.latest_metrics), "call_id": str(uuid4())}
-                if len(batch_prompt(batch_id, [member])) > MAX_PROMPT_CHARS:
+                if len(self._prompt(batch_id, [member])) > MAX_PROMPT_CHARS:
                     row.status, row.error_code, row.updated_at = "needs_attention", "prompt_too_large", now_iso()
                     continue
-                if len(batch_prompt(batch_id, [*members, member])) > MAX_PROMPT_CHARS:
+                if len(self._prompt(batch_id, [*members, member])) > MAX_PROMPT_CHARS:
                     break  # Keep FIFO; this candidate starts the next batch.
                 members.append(member)
                 row.status, row.owner, row.provider_identity = "reserved", owner, deepcopy(identity)
@@ -113,8 +122,8 @@ class DiscoverySessions:
             if not members:
                 return None
             configuration = _hash({"provider": self.provider.model_dump(mode="json"),
-                "policy": self.settings.policy, "schema": DiscoveryBatchDecision.model_json_schema(), "scope": SCOPE,
-                "instructions": batch_prompt("00000000-0000-0000-0000-000000000000", [])})
+                "policy": self.settings.policy, "schema": self.schema.model_json_schema(), "scope": SCOPE,
+                "instructions": self._prompt("00000000-0000-0000-0000-000000000000", [])})
             active = None
             for conversation in session.scalars(select(AgentSession).where(
                 AgentSession.scope == SCOPE, AgentSession.status.in_(("idle", "running")),
@@ -133,12 +142,12 @@ class DiscoverySessions:
                 active = AgentSession(scope=SCOPE, configuration=configuration)
                 session.add(active)
                 session.flush()
-            prompt = batch_prompt(batch_id, members)
+            prompt = self._prompt(batch_id, members)
             expected_thread = active.cli_session_id or None
             batch = AgentBatch(id=batch_id, session_id=active.id, scope=SCOPE, owner=owner, members=members,
                 prompt=prompt, workdir=str(Path(self.settings.session_directory).resolve() / batch_id),
                 request_fingerprint=codex_sessions.request_fingerprint(
-                    self.provider, prompt, DiscoveryBatchDecision, session_id=expected_thread), lease_until=lease)
+                    self.provider, prompt, self.schema, session_id=expected_thread), lease_until=lease)
             session.add(batch)
             active.status, active.batch_id, active.updated_at = "running", batch_id, now_iso()
             active.turns += 1
@@ -155,7 +164,7 @@ class DiscoverySessions:
                 raise ValueError("Discovery session owner mismatch")
             conversation.cli_session_id, conversation.updated_at = thread_id, now_iso()
 
-    def _finish(self, batch_id, response):
+    def _finish(self, batch_id, response, resolved_text=None):
         with self.service._transaction() as session:
             batch = session.get(AgentBatch, batch_id)
             if batch.status != "reserved":
@@ -165,7 +174,7 @@ class DiscoverySessions:
                 conversation.cli_session_id and conversation.cli_session_id != response.session_id
             ) or conversation.batch_id != batch_id:
                 raise ValueError("Discovery batch receipt does not match")
-            decision = validate_batch(response.text, batch_id, batch.members)
+            decision = validate_batch(resolved_text if resolved_text is not None else response.text, batch_id, batch.members)
             by_id = {value.candidate_id: value.model_dump(mode="json") for value in decision.decisions}
             accepted = []
             for member in batch.members:
@@ -212,10 +221,18 @@ class DiscoverySessions:
         for batch in batches:
             # Owning the process lock proves no cooperating CLI still runs, regardless of lease time.
             try:
-                receipts = codex_sessions.scan_artifacts(batch.workdir, schema_type=DiscoveryBatchDecision)
+                routed = batch.prompt.startswith(model_router.PREFIX)
+                schema = model_router.confirmation_schema(DiscoveryBatchDecision) if routed else DiscoveryBatchDecision
+                receipts = codex_sessions.scan_artifacts(batch.workdir, schema_type=schema)
                 matches = [receipt for receipt in receipts if receipt.request_fingerprint == batch.request_fingerprint]
                 if len(matches) == 1:
-                    self._finish(batch.id, matches[0])
+                    resolved = None
+                    if routed:
+                        value = model_router.parse_confirmation(matches[0].text, DiscoveryBatchDecision, batch.prompt)
+                        if value.gate.decision == "needs_adjudication":
+                            continue  # The async queue resumes the one durable adjudication turn.
+                        resolved = value.result.model_dump_json()
+                    self._finish(batch.id, matches[0], resolved)
                 else:
                     self._fail(batch.id)
             except (ValueError, TypeError, KeyError):
@@ -228,6 +245,32 @@ class DiscoverySessions:
         with self._exclusive() as fd:
             return self._reconcile_locked() if fd is not None else 0
 
+    async def _resume_adjudication(self, fd):
+        with self.sessions() as session:
+            batches = list(session.scalars(select(AgentBatch).where(
+                AgentBatch.scope == SCOPE, AgentBatch.status == "reserved",
+            ).order_by(AgentBatch.created_at)))
+        judged = 0
+        for batch in batches:
+            if not batch.prompt.startswith(model_router.PREFIX):
+                continue
+            try:
+                receipts = codex_sessions.scan_artifacts(batch.workdir,
+                    schema_type=model_router.confirmation_schema(DiscoveryBatchDecision))
+                receipt = next(r for r in receipts if r.request_fingerprint == batch.request_fingerprint)
+                with usage.scope("discovery_foresight"):
+                    text = await model_router.finish_confirmation(self.base_provider,
+                        model_router.original_prompt(batch.prompt), DiscoveryBatchDecision, receipt.text,
+                        batch.workdir, lock_fd=fd)
+                self._finish(batch.id, receipt, text)
+                judged += len(batch.members)
+            except (ValueError, TypeError, KeyError, StopIteration):
+                self._fail(batch.id, "format_invalid", unknown=False)
+            except codex_sessions.CodexSessionError as exc:
+                self._fail(batch.id, "outcome_unknown" if exc.outcome_unknown else "provider_unavailable",
+                    unknown=exc.outcome_unknown)
+        return judged
+
     async def pending(self, limit=None):
         result = {"processed": 0, "judged": 0, "applied": 0, "failed": 0}
         limit = max(0, min(self.settings.batch_size, limit if limit is not None else self.settings.batch_size))
@@ -235,6 +278,8 @@ class DiscoverySessions:
             if fd is None:
                 return {**result, "more_pending": True}
             self._reconcile_locked()
+            if limit:
+                result["judged"] += await self._resume_adjudication(fd)
             with self.sessions() as session:
                 accepted = [row.id for row in session.scalars(select(DiscoveryCandidate).where(
                     DiscoveryCandidate.status == "accepted",
@@ -251,9 +296,15 @@ class DiscoverySessions:
                 result["processed"] += len(batch.members)
                 try:
                     with usage.scope("discovery_foresight"):
-                        response = await codex_sessions.run(self.provider, batch.workdir, batch.prompt,
-                            DiscoveryBatchDecision, session_id=expected_thread, lock_fd=fd,
-                            on_thread=lambda thread_id: self._bind_thread(batch.id, thread_id))
+                        stage = (model_router.stage_for("generation", "confirmation", model_router.config().confirmation)
+                            if self.routed else "generation")
+                        with usage.scope("discovery_foresight", stage):
+                            response = await codex_sessions.run(self.provider, batch.workdir, batch.prompt,
+                                self.schema, session_id=expected_thread, lock_fd=fd,
+                                on_thread=lambda thread_id: self._bind_thread(batch.id, thread_id))
+                        resolved = (await model_router.finish_confirmation(self.base_provider,
+                            model_router.original_prompt(batch.prompt), DiscoveryBatchDecision, response.text,
+                            batch.workdir, lock_fd=fd)) if self.routed else None
                 except BaseException as exc:
                     if isinstance(exc, codex_sessions.CodexSessionError) and not exc.outcome_unknown:
                         self._fail(batch.id, "format_invalid" if exc.failure_kind == "format" else
@@ -265,7 +316,7 @@ class DiscoverySessions:
                         raise
                 else:
                     try:
-                        accepted = self._finish(batch.id, response)
+                        accepted = self._finish(batch.id, response, resolved)
                     except (ValueError, TypeError, KeyError):
                         self._fail(batch.id, "format_invalid", unknown=False)
                         result["failed"] += len(batch.members)

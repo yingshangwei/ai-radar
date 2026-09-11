@@ -1,0 +1,15 @@
+# Applies to Codex tasks only; existing Bailian and other provider routes remain independent.
+enabled = true
+state_directory = "/var/lib/ai-radar/model-routing"
+
+[standard]
+model = "gpt-5.6-sol"
+effort = "medium"
+
+[confirmation]
+model = "gpt-6-astra"
+effort = "low"
+
+[adjudication]
+model = "gpt-6-astra"
+effort = "medium"

@@ -121,6 +121,16 @@ class CLIProvider(StructuredProvider):
         self.config = config
 
     async def complete(self, prompt: str, schema_type: type[BaseModel]) -> str:
+        from . import model_router
+
+        if model_router.active(self.config):
+            async def raw(config, text, schema):
+                return await CLIProvider(config)._complete_raw(text, schema)
+
+            return await model_router.complete(self.config, prompt, schema_type, raw)
+        return await self._complete_raw(prompt, schema_type)
+
+    async def _complete_raw(self, prompt: str, schema_type: type[BaseModel]) -> str:
         config = self.config
         with tempfile.TemporaryDirectory(prefix="radar-agent-") as directory:
             root = Path(directory)

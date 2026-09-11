@@ -31,6 +31,7 @@ ai-radar/
 - OpenAI、Google AI、DeepMind、Hugging Face、Meta Newsroom 官方 RSS，以及 Anthropic 官方新闻页。
 - 重点账号管理、可配置热度门槛、AI 主题过滤、最近一周的信息流、关键词检索与收藏。
 - 可切换 Codex CLI、Claude Code CLI、自定义 CLI、OpenAI Responses、兼容 Chat Completions 的服务、Anthropic API。模型与服务地址均为配置项。
+- Codex [三档路由](docs/MODEL-ROUTING.md)：Sol medium 处理常规生成和修正，Astra low 做前置确认，只有证据充分但仍无法决断的争议才升级 Astra medium。百炼翻译分工保留，用量按实际模型、功能和档位记录。
 - 手机使用系统安全存储保存设备令牌；网页预览只使用会话存储。缓存文章和日报可离线阅读，认证失败不会被缓存掩盖。
 - 独立定时采集和日报任务、幂等入库、任务互斥、原文引用校验、SQLite WAL 与一致性备份。
 

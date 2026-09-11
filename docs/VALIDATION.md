@@ -403,3 +403,10 @@ Android API 36 模拟器 `5560` 完成 0.7 → 0.8 覆盖安装，演示首页�
 - 本机证据：`dist/ota/final-base.png`、`downloaded.png`、`applied.png`、`artifact-verification.json`、`public-final-verification.json`、`native-guard.json`、构建/测试日志。最终 stable 清单 ID `828ac3ea-51c8-4d85-9f4d-388b19ad1782`；发行目录 `3ebdc52e-6907-4a82-9438-895702e48132`。部署调用 `inv-j8hurc09un`、最终 preview `inv-f8hv43g28u`、stable 激活 `inv-f8hv4x06w1` 均成功。
 
 - 断网验收：确认模拟器 `Active default network: none` 后冷启动，仍显示 **0.13.0.1**，提示暂时无法获取更新但当前版本可继续使用；联网恢复后保留原应用。证据 `dist/ota/offline-final.png` 与 `native-verification.json`。
+
+## 2026-09-12：Codex 三档路由
+
+- 服务端全量 **1599 passed、18 skipped**；最终维护模式不发起升级调用的调整后，路由、会话恢复、前瞻批次和用量相关 **90 项测试通过**，Ruff 通过。
+- 覆盖常规 Sol 单次调用、low 直接完成、有效证据才升级一次、缺证据/错误/超时不升级、并发相同确认合并、前瞻 low 会话复用，以及 low 完成后进程中断恢复 medium、维护模式只读恢复。使用本地假 CLI 的 JSONL 协议与真实 SQLite 验证状态管理，不依赖额外付费测试。
+- 服务器隔离探针 `inv-r8i8tf0fv0` 成功：明确传入 `gpt-5.6-sol` / `medium` 和 `gpt-6-astra` / `low`，均通过合成材料判断；回执分别为 10,747 和 12,784 Token，保存于独立探针账本。low 直接完成，没有调用 Astra medium。未将这些探针混入生产用量。
+- 未新增 App 原生能力；现有用量面板动态读取服务端分工和阶段标签，不需要新安装包。

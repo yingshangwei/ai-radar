@@ -18,6 +18,7 @@
 - 生产策略：`/etc/ai-radar/model-routing.toml`，通过 `RADAR_MODEL_ROUTING_CONFIG` 指定，修改后重启 API 以加载新策略。
 - 三个 profile 的型号、推理档位可配置。明确配置的文件无效/缺失时停止相关调用并报告错误，不自动回到昂贵的默认模型。
 - 仅接管 `kind="codex"`；百炼、其他 API/Agent 适配器保持现有配置。百炼 Qwen3.7-Flash 仍负责翻译初稿，Qwen Plus 负责普通翻译校对和审计；技术翻译的 Codex 修正改用 Sol medium、审计用 Astra low，必要时再升级。
+- GLM、Grok、Gemini 的官方端点、凭据与当前适配边界见[其他厂商接入](MODEL-PROVIDERS.md)；三档 profile 尚不能直接换成其他厂商的型号。
 - 不修改业务配置的模型指纹、翻译 revision、已通过文章或摘要。策略切换不会仅因换模型触发历史内容批量重新翻译/审核；新调用的实际模型记录在用量账本中。
 - 无需升级 App：现有「模型用量」从服务端读取分工与阶段标签，显示 `常规处理 · medium`、`前置确认 · low` 和 `疑难决断（按需）· medium`，Token 继续自动 K → M → B。历史调用不会被重新标记为新档位。
 

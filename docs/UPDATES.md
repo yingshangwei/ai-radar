@@ -69,4 +69,4 @@ iOS 原生配置、公钥证书和共享更新界面已接入，同样按 platfo
 
 依据：[Expo Updates SDK](https://docs.expo.dev/versions/v55.0.0/sdk/updates/)、[更新协议 v1](https://docs.expo.dev/technical-specs/expo-updates-1/)、[签名说明](https://docs.expo.dev/eas-update/code-signing/)、[错误恢复边界](https://docs.expo.dev/eas-update/error-recovery/)。参考了 Expo 官方自建服务示例的协议处理，没有直接将其演示服务作为生产依赖。
 
-当前 stable 内容版：**0.13.0.2**（原文优先、手动拉取、翻译归档），沿用 Android 0.13.0 / code 14 基础包。验证与服务端策略见 [FRESHNESS.md](FRESHNESS.md)。
+当前 stable 内容版：**0.13.0.3**（新增免费来源的 AI 行业与投资研究），沿用 Android 0.13.0 / code 14 基础包。原文优先、手动拉取和翻译归档继续保留。新版本验证见 [INDUSTRY-VALIDATION.md](INDUSTRY-VALIDATION.md)，既有时效策略见 [FRESHNESS.md](FRESHNESS.md)。

@@ -20,6 +20,7 @@ from .models import Job
 
 logger = logging.getLogger(__name__)
 LANES = {"collect": ("collect",), "translate": ("translate",), "discover": ("discover",),
+         "presentation": ("present",),
          "processing": ("read", "digest", "daily")}
 PHASES = frozenset({"queued", "collect", "translate", "discover", "read", "presentation", "digest",
                     "completed", "retry_wait", "attention", "interrupted"})
@@ -159,6 +160,33 @@ class JobSupervisor:
 
     async def schedule_collect(self):
         return self.submit("collect")
+
+    def refresh_latest(self):
+        """Reader-authorized collection only; coalesce and rate-limit across devices."""
+        current = self._now()
+        with self.sessions.begin() as session:
+            _write_lock(session)
+            active = session.scalar(select(Job).where(Job.kind == "collect",
+                Job.status.in_(("queued", "running", "retrying"))).order_by(Job.queued_at).limit(1))
+            last = session.scalar(select(Job).where(Job.kind == "collect").order_by(Job.started_at.desc()).limit(1))
+            recent = bool(last and current - datetime.fromisoformat(last.finished_at or last.started_at)
+                          < timedelta(seconds=120))
+            if active:
+                if active.status == "queued":
+                    active.force = True  # Latest windows only; no model/content force operation.
+                    active.retry_at = None
+                uid, combined = active.id, True
+            elif recent:
+                uid, combined = last.id, True
+            else:
+                job = Job(kind="collect", status="queued", phase="queued", queued_at=current.isoformat(),
+                          force=True, max_attempts=3, message="正在安排最新来源采集，原文先到，总结与翻译异步更新。")
+                session.add(job)
+                session.flush()
+                uid, combined = job.id, False
+        self._ensure_workers()
+        self.events["collect"].set()
+        return {"job_id": uid, "coalesced": combined, "minimum_interval_seconds": 120}
 
     @staticmethod
     def _lane(kind):
@@ -309,7 +337,7 @@ class JobSupervisor:
         check = getattr(self.pipeline, "has_pending", None)
         if check is None:
             return
-        for kind in ("translate", "read", "discover"):
+        for kind in ("present", "translate", "read", "discover"):
             with self.sessions() as session:
                 last = session.scalar(select(Job).where(Job.kind == kind).order_by(
                     Job.queued_at.desc(), Job.started_at.desc(),
@@ -318,7 +346,8 @@ class JobSupervisor:
                     "task_error", "retry_exhausted",
                 )
                 discovery = getattr(getattr(self.pipeline, "config", None), "discovery", None)
-                if blocked and kind == "discover" and getattr(discovery, "session_reuse", False):
+                if blocked and (kind in ("translate", "read", "present") or (
+                        kind == "discover" and getattr(discovery, "session_reuse", False))):
                     # The batch ledger reconciles receipts/unknown calls before selecting fresh work.
                     # A supervisor failure must not permanently poison unrelated queued candidates.
                     try:

@@ -751,6 +751,18 @@ class TranslationService:
         self._document_context = ContextVar("translation_document_context", default=None)
         self._policy = ContextVar("translation_policy", default=RECHECK_POLICY)
 
+    def stage_batches(self, parts):
+        return ([part] for part in parts) if self.config.individual_parts else batches(parts)
+
+    def review_standard(self):
+        if not self.config.factual_review_only:
+            return ""
+        return ("\n本次采用事实准确优先标准：仅在存在实质事实、否定、因果、数字单位、版本、"
+                "公式、链接或技术概念错误，或遗漏关键内容时拒绝。可理解但不够优美的措辞、"
+                "标点、语序、保留英文专名/缩写以及风格偏好不构成拒绝理由，也不要放入 issues。"
+                "语义明确且事实一致时 approved=true、issues=[]；concept_checks 的 context_clear "
+                "判断是否误导对概念的理解，不要求额外解释或润色。不得为了通过忽略实际错误。")
+
     @property
     def policy(self):
         return self._policy.get()
@@ -1031,7 +1043,7 @@ class TranslationService:
             return errors
 
         result = await self._structured_completion(
-            payload, system=POLICY + (REVIEW if review else ""),
+            payload, system=POLICY + (REVIEW if review else "") + self.review_standard(),
             model=config.review_model if review else config.model,
             output=ContextualTranslationOutput if contextual else TranslationOutput,
             validate_literals=validate_literals, stage="correction" if review else "draft",
@@ -1089,7 +1101,7 @@ class TranslationService:
             return errors
 
         result = await self._structured_completion(
-            payload, system=AUDIT + (TECHNICAL_AUDIT_INSTRUCTIONS if contextual else ""),
+            payload, system=AUDIT + (TECHNICAL_AUDIT_INSTRUCTIONS if contextual else "") + self.review_standard(),
             model=self.config.audit_model or self.config.review_model, output=output,
             stage="audit", validate_literals=validate_quotes, validation_code="audit_scope_mismatch",
         )
@@ -1100,7 +1112,7 @@ class TranslationService:
 
     async def audit_batches(self, key, owner, parts, audit_parts, *, force=False):
         groups = []
-        for group in batches(audit_parts):
+        for group in self.stage_batches(audit_parts):
             groups.extend([[p] for p in group] if any(p.get("audit_mode") == "individual" for p in group)
                           else [group])
         for group in groups:
@@ -1334,7 +1346,7 @@ class TranslationService:
             pending = [p for p in eligible if not part_audited(p)]
             corrections = [p for p in pending if workflow.next_stage(
                 p, self.policy, self.config.review_max_rounds, now_iso(), force=force) == "correction"]
-            for group in batches(corrections):
+            for group in self.stage_batches(corrections):
                 progress["stage"] = "correction"
                 before = {p["id"]: workflow.target_for(p, "correction") for p in group}
                 seen = {p["id"]: workflow.seen_candidates(p, self.policy) for p in group}
@@ -1469,7 +1481,7 @@ class TranslationService:
                 row.parts = json.loads(json.dumps(parts))
             progress = {"stage": "draft"}
             try:
-                for group in batches([p for p in parts if not p.get("draft") and workflow.next_stage(
+                for group in self.stage_batches([p for p in parts if not p.get("draft") and workflow.next_stage(
                         p, self.policy, self.config.review_max_rounds, now_iso(), force=force) == "draft"]):
                     auxiliary = await self.auxiliary(group)
                     inputs = [{"id": p["id"], "source": p["source"], "auxiliary_draft": auxiliary.get(p["id"])}

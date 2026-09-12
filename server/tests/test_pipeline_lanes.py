@@ -90,22 +90,24 @@ async def test_managed_translation_uses_short_batch_and_persists_continuation(pi
     assert saved_job(pipeline, uid).status == "completed" and saved_job(pipeline, uid).more_pending
 
 
-@pytest.mark.parametrize("failure", [None, "read", "presentation"])
-async def test_managed_read_bounds_both_services_and_restores_stage_limits(pipeline, monkeypatch, failure):
+@pytest.mark.parametrize("kind", ["read", "present"])
+@pytest.mark.parametrize("failure", [False, True])
+async def test_separate_read_and_presentation_lanes_restore_stage_limits(pipeline, monkeypatch, failure, kind):
     calls, phases = [], []
 
     async def read(**kwargs):
         calls.append(("read", kwargs))
         assert pipeline.reading.summary_reviews.stage_call_limit == 2
-        if failure == "read":
+        if failure:
             raise TimeoutError("synthetic terminated read timeout")
         return {"fetched": 1, "summarized": 0}
 
     async def presentation(**kwargs):
         calls.append(("presentation", kwargs))
         assert pipeline.presentations.reviews.stage_call_limit == 2
-        if failure == "presentation":
+        if failure:
             raise TimeoutError("synthetic terminated presentation timeout")
+        return {"processed":2,"ready":1}
 
     async def phase(value):
         phases.append(value)
@@ -115,8 +117,8 @@ async def test_managed_read_bounds_both_services_and_restores_stage_limits(pipel
     monkeypatch.setattr(pipeline.translations, "pending", no_model)
     monkeypatch.setattr(pipeline.reading, "has_pending", lambda: False)
     monkeypatch.setattr(pipeline.presentations, "has_pending", lambda: False)
-    uid = managed_job(pipeline, "read")
-    run = pipeline.run(kind="read", force=True, job_id=uid, phase_callback=phase)
+    uid = managed_job(pipeline, kind)
+    run = pipeline.run(kind=kind, force=True, job_id=uid, phase_callback=phase)
     if failure:
         with pytest.raises(TimeoutError):
             await run
@@ -124,18 +126,18 @@ async def test_managed_read_bounds_both_services_and_restores_stage_limits(pipel
     else:
         assert await run == uid
         assert saved_job(pipeline, uid).status == "completed"
-    assert calls[0] == ("read", {"force": True, "translate": False, "limit": 1})
-    if failure != "read":
-        assert calls[1] == ("presentation", {"limit": 1})
-        assert phases == ["read", "presentation"]
+    if kind == "read":
+        assert calls == [("read", {"force": True, "translate": False, "limit": 1})]
+        assert phases == ["read"]
     else:
-        assert len(calls) == 1 and phases == ["read"]
+        assert calls == [("presentation", {"limit": 2})]
+        assert phases == ["presentation"]
     assert pipeline.reading.summary_reviews.stage_call_limit is None
     assert pipeline.presentations.reviews.stage_call_limit is None
 
 
 @pytest.mark.parametrize("kind", ["digest", "daily"])
-async def test_managed_digest_reads_saved_chinese_without_starting_translation(pipeline, monkeypatch, kind):
+async def test_managed_digest_uses_originals_without_starting_or_reading_translation(pipeline, monkeypatch, kind):
     day, generated, phases, collected = date(2020, 9, 8), [], [], []
     with pipeline.sessions.begin() as session:
         for name in ("ready", "uncached"):
@@ -186,7 +188,7 @@ async def test_managed_digest_reads_saved_chinese_without_starting_translation(p
     assert snapshot() == before
     assert len(generated) == 1
     sources = {item["id"]: item for item in generated[0]}
-    assert sources["ready"]["text_zh"] == "这是一份合成研究。"
+    assert "text_zh" not in sources["ready"]
     assert "text_zh" not in sources["uncached"]
     assert collected == ([True] if kind == "daily" else [])
     assert phases == (["collect", "digest"] if kind == "daily" else ["digest"])

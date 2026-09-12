@@ -7,12 +7,15 @@ import re
 from contextlib import contextmanager
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from uuid import uuid4
 
 from sqlalchemy import func, select
 
 from . import usage
 from .discovery_contracts import DiscoveryDecision, decision_prompt, validate_decision
+from .discovery_priority import day_start, deadline, ordered
+from .discovery_priority import score as priority_score
 from .models import DiscoveryCall, DiscoveryCandidate, now_iso
 from .providers import make_provider
 from .ranking import article_id, classify, engagement
@@ -100,18 +103,32 @@ def queue_candidate(session, item, config, source_priority=False):
         now - timedelta(hours=settings.max_age_hours) <= item.published_at <= now + timedelta(minutes=5)
     ) or not _qualified(item, config, source_priority):
         return None
-    today = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
-    daily = session.scalar(select(func.count()).select_from(DiscoveryCandidate).where(DiscoveryCandidate.created_at >= today))
+    today = day_start(config, now).isoformat()
+    daily = session.scalar(select(func.count()).select_from(DiscoveryCandidate).where(
+        DiscoveryCandidate.created_at >= today, DiscoveryCandidate.status != "not_selected"))
     pool_daily = session.scalar(select(func.count()).select_from(DiscoveryCandidate).where(
         DiscoveryCandidate.created_at >= today, DiscoveryCandidate.low_engagement.is_(low_engagement),
     ))
     # Age out uncalled work explicitly; old rows and spent calls remain in history.
     for previous in session.scalars(select(DiscoveryCandidate).where(DiscoveryCandidate.status.in_(("pending", "retry_wait")))):
-        if datetime.fromisoformat(previous.payload["published_at"]) < now - timedelta(hours=settings.max_age_hours):
-            previous.status, previous.error_code, previous.updated_at = "expired", "source_expired", now.isoformat()
+        if deadline(previous, config) <= now and not session.scalar(select(DiscoveryCall.id).where(
+                DiscoveryCall.candidate_id == previous.id, DiscoveryCall.status.in_(("reserved", "unknown"))).limit(1)):
+            previous.status, previous.error_code, previous.updated_at = "expired", "freshness_deadline" if settings.freshness_enabled else "source_expired", now.isoformat()
     pending = session.scalar(select(func.count()).select_from(DiscoveryCandidate).where(DiscoveryCandidate.status.in_(OPEN)))
+    if settings.freshness_enabled and (daily >= settings.max_candidates_per_day or pending >= settings.max_pending):
+        # Replace only uncalled, same-day work. Preserve spent/unknown calls and their evidence.
+        uncalled = list(session.scalars(select(DiscoveryCandidate).where(
+            DiscoveryCandidate.status == "pending", DiscoveryCandidate.created_at >= today,
+            ~select(DiscoveryCall.id).where(DiscoveryCall.candidate_id == DiscoveryCandidate.id).exists())))
+        incoming = SimpleNamespace(payload=payload, source_priority=source_priority,
+                                   latest_engagement=score, low_engagement=low_engagement)
+        weakest = min(uncalled, key=lambda r: priority_score(r, now), default=None)
+        if weakest is not None and priority_score(incoming, now) > priority_score(weakest, now):
+            weakest.status, weakest.error_code, weakest.updated_at = "not_selected", "priority_replaced", now.isoformat()
+            daily -= 1
+            pending -= 1
     if (daily >= settings.max_candidates_per_day or pending >= settings.max_pending
-            or pool_daily >= _pool_limit(settings.max_candidates_per_day, low_engagement)):
+            or (not settings.freshness_enabled and pool_daily >= _pool_limit(settings.max_candidates_per_day, low_engagement))):
         return None
     row = DiscoveryCandidate(id=uid, article_key=key, fingerprint=fingerprint, payload=payload,
         latest_metrics=dict(item.metrics), source_priority=source_priority,
@@ -128,6 +145,17 @@ class DiscoveryService:
         self.sessions, self.config, self.publish_callback = sessions, config, publish_callback
         self.settings = config.discovery
         self.provider_config = self.settings.provider or config.provider
+        self._token_snapshot = None
+
+    def token_budget(self):
+        current = datetime.now(UTC)
+        since = day_start(self.config, current).isoformat()
+        if not self._token_snapshot or self._token_snapshot[0] != since or (current - self._token_snapshot[1]).total_seconds() >= 5:
+            self._token_snapshot = (since, current, usage.feature_usage('discovery_foresight', since))
+        return self._token_snapshot[2]
+
+    def ordered(self, rows):
+        return ordered(rows, self.config)
 
     @contextmanager
     def _transaction(self):
@@ -140,7 +168,7 @@ class DiscoveryService:
         if candidate_id:
             query = query.where(DiscoveryCall.candidate_id == candidate_id)
         else:
-            today = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+            today = day_start(self.config, datetime.now(UTC)).isoformat()
             query = query.where(DiscoveryCall.created_at >= today)
             if low_engagement is not None:
                 query = query.join(DiscoveryCandidate, DiscoveryCall.candidate_id == DiscoveryCandidate.id).where(
@@ -168,8 +196,17 @@ class DiscoveryService:
             DiscoveryCall.candidate_id == row.id, DiscoveryCall.status.in_(("reserved", "unknown")),
         ).limit(1)):
             return False
-        if datetime.fromisoformat(row.payload["published_at"]) < datetime.now(UTC) - timedelta(hours=self.settings.max_age_hours):
+        if deadline(row, self.config) <= datetime.fromisoformat(now):
             return False
+        if self.settings.freshness_enabled:
+            hourly = session.scalar(select(func.count()).select_from(DiscoveryCall).where(
+                DiscoveryCall.created_at >= (datetime.fromisoformat(now) - timedelta(hours=1)).isoformat()))
+            budget = self.token_budget()
+            # A soft admission budget, not a claim that unknown receipts cost zero.
+            exposure = budget['tokens'] + budget['unknown_calls'] * 20_000
+            return (self._calls(session, row.id) < min(2, self.settings.max_calls_per_candidate)
+                    and self._calls(session) < self.settings.max_calls_per_day
+                    and hourly < self.settings.max_calls_per_hour and exposure < self.settings.max_tokens_per_day)
         return (self._calls(session, row.id) < min(2, self.settings.max_calls_per_candidate)
             and self._calls(session) < self.settings.max_calls_per_day
             and self._calls(session, low_engagement=row.low_engagement)
@@ -179,7 +216,6 @@ class DiscoveryService:
         if not self.settings.enabled:
             return False
         now = now_iso()
-        oldest = datetime.now(UTC) - timedelta(hours=self.settings.max_age_hours)
         with self.sessions() as session:
             from .discovery_sessions import DiscoverySessions
 
@@ -188,6 +224,10 @@ class DiscoveryService:
             for row in session.scalars(select(DiscoveryCandidate).where(
                 DiscoveryCandidate.status.in_(("accepted", "pending", "retry_wait", "reserved")),
             )):
+                if (session.scalar(select(DiscoveryCall.id).where(
+                        DiscoveryCall.candidate_id == row.id, DiscoveryCall.status.in_(("reserved", "unknown"))).limit(1))
+                        and row.status != "reserved"):
+                    continue
                 if row.status == "reserved" and any(call.provider.get("batch_id") for call in session.scalars(
                     select(DiscoveryCall).where(DiscoveryCall.candidate_id == row.id),
                 )):
@@ -197,7 +237,7 @@ class DiscoveryService:
                         return True
                     continue
                 if row.status in ("pending", "retry_wait") and (
-                    datetime.fromisoformat(row.payload["published_at"]) < oldest
+                    deadline(row, self.config) <= datetime.fromisoformat(now)
                 ):
                     return True  # Schedule a database-only expiry pass, even without new input.
                 if self._eligible(session, row, now):
@@ -213,16 +253,18 @@ class DiscoveryService:
             DiscoveryCandidate.status.in_(("needs_attention", "unknown", "retry_wait", "accepted")),
             DiscoveryCandidate.error_code != "",
         ).group_by(DiscoveryCandidate.error_code)).all())
-        today = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
-        daily = session.scalar(select(func.count()).select_from(DiscoveryCandidate).where(DiscoveryCandidate.created_at >= today))
+        today = day_start(self.config, datetime.now(UTC)).isoformat()
+        daily = session.scalar(select(func.count()).select_from(DiscoveryCandidate).where(
+            DiscoveryCandidate.created_at >= today, DiscoveryCandidate.status != "not_selected"))
         pools = {}
         for name, low in (("low_engagement", True), ("seed", False)):
             candidates = session.scalar(select(func.count()).select_from(DiscoveryCandidate).where(
                 DiscoveryCandidate.created_at >= today, DiscoveryCandidate.low_engagement.is_(low),
+                DiscoveryCandidate.status != "not_selected",
             ))
             calls = self._calls(session, low_engagement=low)
-            candidate_limit = _pool_limit(self.settings.max_candidates_per_day, low)
-            call_limit = _pool_limit(self.settings.max_calls_per_day, low)
+            candidate_limit = self.settings.max_candidates_per_day if self.settings.freshness_enabled else _pool_limit(self.settings.max_candidates_per_day, low)
+            call_limit = self.settings.max_calls_per_day if self.settings.freshness_enabled else _pool_limit(self.settings.max_calls_per_day, low)
             pools[name] = {"candidates_today": candidates, "candidate_limit": candidate_limit,
                 "calls_today": calls, "call_limit": call_limit,
                 "candidate_limit_reached": candidates >= candidate_limit,
@@ -230,6 +272,12 @@ class DiscoveryService:
         from .discovery_sessions import DiscoverySessions
 
         return {"enabled": self.settings.enabled, "counts": counts, "errors": errors, "calls_today": self._calls(session),
+                "selection": {"policy": "freshness" if self.settings.freshness_enabled else "fifo",
+                    "max_wait_minutes": self.settings.max_wait_minutes if self.settings.freshness_enabled else None,
+                    "timezone": self.config.timezone if self.settings.freshness_enabled else "UTC",
+                    "hourly_limit": self.settings.max_calls_per_hour,
+                    "token_budget": {**self.token_budget(), "limit": self.settings.max_tokens_per_day,
+                                     "unknown_reservation_tokens": 20_000}},
                 "sessions": DiscoverySessions(self).status(session),
                 "pools": pools,
                 "max_calls_per_day": self.settings.max_calls_per_day, "candidates_today": daily,
@@ -240,13 +288,14 @@ class DiscoveryService:
     def _recover_legacy(self):
         recovered = 0
         now = now_iso()
-        oldest = datetime.now(UTC) - timedelta(hours=self.settings.max_age_hours)
         with self._transaction() as session:
             for row in session.scalars(select(DiscoveryCandidate).where(
                 DiscoveryCandidate.status.in_(("pending", "retry_wait", "reserved")),
             )):
                 calls = list(session.scalars(select(DiscoveryCall).where(DiscoveryCall.candidate_id == row.id)))
-                if any(call.provider.get("batch_id") for call in calls):
+                if any(call.provider.get("batch_id") for call in calls) and (
+                        not self.settings.freshness_enabled or row.status == "reserved"
+                        or any(call.status in {"reserved", "unknown"} for call in calls)):
                     continue
                 if row.status == "reserved":
                     if row.lease_until > now:
@@ -256,9 +305,9 @@ class DiscoveryService:
                         if call.status == "reserved":
                             call.status, call.error_code, call.completed_at = "unknown", "outcome_unknown", now
                 else:
-                    if datetime.fromisoformat(row.payload["published_at"]) >= oldest:
+                    if deadline(row, self.config) > datetime.fromisoformat(now):
                         continue
-                    row.status, row.error_code = "expired", "source_expired"
+                    row.status, row.error_code = "expired", "freshness_deadline" if self.settings.freshness_enabled else "source_expired"
                 row.owner, row.lease_until, row.retry_at, row.updated_at = "", "", "", now
                 recovered += 1
         return recovered
@@ -376,7 +425,7 @@ class DiscoveryService:
                 DiscoveryCandidate.status.in_(("accepted", "pending", "retry_wait")),
             ).order_by(DiscoveryCandidate.created_at, DiscoveryCandidate.id))
             keys = []
-            for row in rows:
+            for row in self.ordered(rows):
                 if len(keys) >= max(0, limit):
                     break
                 if self._eligible(session, row, now_iso()):

@@ -39,6 +39,7 @@ import { ArticleBody, ArticleByline, ReplyContext } from "./src/ArticleContent";
 import { displayHeadline } from "./src/articlePresentation";
 import MathText from "./src/MathText";
 import UsagePanel from "./src/UsagePanel";
+import FreshnessBar from "./src/FreshnessBar";
 import AppUpdates, { UpdateLifecycle } from "./src/AppUpdates";
 import AuthorizationCenter from "./src/AuthorizationCenter";
 import DeviceReading from "./src/DeviceReading";
@@ -188,9 +189,9 @@ const translationNote = (a: Article) => {
     case "running":
       return "中文版本生成中 · 当前显示原文";
     case "review_required":
-      return "译文仍有疑点，待复核 · 当前显示原文";
+      return "译文暂未通过校验 · 先读原文，不影响 AI 总结";
     case "error":
-      return "翻译暂未完成 · 当前显示原文";
+      return "译文暂不可用 · 先读原文，不影响 AI 总结";
     case "insufficient_balance":
       return "翻译账户余额不足 · 当前显示原文";
     case "disabled":
@@ -428,13 +429,13 @@ function Reader({
 }) {
   const qc = useQueryClient();
   const demo = !!connection.demo;
-  const [tab, setTab] = useState("today");
+  const [tab, setTab] = useState("radar");
   const [topic, setTopic] = useState("全部");
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
   const [platform, setPlatform] = useState("");
   const [onlyPriority, setOnlyPriority] = useState(false);
-  const [latest, setLatest] = useState(false);
+  const [latest, setLatest] = useState(true);
   const [edition, setEdition] = useState("latest");
   const [history, setHistory] = useState(false);
   const [detail, setDetail] = useState<{
@@ -685,7 +686,16 @@ function Reader({
             text={headline.text}
           />
         </View>
-        <ArticleBody article={a} preview />
+        {a.presentation?.status === "ready" && a.presentation.summary_zh ? (
+          <MathText
+            preview
+            lines={3}
+            style={s.body}
+            text={a.presentation.summary_zh}
+          />
+        ) : (
+          <ArticleBody article={a} preview />
+        )}
         <EarlySignal article={a} />
         {!chineseReady(a) && !!translationNote(a) && (
           <T style={[s.muted, { fontSize: 10, marginTop: 10 }]}>
@@ -1087,8 +1097,7 @@ function Reader({
           })}
           <View style={[s.note, { marginTop: 22 }]}>
             <T style={s.muted}>
-              重点账号降低热度门槛，仍会过滤与 AI
-              无关的动态。账号身份与简介可根据实际情况调整。
+              重点账号的原始动态优先呈现，AI 总结与中文翻译随后更新。
             </T>
           </View>
         </ScrollView>
@@ -1118,6 +1127,23 @@ function Reader({
                     : "模型、产品与思想的最新信号，在这里汇合。"}
                 </T>
               </View>
+              {tab !== "saved" && (
+                <FreshnessBar
+                  connection={connection}
+                  status={status.data?.data}
+                  active={appActive}
+                  onRefresh={refresh}
+                  onOpen={(id) =>
+                    void action(async () => {
+                      const article = await api<Article>(
+                        connection,
+                        `/v1/articles/${id}`,
+                      );
+                      setDetail({ article });
+                    })
+                  }
+                />
+              )}
               <View
                 style={[
                   s.row,
@@ -1375,6 +1401,18 @@ function Reader({
                     text={displayHeadline(currentArticle).text}
                   />
                 </View>
+                {currentArticle.presentation?.status === "ready" &&
+                  !!currentArticle.presentation.summary_zh && (
+                    <View style={[s.note, { marginBottom: 20 }]}>
+                      <T style={[s.label, { color: C.green, marginBottom: 9 }]}>
+                        依据原文生成的总结
+                      </T>
+                      <MathText
+                        text={currentArticle.presentation.summary_zh}
+                        style={s.body}
+                      />
+                    </View>
+                  )}
                 <EarlySignal
                   article={currentArticle}
                   detail

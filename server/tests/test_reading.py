@@ -314,7 +314,7 @@ async def test_translation_restores_exact_markdown_urls(tmp_path, monkeypatch, r
 
 
 @pytest.mark.asyncio
-async def test_force_read_resumes_only_unfinished_translation(tmp_path, monkeypatch):
+async def test_even_force_read_never_starts_or_waits_for_translation(tmp_path, monkeypatch):
     monkeypatch.setenv('DEEPSEEK_API_KEY', 'test-only')
     engine, sessions = database(f'sqlite:///{tmp_path}/resume.db')
     config = RadarConfig(reading=ReadingConfig(enabled=True, mention_catalog={}),
@@ -342,5 +342,7 @@ async def test_force_read_resumes_only_unfinished_translation(tmp_path, monkeypa
     assert calls == []
     await reader.pending(force=True)
     await reader.pending(force=True)
-    assert calls == [True]
+    assert calls == []
+    with sessions() as s:
+        assert s.scalar(select(Translation).where(Translation.status == 'review_required')) is not None
     engine.dispose()

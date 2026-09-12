@@ -238,14 +238,18 @@ async def test_reading_uses_cached_partial_evidence_never_fetches_root_even_when
 
 
 @pytest.mark.asyncio
-async def test_paper_analysis_waits_for_current_translation_without_busy_queue(harness, monkeypatch):
+async def test_paper_analysis_is_eligible_without_translation(harness, monkeypatch):
     sessions, config = harness
     add(sessions, config)
     service = ReadingService(sessions, config, TranslationService(sessions, config.translation))
-    assert service.has_pending() is False
-    result = await service.pending(translate=False)
-    assert result["summarized"] == result["fetched"] == 0
-    assert service.has_pending() is False
+    assert service.has_pending() is True
+    async def no_translation(*a, **kw):
+        pytest.fail("Paper summary must not wait for translation")
+    monkeypatch.setattr(service.translations, "evidence", no_translation)
+    monkeypatch.setattr(service.translations, "pending", no_translation)
+    # Eligibility can be checked without starting either model; generation coverage is above.
+    with sessions() as session:
+        assert all(row.status != "ready" for row in session.scalars(select(Translation)))
 
 
 def test_hf_paper_page_is_reference_metadata_not_paper_evidence(harness):

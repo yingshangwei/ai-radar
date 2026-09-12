@@ -57,6 +57,7 @@ class ResearchConfig(BaseModel):
     hf_enabled: bool = False
     arxiv_enabled: bool = False
     refresh_hours: int = Field(default=6, strict=True, ge=1, le=24)
+    refresh_minutes: int | None = Field(default=None, strict=True, ge=5, le=1440)
     hf_limit: int = Field(default=8, strict=True, ge=1, le=30)
     hf_min_upvotes: int = Field(default=10, strict=True, ge=1, le=10000)
     arxiv_limit: int = Field(default=4, strict=True, ge=1, le=20)
@@ -70,7 +71,11 @@ class DiscoveryConfig(BaseModel):
     max_age_hours: int = Field(default=48, strict=True, ge=1, le=168)
     max_candidates_per_day: int = Field(default=60, strict=True, ge=1, le=500)
     max_pending: int = Field(default=120, strict=True, ge=1, le=1000)
-    max_calls_per_day: int = Field(default=20, strict=True, ge=1, le=100)
+    max_calls_per_day: int = Field(default=20, strict=True, ge=1, le=1000)
+    freshness_enabled: bool = False
+    max_wait_minutes: int = Field(default=60, strict=True, ge=5, le=240)
+    max_calls_per_hour: int = Field(default=40, strict=True, ge=1, le=200)
+    max_tokens_per_day: int = Field(default=2_000_000, strict=True, ge=1000)
     max_calls_per_candidate: int = Field(default=2, strict=True, ge=1, le=3)
     batch_size: int = Field(default=2, strict=True, ge=1, le=4)
     session_reuse: bool = False
@@ -111,6 +116,8 @@ class TranslationConfig(BaseModel):
     concurrency: int = Field(default=2, ge=1, le=4)
     max_documents: int = Field(default=100, ge=1, le=500)
     max_attempts: int = Field(default=3, ge=1, le=10)
+    factual_review_only: bool = False
+    individual_parts: bool = False
     request_options: dict = Field(default_factory=lambda: {"thinking": {"type": "disabled"}})
     stage_request_options: dict[TranslationStage, dict] = Field(default_factory=dict)
     max_tokens: TranslationTokenLimit = 12000
@@ -188,6 +195,8 @@ class RadarConfig(BaseModel):
     x_watch_freshness_first: bool = False
     x_initial_lookback_hours: int = Field(default=24, strict=True, ge=1, le=168)
     x_head_refresh_hours: int = Field(default=24, strict=True, ge=1, le=168)
+    x_head_refresh_minutes: int | None = Field(default=None, strict=True, ge=1, le=1440)
+    publish_priority_raw: bool = False
     x_query: str = '(AI OR "artificial intelligence" OR LLM OR agents OR robotics) -is:retweet'
     facebook_version: str = "v23.0"
     facebook_page_ids: list[str] = Field(default_factory=list)

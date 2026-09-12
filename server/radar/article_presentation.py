@@ -12,7 +12,6 @@ from .models import (
     ArticleReading,
     DocumentAnalysis,
     SummaryReview,
-    Translation,
     WebDocument,
 )
 from .official_news import NEWS_IDS
@@ -21,7 +20,6 @@ from .reading import analysis_key
 from .schemas import DirectReference
 from .summary_evidence import review_evidence_fingerprint
 from .summary_review import SummaryReviewPending, SummaryReviewService
-from .translation import cache_key
 
 MAX_ARTICLES_PER_JOB = 3
 
@@ -47,7 +45,7 @@ def article_evidence(article):
     return evidence
 
 
-def source_heading(session, article, config):
+def source_heading(session, article, config, *, full=False):
     """Only the article's own source page may provide its existing AI heading."""
     if article.platform not in {"web", "rss"}:
         return None
@@ -62,7 +60,10 @@ def source_heading(session, article, config):
         analysis = session.get(DocumentAnalysis, doc.analysis_id)
         if (analysis and analysis.status == "ready" and analysis.provider != "extractive"
                 and analysis.title_zh.strip()):
-            return analysis.title_zh
+            return ({"status": "ready", "title_zh": analysis.title_zh,
+                     "summary_zh": analysis.summary_zh, "key_points_zh": analysis.key_points_zh,
+                     "why_it_matters_zh": analysis.why_it_matters_zh}
+                    if full else analysis.title_zh)
     return None
 
 
@@ -72,14 +73,9 @@ def presentation_views(session, articles, config):
     result = {}
     for article in articles:
         uid = article.id
-        title = source_heading(session, article, config)
-        if title:
-            result[uid] = {"status": "ready", "title_zh": title}
-            continue
-        if technical_reading_owned(session, article, config):
-            # Do not fall back to an older independent card cache while the
-            # versioned technical translation/document review is still pending.
-            result[uid] = {"status": "pending", "title_zh": None}
+        source = source_heading(session, article, config, full=True)
+        if source:
+            result[uid] = source
             continue
         if not config.summary_review.enabled or config.provider.kind == "extractive":
             result[uid] = {"status": "disabled", "title_zh": None}
@@ -94,7 +90,8 @@ def presentation_views(session, articles, config):
                 if reviews._approved(state):
                     docs = state["candidate"]["documents"]
                     if len(docs) == 1 and docs[0]["source_id"] == uid:
-                        result[uid] = {"status": "ready", "title_zh": docs[0]["title_zh"]}
+                        result[uid] = {"status": "ready", **{key: docs[0].get(key) for key in (
+                            "title_zh", "summary_zh", "key_points_zh", "why_it_matters_zh")}}
                         continue
                 status = "review_required"
             result[uid] = {"status": status if status in {"pending", "review_required", "error"} else "pending",
@@ -137,13 +134,10 @@ class ArticlePresentationService:
                                            .order_by(Article.published_at.desc(), Article.id)))
             views = presentation_views(session, articles, self.config)
             for article in articles:
-                if views[article.id]["status"] == "ready" or technical_reading_owned(session, article, self.config):
+                if views[article.id]["status"] == "ready":
                     continue
                 evidence = [article_evidence(article)]
                 sources = deepcopy(evidence)
-                zh = session.get(Translation, cache_key(article.title, article.text, self.config.translation))
-                if self.config.translation.enabled and zh and zh.status == "ready":
-                    sources[0].update(title_zh=zh.title_zh, text_zh=zh.text_zh)
                 if self.reviews.can_analyze_documents("article:" + article.id, sources, evidence=evidence):
                     chosen.append((article.id, sources, evidence))
                 if len(chosen) == min(limit or MAX_ARTICLES_PER_JOB, self.config.provider.max_items):

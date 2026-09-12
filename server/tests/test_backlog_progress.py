@@ -151,7 +151,7 @@ async def test_nonactionable_translation_cannot_starve_later_document_analysis(h
 
 
 @pytest.mark.asyncio
-async def test_reading_finalizes_completed_receipts_despite_outer_backoff_without_model(harness, monkeypatch):
+async def test_translation_lane_finalizes_receipts_while_reading_leaves_them_untouched(harness, monkeypatch):
     sessions, config, model = harness
     _, key = add_document(sessions, config, "recent", analyzed=True)
     await populate_translation(TranslationService(sessions, config.translation), key, crash_after_receipts=True)
@@ -169,6 +169,8 @@ async def test_reading_finalizes_completed_receipts_despite_outer_backoff_withou
     monkeypatch.setattr(TranslationService, "request", no_translation)
     monkeypatch.setattr(TranslationService, "audit", no_translation)
     result = await ReadingService(sessions, config, TranslationService(sessions, config.translation)).pending()
+    assert translation_snapshot(sessions, key) == before
+    await TranslationService(sessions, config.translation).pending()
     after = translation_snapshot(sessions, key)
     assert result == {"enabled": True, "fetched": 0, "summarized": 0}
     assert after["status"] == "ready" and after["text_zh"] == CHINESE
@@ -177,7 +179,7 @@ async def test_reading_finalizes_completed_receipts_despite_outer_backoff_withou
 
 
 @pytest.mark.asyncio
-async def test_analysis_lane_skips_translation_only_work_and_reads_only_saved_chinese(harness, monkeypatch):
+async def test_analysis_lane_skips_translation_only_work_and_uses_original_evidence(harness, monkeypatch):
     sessions, config, model = harness
     _, waiting = add_document(sessions, config, "recent", analyzed=True)
     _, missing = add_document(sessions, config, "older", hours=1)
@@ -204,7 +206,7 @@ async def test_analysis_lane_skips_translation_only_work_and_reads_only_saved_ch
         assert session.get(Translation, missing) is None
     assert [source["url"] for source in model.sources] == ["https://example.org/older", "https://example.org/oldest"]
     assert "text_zh" not in model.sources[0]
-    assert model.sources[1]["text_zh"] == CHINESE and model.sources[1]["title_zh"] == CHINESE
+    assert "text_zh" not in model.sources[1] and "title_zh" not in model.sources[1]
 
 
 @pytest.mark.asyncio

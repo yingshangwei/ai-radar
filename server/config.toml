@@ -1,7 +1,11 @@
 timezone = "Asia/Shanghai"
 daily_hour = 8
 daily_minute = 0
-collect_minutes = 120
+collect_minutes = 30
+publish_priority_raw = true
+x_head_refresh_minutes = 25
+x_request_budget = 64
+x_discovery_requests = 2
 lookback_hours = 168
 anthropic_news_enabled = true
 official_news_sources = ["seed", "deepseek", "kimi", "minimax"]
@@ -47,7 +51,9 @@ review_model = "qwen-plus"
 request_options = { enable_thinking = false }
 # Increase revision to explicitly regenerate cached translations after a policy change.
 revision = "zh-v1"
-concurrency = 2
+concurrency = 1
+factual_review_only = true
+individual_parts = true
 max_documents = 100
 # Optional self-hosted LibreTranslate draft aid, always reviewed by the configured translation provider:
 # auxiliary_url = "http://127.0.0.1:5000"
@@ -65,8 +71,13 @@ revision = "reading-zh-v1"
 
 [discovery]
 enabled = true
-max_candidates_per_day = 60
-max_calls_per_day = 20
+freshness_enabled = true
+max_wait_minutes = 60
+max_age_hours = 24
+max_candidates_per_day = 200
+max_calls_per_day = 200
+max_calls_per_hour = 40
+max_tokens_per_day = 2000000
 max_calls_per_candidate = 2
 batch_size = 4
 session_reuse = true
@@ -82,7 +93,7 @@ trial_days = 7
 [research]
 hf_enabled = true
 arxiv_enabled = true
-refresh_hours = 6
+refresh_minutes = 30
 hf_limit = 8
 hf_min_upvotes = 10
 arxiv_limit = 4

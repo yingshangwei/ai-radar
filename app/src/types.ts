@@ -31,6 +31,9 @@ export interface Article {
   presentation?: {
     status: "ready" | "pending" | "review_required" | "error" | "disabled";
     title_zh: string | null;
+    summary_zh?: string | null;
+    key_points_zh?: string[] | null;
+    why_it_matters_zh?: string | null;
   };
   social?: {
     reply_to: {
@@ -134,6 +137,15 @@ export interface Job {
   reason_code?: string | null;
 }
 export interface Status {
+  freshness?: {
+    collect_minutes: number;
+    target_minutes: number;
+    latest_article_at: string | null;
+    last_collection_at: string | null;
+    overdue_accounts: number;
+    watched_accounts: number;
+    oldest_window_minutes: number | null;
+  };
   timezone: string;
   daily_time: string;
   provider: string;

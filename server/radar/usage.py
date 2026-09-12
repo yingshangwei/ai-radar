@@ -188,6 +188,22 @@ def store(path=None):
     return _store(path) if path else None
 
 
+def feature_usage(feature, since):
+    """Read existing receipts without creating a ledger; missing usage remains explicit."""
+    path = os.environ.get("RADAR_USAGE_DATABASE_PATH", "")
+    if not path or not Path(path).is_file():
+        return {"available": False, "tokens": 0, "unknown_calls": 0}
+    try:
+        with sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True, timeout=0.3) as db:
+            tokens, unknown = db.execute("""SELECT
+                COALESCE(SUM(COALESCE(input_tokens,0)+COALESCE(output_tokens,0)),0),
+                COALESCE(SUM(input_tokens IS NULL OR output_tokens IS NULL),0)
+                FROM usage_calls WHERE feature=? AND started_at>=?""", (feature, since)).fetchone()
+        return {"available": True, "tokens": tokens, "unknown_calls": unknown}
+    except (OSError, sqlite3.Error):
+        return {"available": False, "tokens": 0, "unknown_calls": 0}
+
+
 def _failed():
     global _failures
     _failures += 1

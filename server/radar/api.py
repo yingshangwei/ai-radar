@@ -16,6 +16,7 @@ from .config import Settings
 from .daily_schedule import DAILY_CHECK_MINUTES, DailySchedule
 from .db import database
 from .discovery_watches import discovery_status, list_entities, on_watch_toggle, watch_metadata
+from .freshness import freshness_status, translation_updates
 from .jobs import JobQueueConflict, JobSupervisor, job_counts, public_job
 from .models import Article, ArticleTranslation, Digest, Job, SourceState, Translation, Watch
 from .pipeline import Pipeline, as_dict, ingest
@@ -147,6 +148,7 @@ def create_app(settings: Settings | None = None):
             "provider": config.provider.kind,
             "model": config.provider.model,
             "scheduler_enabled": settings.scheduler_enabled,
+            "freshness": freshness_status(session, config),
             "article_count": session.scalar(select(func.count()).select_from(Article)),
             "translation": translation_status(session, config.translation),
             "discovery": discovery_status(session, config),
@@ -164,10 +166,10 @@ def create_app(settings: Settings | None = None):
     def articles(
         q: str = Query(default="", max_length=200),
         platform: str | None = None,
-        topic: Literal["模型", "产品", "技术", "开源", "观点", "产业", "学界", "前瞻"] | None = None,
+        topic: Literal["模型", "产品", "技术", "开源", "观点", "产业", "学界", "前瞻", "动态"] | None = None,
         saved: bool = False,
         priority: bool = False,
-        sort: Literal["score", "latest"] = "score",
+        sort: Literal["score", "latest"] = "latest",
         limit: int = Query(default=30, ge=1, le=100),
         offset: int = Query(default=0, ge=0, le=10000),
         session=Depends(session_dep),
@@ -209,6 +211,14 @@ def create_app(settings: Settings | None = None):
                                       config.translation, presentation_config=config),
             "total": total,
         }
+
+    @app.post("/v1/refresh", dependencies=[Depends(authenticated)])
+    async def refresh_latest():
+        return supervisor.refresh_latest()
+
+    @app.get("/v1/translation-updates", dependencies=[Depends(authenticated)])
+    def completed_translations(limit: int = Query(default=50, ge=1, le=200), session=Depends(session_dep)):
+        return translation_updates(session, config, limit=limit)
 
     @app.get("/v1/articles/{uid}", dependencies=[Depends(authenticated)])
     def article(uid: str, session=Depends(session_dep)):

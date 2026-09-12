@@ -74,6 +74,8 @@ def ingest(session, items: list[IncomingArticle], config: RadarConfig, authority
         if queue_discovery:
             queue_candidate(session, item, config, source_priority=priority)
         topics = classify(item)
+        if not topics and priority and config.publish_priority_raw:
+            topics = ["动态"]  # A watched source is visible before optional classification.
         if not topics:
             continue
         verified_signal = bool(approved_signal and validate_approved_signal(session, item, approved_signal, config))
@@ -173,10 +175,12 @@ class Pipeline:
             state = session.get(SourceState, source_id)
             if not state or not state.last_attempt_at:
                 return True
-            hours = self.config.research.refresh_hours if state.status == "healthy" else 1
-            return datetime.fromisoformat(state.last_attempt_at) <= datetime.now(UTC) - timedelta(hours=hours)
+            minutes = (self.config.research.refresh_minutes or self.config.research.refresh_hours * 60)
+            if state.status != "healthy":
+                minutes = min(minutes, 30)
+            return datetime.fromisoformat(state.last_attempt_at) <= datetime.now(UTC) - timedelta(minutes=minutes)
 
-    async def collect(self):
+    async def collect(self, *, fresh=False):
         with self.sessions.begin() as session:
             maintain_watches(session, self.config)
             handles = list(session.scalars(select(Watch.handle).where(
@@ -186,7 +190,7 @@ class Pipeline:
             timeout=25, headers={"User-Agent": "AIRadar/0.1 (+personal intelligence reader)"}
         ) as client:
             entries = [
-                ("x", 0, lambda: XCollector(self.sessions, self.config).collect(
+                ("x", 0, lambda: XCollector(self.sessions, self.config, force_fresh=fresh).collect(
                     client, handles, lambda session, items: ingest(session, items, self.config),
                 )),
                 ("facebook", 0, lambda: fetch_facebook(client, self.config)),
@@ -305,8 +309,7 @@ class Pipeline:
         if reviewed:
             with self.sessions() as session:
                 evidence = digest_review_evidence(session, selected, self.config)
-        selected = (await self.translations.evidence(selected) if translate else
-                    await self.translations.evidence(selected, translate=False))
+        # Original evidence and saved analyses are sufficient; translation never blocks a digest.
         provider = make_provider(self.config.provider)
         if reviewed:
             result = await self.summary_reviews.generate_digest(
@@ -349,12 +352,14 @@ class Pipeline:
         )
 
     def has_pending(self, kind):
+        if kind == "present":
+            return self.presentations.has_pending()
         if kind == "discover":
             return self.discovery.has_pending()
         if kind == "translate":
             return self.translations.has_pending()
         if kind == "read":
-            return self.reading.has_pending() or self.presentations.has_pending()
+            return self.reading.has_pending()
         return False
 
     async def _managed_run(self, kind, day, force, uid, phase_callback):
@@ -379,12 +384,15 @@ class Pipeline:
                     async with self.collect_lock:
                         count = await self.collect()
                 else:
-                    count = await self.collect()
+                    count = await self.collect(fresh=force) if force else await self.collect()
                 message = f"新增 {count} 条有效信息。"
             if kind == "translate" and self.config.translation.enabled:
                 await phase_callback("translate")
-                await self.translations.pending(force=force, limit=2, max_stage_calls=2)
-                message = "本批翻译进度已保存，后续批次将自动继续。"
+                translated = await self.translations.pending(force=force, limit=2, max_stage_calls=2)
+                counts = (translated.get("queue") or {}).get("counts", {})
+                message = (f"翻译进度已保存；可继续 {counts.get('runnable', 0)} 份，"
+                           f"等待重试 {counts.get('retrying', 0)} 份，"
+                           f"已停止自动处理 {counts.get('needs_attention', 0)} 份。原文持续可读。")
             if kind == "read":
                 if self.config.reading.enabled:
                     await phase_callback("read")
@@ -395,10 +403,12 @@ class Pipeline:
                         self.reading.summary_reviews.stage_call_limit = None
                     message = (f"本轮处理 {reading['fetched']} 个直接来源，"
                                f"完成 {reading['summarized']} 份网页解读。")
+            if kind == "present":
                 await phase_callback("presentation")
                 self.presentations.reviews.stage_call_limit = 2
                 try:
-                    await self.presentations.pending(limit=1)
+                    presented = await self.presentations.pending(limit=2)
+                    message = f"已处理 {presented['processed']} 条原文总结，完成 {presented['ready']} 条。"
                 finally:
                     self.presentations.reviews.stage_call_limit = None
             if kind in ("digest", "daily"):
@@ -431,8 +441,8 @@ class Pipeline:
                                f"保存 {discovered['judged']} 份判断，应用 {discovered['applied']} 份结果。")
                 if kind in ("collect", "daily"):
                     message = f"新增 {await self.collect()} 条有效信息。"
-                if self.config.translation.enabled and kind != "discover":
-                    translated = await self.translations.pending(force=force if kind == "translate" else False)
+                if self.config.translation.enabled and kind == "translate":
+                    translated = await self.translations.pending(force=force)
                     counts = translated.get("counts", {})
                     message += f"主消息中文版本 {counts.get('ready', 0)} 条"
                     waiting = sum(n for status, n in counts.items() if status != "ready")

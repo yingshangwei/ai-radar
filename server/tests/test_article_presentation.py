@@ -83,7 +83,9 @@ async def test_saved_heading_reused_and_current_original_required(harness):
     assert model.calls == ["ReadingOutput", "SummaryAuditOutput"]
     with sessions() as session:
         article = session.get(Article, "a")
-        assert presentation_views(session, [article], config)["a"] == {"status": "ready", "title_zh": TITLE}
+        view = presentation_views(session, [article], config)["a"]
+        assert view["status"] == "ready" and view["title_zh"] == TITLE
+        assert view["summary_zh"] == "模型新增工具调用能力。"
         saved = session.scalar(select(SummaryReview))
         assert saved.scope == "article:a" and saved.status == "ready"
     assert original_rows(sessions) == originals
@@ -98,7 +100,7 @@ async def test_saved_heading_reused_and_current_original_required(harness):
 
 
 @pytest.mark.asyncio
-async def test_technical_document_never_falls_back_to_an_old_separate_card_title(harness):
+async def test_technical_original_card_remains_visible_while_web_analysis_is_pending(harness):
     sessions, config, model = harness
     with sessions.begin() as session:
         article = add(session, platform="web")
@@ -113,8 +115,8 @@ async def test_technical_document_never_falls_back_to_an_old_separate_card_title
         session.flush()
         session.add(ArticleDocument(article_id="a", document_id="doc", relation="source"))
     with sessions() as session:
-        assert presentation_views(session, [session.get(Article, "a")], config)["a"] == {
-            "status": "pending", "title_zh": None}
+        view = presentation_views(session, [session.get(Article, "a")], config)["a"]
+        assert view['status'] == 'ready' and view['title_zh'] == TITLE
     assert await service.pending() == {"processed": 0, "ready": 0}
     assert model.calls == before_calls
     with sessions.begin() as session:
@@ -171,7 +173,7 @@ async def test_pending_is_bounded_and_terminal_rejection_cannot_starve_following
         rows = list(session.scalars(select(Article).order_by(Article.id)))
         views = presentation_views(session, rows, config)
         assert views["0"] == {"status": "review_required", "title_zh": None}
-        assert views["3"] == {"status": "ready", "title_zh": TITLE}
+        assert views["3"]["status"] == "ready" and views["3"]["title_zh"] == TITLE
     assert await service.pending() == {"processed": 0, "ready": 0}
 
 
@@ -265,7 +267,7 @@ async def test_normal_job_uses_background_service_but_translation_only_does_not(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("translation_status", ["ready", "review_required"])
-async def test_only_saved_ready_chinese_is_generation_material_not_a_new_review_key(harness, translation_status):
+async def test_summary_uses_original_and_translation_completion_does_not_invalidate_it(harness, translation_status):
     from radar.models import Translation
     from radar.translation import ensure_translation
 
@@ -281,7 +283,8 @@ async def test_only_saved_ready_chinese_is_generation_material_not_a_new_review_
     with sessions() as session:
         row = session.scalar(select(SummaryReview))
         material = row.generator_sources[0]
-        assert (material.get("text_zh") == "已保存中文正文，仅供生成复用。") is (translation_status == "ready")
+        assert "text_zh" not in material and "title_zh" not in material
+        assert material["text"] == "The AI model supports tool use."
         assert "text_zh" not in row.evidence[0]  # Independent audit stays grounded in original text.
     with sessions.begin() as session:
         session.get(Article, "a").metrics = {"like_count": 999}

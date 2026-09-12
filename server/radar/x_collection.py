@@ -90,9 +90,14 @@ def complete_window(data: dict, window: dict):
 
 
 class XCollector:
-    def __init__(self, sessions, config: RadarConfig, *, clock=None):
+    def __init__(self, sessions, config: RadarConfig, *, clock=None, force_fresh=False):
         self.sessions, self.config = sessions, config
         self.clock = clock or (lambda: datetime.now(UTC))
+        self.force_fresh = force_fresh
+
+    def head_interval(self):
+        return timedelta(minutes=self.config.x_head_refresh_minutes) if self.config.x_head_refresh_minutes \
+            else timedelta(hours=self.config.x_head_refresh_hours)
 
     @contextmanager
     def transaction(self):
@@ -161,8 +166,8 @@ class XCollector:
         with self.sessions() as session:
             rows = [session.get(XCollectionState, key) for key in keys
                     if used[key] < self.config.x_max_pages]
-            due = [row for row in rows if not row.data.get("head_end") or
-                   instant(row.data["head_end"]) <= now - timedelta(hours=self.config.x_head_refresh_hours)]
+            due = [row for row in rows if (self.force_fresh and used[row.id] == 0) or not row.data.get("head_end") or
+                   instant(row.data["head_end"]) <= now - self.head_interval()]
             if due:
                 row = min(due, key=lambda row: (row.data.get("last_head_attempt_at", ""), row.id))
                 return row.id, True
@@ -274,8 +279,7 @@ class XCollector:
                                   "partial_response": any(window.get("partial_response") for window in data.get("windows", [])) or
                                                       any(gap["reason"] == "partial_response" for gap in data.get("gaps", [])),
                                   "fresh": bool(data.get("head_end") and
-                                                instant(data["head_end"]) > now - timedelta(
-                                                    hours=self.config.x_head_refresh_hours))})
+                                                instant(data["head_end"]) > now - self.head_interval())})
         return {"watched_total": len(keys),
                 "watched_fresh": sum(item["fresh"] for item in summaries if item["scope"] != DISCOVERY),
                 "enabled_scopes": len(enabled_keys), "discovery_enabled": discovery_enabled,
@@ -367,7 +371,7 @@ class XCollector:
         result.message = (
             f"本轮读取 {result.read_count} 条，新增有效信息 {result.accepted_count} 条；"
             f"已用 {result.request_count}/{total_budget} 次请求。"
-            f"最近 {self.config.x_head_refresh_hours} 小时已拉取 {result.coverage['watched_fresh']}/{len(handles)} 个关注账号最新窗口；"
+            f"最近 {int(self.head_interval().total_seconds() / 60)} 分钟已拉取 {result.coverage['watched_fresh']}/{len(handles)} 个关注账号最新窗口；"
             f"{result.coverage['pending_windows']} 个窗口仍有待补页，{result.coverage['gap_count']} 个历史覆盖缺口。"
         )
         if result.coverage["budget_exhausted"]:

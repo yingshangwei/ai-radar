@@ -401,3 +401,15 @@ test("partial is connected but clearly marked as incomplete coverage", () => {
   assert.equal(sourceConnected("auth_required"), false);
   assert.equal(sourceStatusLabel("auth_required"), "待授权");
 });
+
+const { unseenUpdates } = loadTS("../src/translationUpdates.ts");
+test("translation archive unread compares instants across server timezone formats", () => {
+  const items = [
+    { completed_at: "2026-09-12T08:00:01+00:00" },
+    { completed_at: "2026-09-12T16:00:00+08:00" },
+    { completed_at: "2026-09-12T07:59:59Z" },
+  ];
+  assert.equal(unseenUpdates(items, "2026-09-12T08:00:00Z"), 1);
+  assert.equal(unseenUpdates(items, ""), 0);
+  assert.equal(unseenUpdates(items, "invalid"), 0);
+});

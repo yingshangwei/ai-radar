@@ -7,6 +7,7 @@ const CONTENT_QUERIES = new Set([
   "digest",
   "editions",
   "watches",
+  "translationUpdates",
 ]);
 const counts = (value?: Record<string, number>) =>
   Object.entries(value || {}).sort(([a], [b]) => a.localeCompare(b));
@@ -15,6 +16,7 @@ const counts = (value?: Record<string, number>) =>
 export function contentRevision(status: Status): string {
   return JSON.stringify([
     status.article_count,
+    status.freshness?.latest_article_at,
     counts(status.translation?.counts),
     counts(status.translation?.resource_counts),
     status.sources

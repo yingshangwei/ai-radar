@@ -17,6 +17,7 @@ from sqlalchemy import func, select
 
 from . import codex_sessions, model_router, usage
 from .discovery_contracts import DiscoveryBatchDecision, batch_prompt, validate_batch
+from .discovery_priority import day_start
 from .models import AgentBatch, AgentSession, DiscoveryCall, DiscoveryCandidate, now_iso
 
 SCOPE = "discovery"
@@ -67,7 +68,7 @@ class DiscoverySessions:
         ).limit(1)))
 
     def status(self, session):
-        today = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        today = day_start(self.service.config, datetime.now(UTC)).isoformat()
         counts = dict(session.execute(select(AgentBatch.status, func.count()).where(
             AgentBatch.scope == SCOPE,
         ).group_by(AgentBatch.status)).all())
@@ -101,7 +102,7 @@ class DiscoverySessions:
                 "config_fingerprint": _hash(self.provider.model_dump(mode="json")),
                 "request_upper_bound": None, "batch_id": batch_id}
             lease = (datetime.now(UTC) + timedelta(seconds=self.base_provider.timeout_seconds + 60)).isoformat()
-            for row in rows:
+            for row in self.service.ordered(rows):
                 if len(members) >= limit:
                     break
                 if not self.service._eligible(session, row, now_iso()):

@@ -11,6 +11,7 @@ const stateLabels: Record<string, string> = {
 const kindLabels: Record<string, string> = {
   collect: "信息采集",
   read: "网页解读",
+  present: "原文即时总结",
   translate: "中文翻译",
   digest: "日报生成",
   daily: "采集与日报",

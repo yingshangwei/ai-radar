@@ -26,8 +26,7 @@ from .page_parser import extract_page
 from .providers import make_provider
 from .summary_evidence import document_review_evidence, reserve_publication, review_evidence_fingerprint
 from .summary_review import SummaryReviewPending, SummaryReviewService, SummaryReviewYield
-from .technical_language import TECHNICAL_POLICY
-from .translation import cache_key, part_audited
+from .translation import cache_key
 from .web_reader import PageFetcher, PageUnavailable
 
 RESEARCH_SOURCES = frozenset({"hf-papers", "arxiv-theory"})
@@ -110,11 +109,8 @@ def fingerprint(*values) -> str:
 
 def analysis_key(session, document: WebDocument, config: RadarConfig) -> str:
     if technical_document(document.title, document.text) and config.provider.kind != 'extractive':
-        zh = session.get(Translation, cache_key(document.title, document.text, config.translation))
-        reviewed = bool(zh and zh.status == 'ready' and all(part_audited(p, current=True) for p in zh.parts))
-        return fingerprint(document.content_hash, config.reading.revision, TECHNICAL_POLICY,
-                           document.id, document.final_url or document.url,
-                           [zh.title_zh, zh.text_zh] if reviewed else None)
+        return fingerprint(document.content_hash, config.reading.revision, "technical-original-summary-v1",
+                           document.id, document.final_url or document.url)
     legacy = fingerprint(document.content_hash, config.reading.revision)
     existing = session.get(DocumentAnalysis, legacy)
     if document.analysis_id == legacy and existing is not None and existing.status == "ready":
@@ -128,12 +124,8 @@ def analysis_key(session, document: WebDocument, config: RadarConfig) -> str:
 
 
 def terminology_ready(session, document: WebDocument, config: RadarConfig) -> bool:
-    if (not config.translation.enabled or config.provider.kind == "extractive"
-            or not technical_document(document.title, document.text)):
-        return True
-    row = session.get(Translation, cache_key(document.title, document.text, config.translation))
-    return bool(row and row.status == "ready" and row.parts
-                and all(part_audited(p, current=True) for p in row.parts))
+    # Summary evidence is the original document. Translation has an independent lifecycle.
+    return True
 
 
 def remember_references(session, article: Article, references: list[dict]):
@@ -391,7 +383,7 @@ class ReadingService:
                     analysis = DocumentAnalysis(id=key)
                     session.add(analysis)
                     session.flush()
-                # Translation also resumes for saved pages without requiring another network fetch.
+                # Saved original evidence can be summarized without another network fetch.
                 if key in seen:
                     continue
                 seen.add(key)
@@ -402,19 +394,7 @@ class ReadingService:
                     needs_analysis = self.summary_reviews.can_analyze_documents(
                         "document:" + key, [source], evidence=document_review_evidence([source]),
                     )
-                cached_translation = session.get(Translation, cache_key(doc.title, doc.text, self.config.translation))
-                if not terminology_ready(session, doc, self.config):
-                    needs_analysis = False  # Wait for terminology review, then reuse its exact Chinese text.
-                # Match the durable translation queue before the reading limit:
-                # terminal review/unknown calls and live leases are not work.
-                # Fully saved receipts can still finalize without another call.
-                needs_translation = translate and self.config.translation.enabled and (not cached_translation or (
-                    cached_translation.status != "ready"
-                    and self.translations.can_progress(cached_translation, force=force)
-                    and (force or self.translations.can_finalize(cached_translation) or (
-                        cached_translation.retry_at <= now_iso()
-                        and cached_translation.attempts < self.config.translation.max_attempts))))
-                if not needs_analysis and not needs_translation:
+                if not needs_analysis:
                     continue
                 if limit is not None and doc.id not in selected_documents and len(selected_documents) >= max_documents:
                     continue
@@ -422,7 +402,7 @@ class ReadingService:
                 source_documents[key] = doc.id
                 payloads.append(dict(source, needs_analysis=needs_analysis))
         payloads = payloads[:max_documents]
-        payloads = await self.translations.evidence(payloads, force=force, **({"translate": False} if not translate else {}))
+        # Never feed a changing translation into summary generation or its cache identity.
         to_analyze = [{k: v for k, v in doc.items() if k != "needs_analysis"}
                       for doc in payloads if doc["needs_analysis"]]
         completed = 0

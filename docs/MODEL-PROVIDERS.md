@@ -2,6 +2,8 @@
 
 核对日期：2026-09-12。本记录是官方接口与当前源码的兼容性检查，不代表三家账号已授权或真实模型调用已通过；没有切换生产模型。
 
+需要将多个厂商集中到一个自建管理后台时，参见 [LLM 网关与管理平台选型](LLM-GATEWAY-RESEARCH.md)，包含 New API、Bifrost、LiteLLM 等候选的开源边界、部署成本与当前服务端的接入职责。
+
 ## 当前代码能做什么
 
 `server/radar/providers.py` 已有官方 OpenAI Python SDK 的两种协议适配器：`openai_chat` 使用 Chat Completions，`openai` 使用 Responses。`kind` 表示协议适配器，并不表示请求一定发往 OpenAI；实际厂商由 `base_url` 和对应密钥决定。现有依赖可以复用，无需额外安装聚合网关或手机插件。

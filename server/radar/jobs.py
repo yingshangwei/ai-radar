@@ -21,9 +21,10 @@ from .models import Job
 logger = logging.getLogger(__name__)
 LANES = {"collect": ("collect",), "translate": ("translate",), "discover": ("discover",),
          "presentation": ("present",),
+         "industry_collection": ("industry_collect",), "industry_research": ("industry_analyze",),
          "processing": ("read", "digest", "daily")}
 PHASES = frozenset({"queued", "collect", "translate", "discover", "read", "presentation", "digest",
-                    "completed", "retry_wait", "attention", "interrupted"})
+                    "completed", "retry_wait", "attention", "interrupted", "industry_collect", "industry_analyze"})
 PUBLIC_FIELDS = ("id", "kind", "status", "finished_at", "message", "queued_at", "phase",
                  "heartbeat_at", "progress_at", "retry_at", "attempt", "max_attempts", "reason_code")
 _LIVE_OWNERS: set[str] = set()
@@ -337,7 +338,10 @@ class JobSupervisor:
         check = getattr(self.pipeline, "has_pending", None)
         if check is None:
             return
-        for kind in ("present", "translate", "read", "discover"):
+        kinds = ["present", "translate", "read", "discover"]
+        if getattr(getattr(self.pipeline, "industry", None), "options", None) is not None:
+            kinds += ["industry_collect", "industry_analyze"]
+        for kind in kinds:
             with self.sessions() as session:
                 last = session.scalar(select(Job).where(Job.kind == kind).order_by(
                     Job.queued_at.desc(), Job.started_at.desc(),
@@ -346,7 +350,7 @@ class JobSupervisor:
                     "task_error", "retry_exhausted",
                 )
                 discovery = getattr(getattr(self.pipeline, "config", None), "discovery", None)
-                if blocked and (kind in ("translate", "read", "present") or (
+                if blocked and (kind in ("translate", "read", "present", "industry_collect", "industry_analyze") or (
                         kind == "discover" and getattr(discovery, "session_reuse", False))):
                     # The batch ledger reconciles receipts/unknown calls before selecting fresh work.
                     # A supervisor failure must not permanently poison unrelated queued candidates.
@@ -472,7 +476,7 @@ class JobSupervisor:
                 if result and result[1] == "completed":
                     if result[2]:
                         self.submit(kind, day=day, delay_seconds=self.continuation_seconds)
-                    if kind in ("collect", "daily", "discover"):
+                    if kind in ("collect", "daily", "discover", "industry_collect"):
                         self._enqueue_eligible()
             except asyncio.CancelledError as exc:
                 self._failure(uid, exc)

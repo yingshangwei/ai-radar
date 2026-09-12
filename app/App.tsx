@@ -39,6 +39,7 @@ import { ArticleBody, ArticleByline, ReplyContext } from "./src/ArticleContent";
 import { displayHeadline } from "./src/articlePresentation";
 import MathText from "./src/MathText";
 import UsagePanel from "./src/UsagePanel";
+import IndustryPanel from "./src/IndustryPanel";
 import FreshnessBar from "./src/FreshnessBar";
 import AppUpdates, { UpdateLifecycle } from "./src/AppUpdates";
 import AuthorizationCenter from "./src/AuthorizationCenter";
@@ -647,7 +648,9 @@ function Reader({
         ? digest.error
         : tab === "watches"
           ? watches.error
-          : articles.error,
+          : tab === "industry"
+            ? null
+            : articles.error,
     );
   function ArticleCard({ article: a }: { article: Article }) {
     const headline = displayHeadline(a);
@@ -778,7 +781,7 @@ function Reader({
           </T>
         </Pressable>
       )}
-      {offline && (
+      {offline && tab !== "industry" && (
         <View style={{ paddingHorizontal: 24, paddingVertical: 8 }}>
           <T style={{ fontSize: 12, color: C.accent }}>
             当前显示离线缓存 · 下拉刷新以重新连接
@@ -985,6 +988,8 @@ function Reader({
             少些噪音，多些洞见。
           </T>
         </ScrollView>
+      ) : tab === "industry" ? (
+        <IndustryPanel connection={connection} active={appActive} />
       ) : tab === "watches" ? (
         <ScrollView
           contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 32 }}
@@ -1281,6 +1286,7 @@ function Reader({
           [
             { id: "today", label: "今日", icon: "sun" },
             { id: "radar", label: "雷达", icon: "radio" },
+            { id: "industry", label: "行业", icon: "layers" },
             { id: "watches", label: "关注", icon: "users" },
             { id: "saved", label: "收藏", icon: "bookmark" },
           ] as { id: string; label: string; icon: IconName }[]

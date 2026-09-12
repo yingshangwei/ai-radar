@@ -90,6 +90,19 @@ trial_days = 7
 # Inherits [provider]; override via [discovery.provider] to change the model/CLI.
 # Predictions retain original engagement and are labelled separately from popularity.
 
+[industry]
+enabled = true
+collect_minutes = 30
+lookback_days = 90
+max_items_per_source = 12
+analysis_enabled = true
+analysis_hours = 24
+max_evidence = 12
+max_evidence_chars = 36000
+max_calls_per_day = 12
+max_snapshots_per_theme_per_day = 1
+# Free source access; model stages use the existing provider and a separate daily budget.
+
 [research]
 hf_enabled = true
 arxiv_enabled = true

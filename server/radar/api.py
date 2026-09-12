@@ -113,6 +113,8 @@ def create_app(settings: Settings | None = None):
 
     from .browser_api import mount_browser
     mount_browser(app, settings, sessions, authenticated, admin, enqueue_reading)
+    from .industry_api import mount_industry
+    mount_industry(app, pipeline, supervisor, authenticated)
 
     @app.get("/healthz")
     def health(session=Depends(session_dep)):

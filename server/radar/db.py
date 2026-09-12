@@ -4,6 +4,7 @@ from pathlib import Path
 from sqlalchemy import create_engine, event, inspect
 from sqlalchemy.orm import sessionmaker
 
+from . import industry_models  # noqa: F401 - register additive tables before create_all
 from .models import Base, Watch
 
 WATCHLIST = [

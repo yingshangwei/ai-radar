@@ -7,6 +7,8 @@ from zoneinfo import ZoneInfo
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from .industry_config import IndustryConfig
+
 
 class ProviderConfig(BaseModel):
     kind: Literal["codex", "claude_cli", "command", "openai", "openai_chat", "anthropic", "extractive"] = (
@@ -207,6 +209,7 @@ class RadarConfig(BaseModel):
     reading: ReadingConfig = Field(default_factory=ReadingConfig)
     research: ResearchConfig = Field(default_factory=ResearchConfig)
     discovery: DiscoveryConfig = Field(default_factory=DiscoveryConfig)
+    industry: IndustryConfig = Field(default_factory=IndustryConfig)
 
     @field_validator("timezone")
     @classmethod

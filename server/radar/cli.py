@@ -39,7 +39,8 @@ def _translation_diagnostic_logging(enabled):
 
 def main():
     parser = argparse.ArgumentParser(description="AI Radar server operations")
-    parser.add_argument("action", choices=["init", "collect", "digest", "daily", "import", "translate", "read", "discover"])
+    parser.add_argument("action", choices=["init", "collect", "digest", "daily", "import", "translate", "read", "discover",
+                                          "industry_collect", "industry_analyze", "industry_status"])
     parser.add_argument("--date", type=date.fromisoformat)
     parser.add_argument("--file", type=Path)
     parser.add_argument("--force", action="store_true")
@@ -108,7 +109,10 @@ def _run(args, parser, rechecking):
     config = settings.load()
     engine, sessions = database(settings.database_url)
     try:
-        if args.limit is not None:
+        if args.action == "industry_status":
+            from .industry import IndustryService
+            print(json.dumps(IndustryService(sessions, config).overview(), ensure_ascii=False))
+        elif args.limit is not None:
             from .translation_recheck import translate_limited
 
             result = asyncio.run(translate_limited(

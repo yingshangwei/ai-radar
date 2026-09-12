@@ -12,6 +12,7 @@ from .digest_selection import mark_supplemental_stories, select_digest_articles
 from .discovery import DiscoveryService, queue_candidate
 from .discovery_watches import apply_candidate, article_signal, maintain_watches
 from .discovery_watches import approved_signal as validate_approved_signal
+from .industry import IndustryService
 from .models import Article, ArticleReading, Digest, Job, SourceState, Watch, now_iso
 from .official_news import NEWS_SOURCES, NewsResult, fetch_news
 from .providers import make_provider
@@ -143,6 +144,9 @@ class Pipeline:
         self.translate_lock = asyncio.Lock()
         self.discover_lock = asyncio.Lock()
         self.presentation_lock = asyncio.Lock()
+        self.industry_collect_lock = asyncio.Lock()
+        self.industry_analysis_lock = asyncio.Lock()
+        self.industry = IndustryService(sessions, config)
         self.translations = TranslationService(sessions, config.translation)
         self.reading = ReadingService(sessions, config, self.translations)
         self.summary_reviews = SummaryReviewService(sessions, config)
@@ -353,6 +357,10 @@ class Pipeline:
         )
 
     def has_pending(self, kind):
+        if kind == "industry_collect":
+            return self.industry.due()
+        if kind == "industry_analyze":
+            return self.industry.has_pending()
         if kind == "present":
             return self.presentations.has_pending()
         if kind == "discover":
@@ -371,9 +379,20 @@ class Pipeline:
                 raise RuntimeError("任务尚未被执行器接管。")
             owner = job.owner
         lock = {"collect": self.collect_lock, "translate": self.translate_lock,
-                "discover": self.discover_lock, "present": self.presentation_lock}.get(kind, self.lock)
+                "discover": self.discover_lock, "present": self.presentation_lock,
+                "industry_collect": self.industry_collect_lock,
+                "industry_analyze": self.industry_analysis_lock}.get(kind, self.lock)
         async with lock:
             message = ""
+            if kind == "industry_collect":
+                await phase_callback("industry_collect")
+                result = await self.industry.collect()
+                message = (f"免费行业来源检查 {result['checked']} 个，新增 {result['added']} 个证据版本，"
+                           f"{result['failed']} 个来源暂不可用；行业研究按预算异步更新。")
+            if kind == "industry_analyze":
+                await phase_callback("industry_analyze")
+                result = await self.industry.analyze()
+                message = f"行业研究本轮处理 {result['processed']} 个阶段，状态 {result['status']}。"
             if kind == "discover":
                 await phase_callback("discover")
                 discovered = await self.discovery.pending()
@@ -436,6 +455,13 @@ class Pipeline:
                 uid = job.id
             try:
                 message = ""
+                if kind == "industry_collect":
+                    result = await self.industry.collect()
+                    message = (f"免费行业来源检查 {result['checked']} 个，新增 {result['added']} 个证据版本，"
+                               f"{result['failed']} 个来源暂不可用。")
+                if kind == "industry_analyze":
+                    result = await self.industry.analyze()
+                    message = f"行业研究状态 {result['status']}；本次只处理一个持久阶段。"
                 if kind == "discover":
                     discovered = await self.discovery.pending()
                     message = (f"本批检查 {discovered['processed']} 个发现候选，"
@@ -454,7 +480,9 @@ class Pipeline:
                     message += (
                         f"，{resource_waiting} 份仍在等待翻译或校对。" if resource_waiting else "。"
                     )
-                if self.config.reading.enabled and kind not in ("translate", "discover"):
+                if self.config.reading.enabled and kind not in (
+                    "translate", "discover", "industry_collect", "industry_analyze",
+                ):
                     reading = await self.reading.pending(force=force if kind == "read" else False)
                     message += f"本轮处理 {reading['fetched']} 个直接来源，完成 {reading['summarized']} 份网页解读。"
                 if kind in ("collect", "read", "digest", "daily"):

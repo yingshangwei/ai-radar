@@ -50,10 +50,13 @@ def test_add_review_table_and_restart_preserve_old_published_data(tmp_path):
                 )}
                 discovery = {"discovery_candidates", "discovery_calls", "discovery_entities", "discovery_watches"}
                 agent_tables = {"agent_sessions", "agent_batches"}
-                assert actual == OLD_TABLES | {"summary_reviews"} | discovery | agent_tables
+                industry = {"industry_evidence", "industry_tracking", "industry_assessments"}
+                assert actual == OLD_TABLES | {"summary_reviews"} | discovery | agent_tables | industry
                 for table in agent_tables:
                     assert connection.execute(f"SELECT count(*) FROM {table}").fetchone() == (0,)
                 for table in discovery:
                     assert connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
+                for table in industry:
+                    assert connection.execute(f"SELECT count(*) FROM {table}").fetchone() == (0,)
         finally:
             upgraded.dispose()

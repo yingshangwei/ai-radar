@@ -195,3 +195,19 @@ async def test_managed_digest_uses_originals_without_starting_or_reading_transla
     with pipeline.sessions() as session:
         digest = session.get(Digest, day.isoformat())
         assert digest.source_count == 2 and set(digest.stories[0]["source_ids"]) == {"ready", "uncached"}
+
+
+async def test_real_managed_presentation_does_not_acquire_web_processing_lock(pipeline, monkeypatch):
+    calls = []
+    async def pending(**kwargs):
+        calls.append(kwargs)
+        return {"processed": 1, "ready": 1}
+    async def phase(value):
+        assert value == "presentation"
+    monkeypatch.setattr(pipeline.presentations, "pending", pending)
+    monkeypatch.setattr(pipeline.presentations, "has_pending", lambda: False)
+    monkeypatch.setattr(pipeline.reading, "pending", no_model)
+    uid = managed_job(pipeline, "present")
+    async with pipeline.lock, pipeline.translate_lock, pipeline.discover_lock:
+        assert await asyncio.wait_for(pipeline.run(kind="present", job_id=uid, phase_callback=phase), 1) == uid
+    assert calls == [{"limit": 2}] and saved_job(pipeline, uid).status == "completed"

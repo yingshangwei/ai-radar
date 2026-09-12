@@ -142,6 +142,7 @@ class Pipeline:
         self.collect_lock = asyncio.Lock()
         self.translate_lock = asyncio.Lock()
         self.discover_lock = asyncio.Lock()
+        self.presentation_lock = asyncio.Lock()
         self.translations = TranslationService(sessions, config.translation)
         self.reading = ReadingService(sessions, config, self.translations)
         self.summary_reviews = SummaryReviewService(sessions, config)
@@ -370,7 +371,7 @@ class Pipeline:
                 raise RuntimeError("任务尚未被执行器接管。")
             owner = job.owner
         lock = {"collect": self.collect_lock, "translate": self.translate_lock,
-                "discover": self.discover_lock}.get(kind, self.lock)
+                "discover": self.discover_lock, "present": self.presentation_lock}.get(kind, self.lock)
         async with lock:
             message = ""
             if kind == "discover":

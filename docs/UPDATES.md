@@ -68,3 +68,5 @@ python3 scripts/upload-updates.py dist/ota/ROLLBACK --channel stable
 iOS 原生配置、公钥证书和共享更新界面已接入，同样按 platform/runtime 隔离。当前只验证了 iOS JavaScript 导出；本机缺少完整 Xcode 和 iOS 签名条件，尚无经过原生验证的新 IPA，所以没有登记 iOS 基线或发布 iOS OTA。完成签名构建及真机验证后，使用 `baseline ios TESTED.ipa` 登记，再按同样流程发布。
 
 依据：[Expo Updates SDK](https://docs.expo.dev/versions/v55.0.0/sdk/updates/)、[更新协议 v1](https://docs.expo.dev/technical-specs/expo-updates-1/)、[签名说明](https://docs.expo.dev/eas-update/code-signing/)、[错误恢复边界](https://docs.expo.dev/eas-update/error-recovery/)。参考了 Expo 官方自建服务示例的协议处理，没有直接将其演示服务作为生产依赖。
+
+当前 stable 内容版：**0.13.0.2**（原文优先、手动拉取、翻译归档），沿用 Android 0.13.0 / code 14 基础包。验证与服务端策略见 [FRESHNESS.md](FRESHNESS.md)。

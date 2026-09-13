@@ -8,10 +8,13 @@ export function marketReading(
   const tolerance = Math.max(0, series.lookupTolerance ?? 0);
   let best: MarketSample | null = null;
   for (const stroke of series.strokes) {
+    const first = stroke[0],
+      last = stroke[stroke.length - 1];
     if (
-      !stroke.length ||
-      at < stroke[0].time - tolerance ||
-      at > stroke[stroke.length - 1].time + tolerance
+      !first ||
+      !last ||
+      at < first.time - tolerance ||
+      at > last.time + tolerance
     )
       continue;
     for (const point of stroke) {

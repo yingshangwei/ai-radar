@@ -245,12 +245,17 @@ async def fetch_china(client, source, now, days, limit):
         rows.sort(key=lambda row: row.published_at, reverse=True)
         rows = rows[:limit]
         # Bound publisher work; prioritise actual reports over notice-only items.
-        for row in rows[:2]:
+        reports = [r for r in rows if re.search(r"(?:年度|季度).*报告|業績|业绩", r.title)]
+        reports.sort(key=lambda r: (r.published_at, "摘要" in r.title), reverse=True)
+        targets = reports[:1] + [r for r in rows if r not in reports[:1]]
+        for row in targets[:2]:
             try:
                 is_pdf = row.url.lower().endswith(".pdf")
                 body = await request(client, row.url, hosts, pdf=is_pdf)
                 parsed = await extract_page(body, "application/pdf" if is_pdf else "text/html", row.url)
                 row.text = parsed["text"]
+                if not is_pdf and "附件" in row.text:
+                    parsed["partial"] = True  # Linked policy attachments were not read.
                 row.kind = "filing_document" if is_pdf else "policy"
                 row.metadata.update(
                     partial=parsed["partial"],

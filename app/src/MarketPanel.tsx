@@ -107,7 +107,8 @@ function Trend({
   chart?: MarketChart;
 }) {
   const [hidden, setHidden] = useState<string[]>([]),
-    [cursor, setCursor] = useState<number | null>(null);
+    [cursor, setCursor] = useState<number | null>(null),
+    [plotWidth, setPlotWidth] = useState(330);
   const series = chart?.series ?? [],
     visible = series.filter((x) => !hidden.includes(x.name));
   const values = visible
@@ -142,21 +143,24 @@ function Trend({
         </Text>
       ) : (
         <View
+          onLayout={(e) => setPlotWidth(e.nativeEvent.layout.width)}
           onStartShouldSetResponder={() => true}
-          onResponderRelease={() => setCursor(null)}
           onResponderGrant={(e) =>
             setCursor(
               Math.max(
                 0,
                 Math.min(
                   1,
-                  (e.nativeEvent.locationX - left) / (w - left - right),
+                  ((e.nativeEvent.locationX / Math.max(1, plotWidth)) * w -
+                    left) /
+                    (w - left - right),
                 ),
               ),
             )
           }
         >
           <Svg
+            pointerEvents="none"
             viewBox={`0 0 ${w} ${h}`}
             width="100%"
             height={185}
@@ -300,6 +304,13 @@ function Trend({
           ? "点击图例显隐曲线 · 同价曲线可能重合"
           : `所选时间 ${shortTime(at)} · 数值后为实际绘图采样时间`}
       </Text>
+      {at != null && (
+        <Pressable accessibilityRole="button" onPress={() => setCursor(null)}>
+          <Text style={[s.muted, { fontSize: 11, paddingTop: 8 }]}>
+            取消读数
+          </Text>
+        </Pressable>
+      )}
     </View>
   );
 }

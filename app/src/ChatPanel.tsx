@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -92,6 +92,7 @@ function ChatConnection({ connection }: { connection: Connection }) {
     () => client.getQueryData([...key, "selected"]) || "",
   );
   const [profile, setProfile] = useState("standard");
+  const loadedProfile = useRef("");
   const [text, setText] = useState("");
   const [list, setList] = useState(false);
   const [linkError, setLinkError] = useState("");
@@ -123,7 +124,14 @@ function ChatConnection({ connection }: { connection: Connection }) {
         : 10000,
     retry,
   });
+  useEffect(() => {
+    if (detail.data && loadedProfile.current !== detail.data.id) {
+      loadedProfile.current = detail.data.id;
+      setProfile(detail.data.profile);
+    }
+  }, [detail.data?.id, detail.data?.profile]);
   const choose = (value: Session) => {
+    loadedProfile.current = value.id;
     setSid(value.id);
     setProfile(value.profile);
     client.setQueryData([...key, "selected"], value.id);
@@ -226,7 +234,10 @@ function ChatConnection({ connection }: { connection: Connection }) {
             accessibilityRole="button"
             accessibilityState={{ selected: profile === m.id }}
             disabled={busy}
-            onPress={() => setProfile(m.id)}
+            onPress={() => {
+              loadedProfile.current = selected;
+              setProfile(m.id);
+            }}
             style={[h.model, profile === m.id && h.chosen]}
           >
             <Text

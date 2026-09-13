@@ -193,7 +193,7 @@ async def test_sec_mismatched_cik_rejected(monkeypatch):
 
 
 def test_registry_complete_free_and_entity_references():
-    assert 20 <= len(mod.ENTITIES) <= 30
+    assert {"nvidia", "inspur", "alibaba-cn"} <= mod.ENTITIES.keys()
     assert {t for e in mod.ENTITIES.values() for t in e["themes"]} == {
         "infrastructure","software","workflows"}
     assert all(s.fee == "free" and s.refresh_minutes >= 30 for s in mod.SOURCES.values())

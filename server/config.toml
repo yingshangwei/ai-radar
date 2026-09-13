@@ -143,3 +143,11 @@ id = "meta-newsroom"
 name = "Meta Newsroom"
 url = "https://about.fb.com/feed/"
 authority = 2.0
+
+[chat]
+enabled = true
+state_directory = "/var/lib/ai-radar/chat"
+timeout_seconds = 300
+max_pending = 8
+queue_minutes = 15
+max_turns_per_day = 100

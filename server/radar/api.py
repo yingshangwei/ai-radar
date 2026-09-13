@@ -12,6 +12,8 @@ from sqlalchemy import case, func, or_, select
 
 from . import usage
 from .account_status import AccountMonitor
+from .chat import ChatService
+from .chat_api import mount_chat
 from .config import Settings
 from .daily_schedule import DAILY_CHECK_MINUTES, DailySchedule
 from .db import database
@@ -33,6 +35,8 @@ def create_app(settings: Settings | None = None):
     daily = DailySchedule(pipeline, submit=supervisor.submit)
     accounts = AccountMonitor(settings.accounts_config_path, settings.accounts_database_path)
 
+    chat = ChatService(pipeline, settings)
+
     async def poll_accounts():
         accounts.kick()
 
@@ -40,6 +44,7 @@ def create_app(settings: Settings | None = None):
     async def lifespan(_app):
         scheduler = AsyncIOScheduler(timezone=config.timezone)
         await supervisor.start()
+        await chat.start()
         if accounts.enabled:
             accounts.kick()
             scheduler.add_job(poll_accounts, "interval", seconds=30, id="account_status", max_instances=1,
@@ -77,6 +82,7 @@ def create_app(settings: Settings | None = None):
         yield
         if scheduler.running:
             scheduler.shutdown(wait=False)
+        await chat.stop()
         await supervisor.stop()
         await accounts.close()
         engine.dispose()
@@ -85,6 +91,7 @@ def create_app(settings: Settings | None = None):
     app.state.sessions, app.state.pipeline = sessions, pipeline
     app.state.supervisor = supervisor
     app.state.accounts = accounts
+    app.state.chat = chat
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -115,6 +122,7 @@ def create_app(settings: Settings | None = None):
     mount_browser(app, settings, sessions, authenticated, admin, enqueue_reading)
     from .industry_api import mount_industry
     mount_industry(app, pipeline, supervisor, authenticated)
+    mount_chat(app, chat, authenticated)
 
     @app.get("/healthz")
     def health(session=Depends(session_dep)):

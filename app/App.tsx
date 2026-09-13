@@ -1,3 +1,4 @@
+import ChatPanel from "./src/ChatPanel";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -648,7 +649,7 @@ function Reader({
         ? digest.error
         : tab === "watches"
           ? watches.error
-          : tab === "industry"
+          : ["industry", "chat"].includes(tab)
             ? null
             : articles.error,
     );
@@ -781,7 +782,7 @@ function Reader({
           </T>
         </Pressable>
       )}
-      {offline && tab !== "industry" && (
+      {offline && !["industry", "chat"].includes(tab) && (
         <View style={{ paddingHorizontal: 24, paddingVertical: 8 }}>
           <T style={{ fontSize: 12, color: C.accent }}>
             当前显示离线缓存 · 下拉刷新以重新连接
@@ -988,6 +989,8 @@ function Reader({
             少些噪音，多些洞见。
           </T>
         </ScrollView>
+      ) : tab === "chat" ? (
+        <ChatPanel connection={connection} />
       ) : tab === "industry" ? (
         <IndustryPanel connection={connection} active={appActive} />
       ) : tab === "watches" ? (
@@ -1287,6 +1290,7 @@ function Reader({
             { id: "today", label: "今日", icon: "sun" },
             { id: "radar", label: "雷达", icon: "radio" },
             { id: "industry", label: "行业", icon: "layers" },
+            { id: "chat", label: "对话", icon: "message-circle" },
             { id: "watches", label: "关注", icon: "users" },
             { id: "saved", label: "收藏", icon: "bookmark" },
           ] as { id: string; label: string; icon: IconName }[]

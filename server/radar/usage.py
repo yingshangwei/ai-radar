@@ -27,7 +27,7 @@ _failures = 0
 FEATURES = {
     "translation": "普通翻译", "technical_translation": "技术翻译",
     "digest": "每日汇报", "web_reading": "网页解读", "radar_heading": "雷达标题",
-    "discovery_foresight": "动态关注与前瞻预判", "industry_research": "行业与投资研究", "other": "其他调用",
+    "discovery_foresight": "动态关注与前瞻预判", "industry_research": "行业与投资研究", "analysis_chat": "分析对话", "other": "其他调用",
 }
 STAGES = {"draft": "初稿", "generation": "生成", "correction": "校对", "audit": "独立审计"}
 for _stage, _label in list(STAGES.items()):

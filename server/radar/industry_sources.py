@@ -20,6 +20,8 @@ import feedparser
 import httpx
 from bs4 import BeautifulSoup
 
+from .industry_china import register as register_china
+
 
 @dataclass(frozen=True)
 class SourceSpec:
@@ -126,6 +128,10 @@ for _entity in _SEC_ENTITIES:
         "SEC 最近申报元数据；最多尝试最新 1 份经营/定期申报主文档。",
         "最近 submissions 窗口；notice 只有元数据。主文档不包含所有附件；不可用时保留 notice。"
         "进程内 SEC 请求串行并间隔至少 250ms；多进程仍需外部总限频。", 60)
+
+# Domestic sources share the same evidence and scheduling contracts.
+
+register_china(ENTITIES, SOURCES, SourceSpec)
 
 MAX_RESPONSE_BYTES = 2_000_000
 MAX_TEXT_CHARS = 60_000
@@ -449,6 +455,9 @@ async def fetch_source(client: httpx.AsyncClient, source: SourceSpec, *,
         raise IndustrySourceError("invalid_options", "Invalid bounded collection options")
     now = datetime.now(UTC)
     try:
+        if source.kind in {"cn_filing", "cn_policy"}:
+            from .industry_china import fetch_china
+            return await fetch_china(client, source, now, lookback_days, max_items)
         if source.id == "federal-register-ai":
             return await _policy(client, source, now, lookback_days, max_items)
         if source.kind == "filing":

@@ -315,3 +315,19 @@ async def test_disabled_service_does_not_collect_or_call_models(tmp_path):
         assert not provider.calls
     finally:
         engine.dispose()
+
+
+def test_domestic_evidence_survives_newer_global_volume(state):
+    service, _, _ = state
+    sessions = service.sessions
+    with service.transaction() as db:
+        for i in range(260):
+            put_evidence(db, evidence_input(url=f'https://nvidianews.nvidia.com/news/{i}',
+                external_id=str(i)), 'NVIDIA', clock=NOW)
+        put_evidence(db, evidence_input(url='https://static.cninfo.com.cn/finalpage/2026-08-20/123.PDF',
+            source_id='cninfo-inspur', published_at=(NOW-timedelta(days=10)).isoformat(),
+            entity_ids=['inspur'],metadata={'partial':False,'region':'cn','evidence_scope':'filing_primary_document'}),
+            '巨潮 · 浪潮信息', clock=NOW)
+    with sessions() as db:
+        chosen=service._select_evidence(db,'infrastructure')
+    assert any('inspur' in row['entity_ids'] for row in chosen)

@@ -13,9 +13,11 @@
 | `broadcom-ir` | Broadcom 财报、芯片、网络和软件公告 | 官方 IR RSS，最多补最新 3 篇固定公告路径正文 | 30 分钟 |
 | `sec-*`，17 家 | NVIDIA、AMD、Broadcom、Micron、Microsoft、Amazon、Alphabet、Meta、Oracle、Salesforce、ServiceNow、Adobe、Palantir、Intuit、ADP、Accenture、IBM | 每个已知 CIK 的 submissions 最近窗口；最多补最新 1 份 8-K / 10-Q / 10-K / 20-F / 6-K 主文档 | 60 分钟 |
 
-实体目录共有 25 家上市公司，用 `infrastructure` / `software` / `workflows` 三种主题；目录不是已接通 25 家全文源的声明。交易代码标识所选上市证券，CIK 标识发行主体；例如 TSM、SAP 对应美国 ADR。Schneider 使用巴黎上市证券，未配 SEC 采集源。
+实体目录现共有 34 家上市公司（最初 25 家，新增 9 家国内公司），用 `infrastructure` / `software` / `workflows` 三种主题；目录不是已接通 25 家全文源的声明。交易代码标识所选上市证券，CIK 标识发行主体；例如 TSM、SAP 对应美国 ADR。Schneider 使用巴黎上市证券，未配 SEC 采集源。
 
 默认回看 90 天、每源最多 12 项；可接受 1–365 天、1–30 项。RSS 本身可能只包含 10–20 条，SEC 此版本只读最近 submissions，不读取其历史分片，因此回看天数不等于历史完整性。每项明确 `history_complete=false`。
+
+新增国内来源由 `industry_china.py` 实现：8 家巨潮公司披露、阿里巴巴中文港股公告和国家发改委通知，共 10 个，详见[国内来源与对话](DOMESTIC-AND-CHAT.md)。国内 PDF 使用已有隔离解析器，下载上限 8 MB、最多 40 页/60,000 字符；因此不适用下文原有 SEC/RSS 的 2 MB 限制。
 
 ## 证据契约
 

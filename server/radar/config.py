@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from .chat_config import ChatConfig
 from .industry_config import IndustryConfig
 
 
@@ -176,6 +177,7 @@ class ReadingConfig(BaseModel):
 
 
 class RadarConfig(BaseModel):
+    chat: ChatConfig = Field(default_factory=ChatConfig)
     # Nested translation validation must not echo options or configured secrets.
     model_config = ConfigDict(hide_input_in_errors=True)
 

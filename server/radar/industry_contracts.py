@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-POLICY = "industry-evidence-v1"
+POLICY = "industry-evidence-v2-regions"
 State = Literal["improving", "mixed", "weakening", "insufficient_evidence"]
 
 
@@ -52,6 +52,7 @@ theme 的假说、风险和观察公司是研究框架，不是已验证的产�
 partial=true 或 filing_notice 只能支撑已取得的摘要/申报元数据；没有附件不声称读完业绩全文。
 不要把厂商产品宣传、论文或宏观消息直接当成整个行业收入/利润改善。improving/weakening 表示经营证据方向，
 需不同主体的实质经营证据支持；只有单一主体、元数据或技术进展时用 insufficient_evidence，必要时 mixed。
+区分国内与海外样本及产业差异，不把一地政策或公司表现直接外推到另一市场。国内材料缺少时明确说明。
 summary_zh 是综合的有条件行业判断；supporting 与 opposing 写支持/削弱假说的证据；
 investment_implications 解释潜在受益/受损环节、利润分配、时间跨度；不是按名单泛称每家受益。
 watch_items 为下一步验证指标及反证；unknowns 列材料缺口。horizon 指经营验证跨度，不是股价预测期限。

@@ -7,6 +7,7 @@ import logging
 import re
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
+from itertools import zip_longest
 from urllib.parse import urlsplit
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -25,7 +26,7 @@ from .ranking import canonicalize
 
 logger = logging.getLogger(__name__)
 LIMITATIONS = [
-    "首期以美股上市主体和全球 AI 动态为主，A 股、港股原始披露尚未形成完整覆盖。",
+    "覆盖部分 A 股、阿里巴巴港股公告和海外主体；公司样本及政策来源不代表全市场。",
     "行业状态是有条件的经营证据判断，不是股票涨跌概率；观察名单不代表买入推荐。",
     "未接入即时股价、估值和市场一致预期，预期差未知；不能据此确定买卖价格。",
     "免费来源包含公告摘要、申报通知和部分正文；发布时间不等于事件发生时间。",
@@ -108,7 +109,9 @@ def put_evidence(session, item, source_name, *, clock=None):
         id=uid, document_key=document_key, content_hash=fingerprint, source_id=item.source_id,
         source_name=source_name, origin=origin, external_id=item.external_id[:300], url=canonical,
         first_seen_at=now.isoformat(), theme_ids=theme_ids, revision=(previous.revision + 1 if previous else 1),
-        details={"evidence_scope": str(item.metadata.get("evidence_scope", "source_excerpt"))[:500]}, **content,
+        details={"evidence_scope": str(item.metadata.get("evidence_scope", "source_excerpt"))[:500],
+                 "region": "cn" if item.source_id == "ndrc-policy" or any(
+                     ENTITIES[e].get("region") == "cn" for e in entities) else "global"}, **content,
     ))
     session.flush()
     return 1
@@ -283,6 +286,12 @@ class IndustryService:
         rows = session.scalars(self._query(theme).limit(250)).all()
         # Prefer actual text, then diversify origins. Metadata is still visible in the evidence list.
         rows.sort(key=lambda row: row.kind in ("filing_notice", "macro", "macro_policy", "policy", "policy_notice"))
+        # Reserve comparable visibility for domestic evidence when available.
+        domestic = list(session.scalars(self._query(theme).where(
+            IndustryEvidence.details["region"].as_string() == "cn").limit(125)))
+        domestic.sort(key=lambda row: row.kind in ("filing_notice", "policy", "policy_notice"))
+        global_rows = [r for r in rows if r.details.get("region") != "cn"]
+        rows = [r for pair in zip_longest(domestic, global_rows) for r in pair if r]
         chosen, counts, chars = [], {}, 0
         for cap in (1, 3):
             for row in rows:
@@ -444,7 +453,8 @@ class IndustryService:
                 themes.append({**{k: v for k, v in theme.items() if k != "terms"},
                     "enabled": tracking.enabled if tracking else True,
                     "companies": [{k: entity[k] for k in ("id", "name", "ticker", "exchange")}
-                                  for entity in ENTITIES.values() if key in entity.get("themes", [])],
+                                  for entity in sorted(ENTITIES.values(), key=lambda e: e.get("region") != "cn")
+                                  if key in entity.get("themes", [])],
                     "evidence_count": len(evidence), "independent_sources": len({row.origin for row in evidence}),
                     "latest_evidence_at": evidence[0].published_at if evidence else None,
                     "state": reports[0].result["state"] if reports else "insufficient_evidence",
@@ -453,7 +463,7 @@ class IndustryService:
                     "analysis_status": {"status": latest.status, "failure_code": latest.failure_code,
                                         "updated_at": latest.updated_at} if latest else None})
             return {"enabled": self.options.enabled, "free_only": True, "as_of": self.clock().isoformat(),
-                    "scope": "AI 跨行业经营研究 · 美股主体为主 · 免费原始来源",
+                    "scope": "AI 跨行业经营研究 · 国内与海外 · 免费原始来源",
                     "limitations": LIMITATIONS, "sources": sources, "themes": themes,
                     "budget": {"calls_today": self._budget(session), "max_calls_per_day": self.options.max_calls_per_day,
                                "unit": "model_stage", "provider_calls_per_stage_max": 2,

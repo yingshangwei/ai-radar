@@ -9,6 +9,7 @@ export type MarketSeries = {
   strokes: MarketSample[][];
   minimum: number;
   maximum: number;
+  lookupTolerance: number;
 };
 export type MarketChart = {
   source: string;

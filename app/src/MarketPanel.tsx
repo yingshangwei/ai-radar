@@ -20,7 +20,8 @@ import { useQuery } from "@tanstack/react-query";
 import { api, APIError } from "./api";
 import { C, s } from "./theme";
 import type { Connection } from "./types";
-import type { MarketChart, MarketSample, MarketView } from "./marketTypes";
+import type { MarketChart, MarketView } from "./marketTypes";
+import { marketReading } from "./marketView";
 
 const colors = ["#0072B2", "#D55E00", "#242424", "#8B4BA8", "#00815F"];
 const dashes = [undefined, "7 4", "2 4", "10 3 2 3", "4 3"];
@@ -129,14 +130,6 @@ function Trend({
       left + ((v - start) / Math.max(1, end - start)) * (w - left - right),
     y = (v: number) => top + ((high - v) / (high - low)) * (h - top - bottom);
   const at = cursor == null ? null : start + cursor * (end - start);
-  const nearest = (points: MarketSample[]) =>
-    at == null
-      ? null
-      : points.reduce<MarketSample | null>(
-          (a, p) =>
-            !a || Math.abs(p.time - at) < Math.abs(a.time - at) ? p : a,
-          null,
-        );
   return (
     <View style={m.card}>
       <View style={s.spread}>
@@ -291,7 +284,12 @@ function Trend({
             <Text style={[s.muted, { fontSize: 10 }]}>
               {item.name}
               {at != null
-                ? ` ${money(nearest(item.strokes.flat())?.value)}`
+                ? (() => {
+                    const point = marketReading(item, at);
+                    return point
+                      ? ` ${money(point.value)} · ${shortTime(point.time)}`
+                      : " — 此处缺采样";
+                  })()
                 : ""}
             </Text>
           </Pressable>
@@ -300,7 +298,7 @@ function Trend({
       <Text style={[s.muted, { fontSize: 10 }]}>
         {at == null
           ? "点击图例显隐曲线 · 同价曲线可能重合"
-          : `所选时间 ${shortTime(at)} · 显示最近绘图采样`}
+          : `所选时间 ${shortTime(at)} · 数值后为实际绘图采样时间`}
       </Text>
     </View>
   );

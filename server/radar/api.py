@@ -20,6 +20,7 @@ from .db import database
 from .discovery_watches import discovery_status, list_entities, on_watch_toggle, watch_metadata
 from .freshness import freshness_status, translation_updates
 from .jobs import JobQueueConflict, JobSupervisor, job_counts, public_job
+from .market_api import mount_market
 from .models import Article, ArticleTranslation, Digest, Job, SourceState, Translation, Watch
 from .pipeline import Pipeline, as_dict, ingest
 from .schemas import Bookmark, ImportBatch, Toggle, WatchInput
@@ -123,6 +124,7 @@ def create_app(settings: Settings | None = None):
     from .industry_api import mount_industry
     mount_industry(app, pipeline, supervisor, authenticated)
     mount_chat(app, chat, authenticated)
+    mount_market(app, settings, authenticated)
 
     @app.get("/healthz")
     def health(session=Depends(session_dep)):

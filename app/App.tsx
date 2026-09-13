@@ -1,3 +1,4 @@
+import MarketPanel from "./src/MarketPanel";
 import ChatPanel from "./src/ChatPanel";
 import React, { useEffect, useMemo, useState } from "react";
 import {
@@ -649,7 +650,7 @@ function Reader({
         ? digest.error
         : tab === "watches"
           ? watches.error
-          : ["industry", "chat"].includes(tab)
+          : ["industry", "chat", "market"].includes(tab)
             ? null
             : articles.error,
     );
@@ -782,7 +783,7 @@ function Reader({
           </T>
         </Pressable>
       )}
-      {offline && !["industry", "chat"].includes(tab) && (
+      {offline && !["industry", "chat", "market"].includes(tab) && (
         <View style={{ paddingHorizontal: 24, paddingVertical: 8 }}>
           <T style={{ fontSize: 12, color: C.accent }}>
             当前显示离线缓存 · 下拉刷新以重新连接
@@ -989,6 +990,8 @@ function Reader({
             少些噪音，多些洞见。
           </T>
         </ScrollView>
+      ) : tab === "market" ? (
+        <MarketPanel connection={connection} active={appActive} />
       ) : tab === "chat" ? (
         <ChatPanel connection={connection} />
       ) : tab === "industry" ? (
@@ -1290,6 +1293,7 @@ function Reader({
             { id: "today", label: "今日", icon: "sun" },
             { id: "radar", label: "雷达", icon: "radio" },
             { id: "industry", label: "行业", icon: "layers" },
+            { id: "market", label: "行情", icon: "activity" },
             { id: "chat", label: "对话", icon: "message-circle" },
             { id: "watches", label: "关注", icon: "users" },
             { id: "saved", label: "收藏", icon: "bookmark" },

@@ -228,6 +228,10 @@ class RadarConfig(BaseModel):
 
 
 class Settings(BaseSettings):
+    market_service_url: str = ""
+    market_reader_token: str = Field(default="", repr=False)
+    market_sync_token: str = Field(default="", repr=False)
+
     model_config = SettingsConfigDict(env_prefix="RADAR_", env_file=".env", extra="ignore")
     database_url: str = "sqlite:///./data/radar.db"
     usage_database_path: str = ""

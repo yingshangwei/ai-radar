@@ -121,7 +121,8 @@ export const s = StyleSheet.create({
   navItem: {
     alignItems: "center",
     justifyContent: "center",
-    minWidth: 64,
+    flex: 1,
+    minWidth: 0,
     gap: 5,
     paddingVertical: 5,
   },

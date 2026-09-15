@@ -13,6 +13,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useQuery } from "@tanstack/react-query";
 import Feather from "@expo/vector-icons/Feather";
 import { api, cached } from "./api";
+import { publicationLabel } from "./articlePresentation";
 import { C, s } from "./theme";
 import type { Connection, Status } from "./types";
 
@@ -170,7 +171,7 @@ export default function FreshnessBar({
             X 采集已暂停：API
             余额不足或计费受限。请检查余额和消费上限，处理后自动恢复。
             {xSource.last_success_at
-              ? ` 上次成功：${new Date(xSource.last_success_at).toLocaleString("zh-CN")}`
+              ? ` 上次成功：${publicationLabel(xSource.last_success_at, false, true)}`
               : ""}
           </Text>
           <Pressable

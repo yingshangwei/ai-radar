@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Linking,
   Modal,
   Pressable,
   ScrollView,
@@ -107,6 +108,8 @@ export default function FreshnessBar({
     }
   };
   const freshness = status?.freshness;
+  const xSource = status?.sources.find((source) => source.id === "x");
+  const xPaymentRequired = xSource?.status === "payment_required";
   return (
     <View style={{ marginBottom: 18 }}>
       <View style={[s.spread, { gap: 10 }]}>
@@ -151,7 +154,41 @@ export default function FreshnessBar({
           ? `每 ${freshness.collect_minutes} 分钟自动采集 · 原文先到，总结与翻译陆续更新`
           : "原文先到，总结与翻译陆续更新"}
       </Text>
-      {!!freshness?.overdue_accounts && (
+      {xPaymentRequired && (
+        <View
+          style={{
+            marginTop: 10,
+            padding: 12,
+            borderRadius: 12,
+            backgroundColor: C.paper,
+          }}
+        >
+          <Text
+            accessibilityLiveRegion="polite"
+            style={{ color: C.accent, fontSize: 12, lineHeight: 19 }}
+          >
+            X 采集已暂停：API
+            余额不足或计费受限。请检查余额和消费上限，处理后自动恢复。
+            {xSource.last_success_at
+              ? ` 上次成功：${new Date(xSource.last_success_at).toLocaleString("zh-CN")}`
+              : ""}
+          </Text>
+          <Pressable
+            accessibilityRole="link"
+            onPress={() =>
+              void Linking.openURL("https://console.x.com/").catch(() =>
+                setMessage("暂时无法打开控制台，请访问 console.x.com。"),
+              )
+            }
+            style={{ paddingTop: 10, paddingBottom: 4 }}
+          >
+            <Text style={{ color: C.green, fontSize: 12, fontWeight: "600" }}>
+              打开 X 开发者控制台 ↗
+            </Text>
+          </Pressable>
+        </View>
+      )}
+      {!!freshness?.overdue_accounts && !xPaymentRequired && (
         <Text style={{ fontSize: 11, color: C.accent, marginTop: 5 }}>
           {freshness.overdue_accounts}{" "}
           个关注账号尚未达到时效目标，最新窗口仍有延迟。

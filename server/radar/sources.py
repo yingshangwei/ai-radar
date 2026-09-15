@@ -36,8 +36,12 @@ async def get_json(
     response = await client.get(url, params=params, headers=headers)
     if response.status_code in (401, 403):
         raise SourceUnavailable("auth_required", "授权无效或缺少读取权限，请检查平台凭证与应用权限。")
-    if response.status_code in (402, 429):
-        raise SourceUnavailable("rate_limited", "平台额度或频率受限，本轮停止请求，等待下次采集。")
+    if response.status_code == 402:
+        # Do not echo provider payloads: they can contain account IDs or tokens.
+        raise SourceUnavailable("payment_required", "API 余额不足或计费额度受限（HTTP 402）。"
+                                "请在平台开发者控制台检查余额及消费上限；处理后下轮自动恢复，也可点击拉取最新。")
+    if response.status_code == 429:
+        raise SourceUnavailable("rate_limited", "平台请求频率受限（HTTP 429），本轮停止请求，冷却后下轮自动重试。")
     response.raise_for_status()
     body = response.json()
     partial_posts = allow_partial and isinstance(body.get("data"), list) and bool(body["data"])

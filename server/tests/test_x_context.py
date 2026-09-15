@@ -123,7 +123,7 @@ async def test_reply_context_cannot_turn_unrelated_text_into_ai_news(monkeypatch
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "http_status,source_status", [(402, "rate_limited"), (429, "rate_limited"), (503, "error")]
+    "http_status,source_status", [(402, "payment_required"), (429, "rate_limited"), (503, "error")]
 )
 async def test_quota_error_keeps_already_fetched_posts_and_marks_partial_state(
     monkeypatch, respx_mock, tmp_path, http_status, source_status

@@ -400,6 +400,9 @@ test("partial is connected but clearly marked as incomplete coverage", () => {
   assert.equal(sourceConnected("healthy"), true);
   assert.equal(sourceConnected("auth_required"), false);
   assert.equal(sourceStatusLabel("auth_required"), "待授权");
+  assert.equal(sourceStatusLabel("payment_required"), "余额/计费受限");
+  assert.equal(sourceConnected("payment_required"), false);
+  assert.equal(sourceStatusLabel("rate_limited"), "请求限流");
 });
 
 const { unseenUpdates } = loadTS("../src/translationUpdates.ts");

@@ -173,7 +173,7 @@ async def test_due_fresh_head_bypasses_backlog_and_completed_watermark_waits(sto
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failure,status", [(401, "auth_required"), (402, "rate_limited"), (429, "rate_limited"), (503, "error")])
+@pytest.mark.parametrize("failure,status", [(401, "auth_required"), (402, "payment_required"), (429, "rate_limited"), (503, "error")])
 async def test_partial_success_then_failure_keeps_commits_and_stops(store, respx_mock, failure, status):
     cfg, clock = config(x_request_budget=3, x_discovery_requests=0), Clock()
     route = respx_mock.get(ENDPOINT).mock(side_effect=[response(), httpx.Response(failure, text="private-token-response")])
@@ -187,6 +187,37 @@ async def test_partial_success_then_failure_keeps_commits_and_stops(store, respx
     assert not state(store, CONTROL)["owner"]
     with store() as session:
         assert len(list(session.scalars(select(Article)))) == 1
+
+
+async def test_recovery_after_credit_outage_refreshes_uncommitted_head_without_gaps(store, respx_mock):
+    clock = Clock()
+    cfg = config(x_request_budget=1, x_discovery_requests=0, x_head_refresh_minutes=25)
+    route = respx_mock.get(ENDPOINT).mock(side_effect=[
+        response("100"), httpx.Response(402), httpx.Response(402),
+        response("300", next_token="older-posts"), response("200"),
+    ])
+    await run(store, cfg, ["alice"], clock)
+    successful_end = state(store, "watch:alice")["head_end"]
+    clock.advance(1)
+    await run(store, cfg, ["alice"], clock)
+    clock.advance(48)
+    await run(store, cfg, ["alice"], clock)
+    assert len(state(store, "watch:alice")["windows"]) == 1
+    clock.advance(1)
+    result = await run(store, cfg, ["alice"], clock)
+    params = dict(route.calls[3].request.url.params)
+    assert params["start_time"] == successful_end
+    assert params["end_time"] == stamp(clock.now - timedelta(seconds=30))
+    assert "next_token" not in params
+    assert result.coverage["watched_fresh"] == 1
+    assert result.coverage["gap_count"] == 0
+    assert state(store, "watch:alice")["completed_through"] == successful_end
+    # Once the first page committed, its exact range must survive pagination.
+    clock.advance(.1)
+    await run(store, cfg, ["alice"], clock)
+    tail = dict(route.calls[4].request.url.params)
+    assert tail.pop("next_token") == "older-posts" and tail == params
+    assert state(store, "watch:alice")["completed_through"] == params["end_time"]
 
 
 @pytest.mark.asyncio
@@ -371,14 +402,15 @@ async def test_malformed_success_response_does_not_advance_watermark(store, resp
 
 
 @pytest.mark.asyncio
-async def test_recent_success_for_old_retried_head_is_not_reported_fresh(store, respx_mock):
+async def test_transport_outage_recovers_current_head_in_first_successful_request(store, respx_mock):
     cfg, clock = config(x_request_budget=1, x_discovery_requests=0), Clock()
     respx_mock.get(ENDPOINT).mock(side_effect=[httpx.Response(503), response()])
     await run(store, cfg, ["alice"], clock)
     clock.advance(36)
     result = await run(store, cfg, ["alice"], clock)
-    assert result.committed_pages == 1 and result.coverage["watched_fresh"] == 0
-    assert result.status == "partial"
+    assert result.committed_pages == 1 and result.coverage["watched_fresh"] == 1
+    assert state(store, "watch:alice")["head_end"] == stamp(clock.now - timedelta(seconds=30))
+    assert result.status == "healthy"
 
 
 @pytest.mark.asyncio

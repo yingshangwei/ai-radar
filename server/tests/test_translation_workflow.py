@@ -61,6 +61,37 @@ def verdict(parts, approved=True):
             for p in parts}
 
 
+async def test_already_chinese_pending_row_finalizes_without_model_calls(store):
+    sessions, config, _ = store
+    source = "这是一条已使用中文发布的信息。"
+    with sessions.begin() as session:
+        row = ensure_translation(session, source, source, config)
+        key = row.id
+        assert row.status == "pending"
+    service = TranslationService(sessions, config)
+
+    async def forbidden(*args, **kwargs):
+        raise AssertionError("Chinese source must not trigger paid translation")
+
+    service.request = service.audit = service.auxiliary = forbidden
+    with sessions() as session:
+        assert service.can_finalize(session.get(Translation, key))
+    await service.translate_one(key)
+    result = read(sessions, key)
+    assert result["status"] == "ready" and result["text_zh"] == source
+    assert result["original_text"] == source and result["issues"] == []
+
+
+async def test_pending_english_copy_cannot_bypass_audit(store):
+    sessions, config, key = store
+    with sessions.begin() as session:
+        row = session.get(Translation, key)
+        row.parts = [{"id": "body-0", "source": SOURCE, "draft": SOURCE,
+                      "zh": SOURCE, "ok": True, "issues": []}]
+    with sessions() as session:
+        assert not TranslationService(sessions, config).can_finalize(session.get(Translation, key))
+
+
 def seed_candidate(sessions, key, *, candidate=A, rounds=1, audit=False, flag=True):
     with sessions.begin() as session:
         row = session.get(Translation, key)

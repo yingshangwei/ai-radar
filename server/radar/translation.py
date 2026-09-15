@@ -1195,7 +1195,12 @@ class TranslationService:
         policy = review_policy(row)
         return bool(row.parts) and row.status != "ready" and all(
             part_audited(p) and not workflow.blocked(p, policy) for p in row.parts
-        ) and any(workflow.events(p, policy) for p in row.parts)
+        ) and (any(workflow.events(p, policy) for p in row.parts) or (
+            row.status == "pending" and all(
+                not needs_translation(p["source"]) and p.get("ok") and not p.get("issues")
+                and (p.get("zh") or p.get("draft")) == p["source"] for p in row.parts
+            )
+        ))
 
     def can_progress(self, row, *, force=False, recheck=False):
         """Read only; used before the queue limit and again inside the claim."""

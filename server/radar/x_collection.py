@@ -189,6 +189,15 @@ class XCollector:
                 uncommitted = [window for window in windows if not window.get("head_committed")]
                 if uncommitted:
                     window = uncommitted[-1]
+                    # A failed first page has no committed cursor. Refresh its
+                    # end after an outage, keeping the unread start, so recovery
+                    # immediately returns current posts in recency order. Never
+                    # move a window once any page has committed.
+                    end = stamp(now - timedelta(seconds=30))
+                    if (not window.get("next_token") and not window.get("last_page_at")
+                            and end > window["end"] and (self.force_fresh or
+                            instant(window["end"]) <= now - self.head_interval())):
+                        window.update(id=str(uuid4()), end=end)
                 else:
                     end = stamp(now - timedelta(seconds=30))
                     if data.get("head_end", "") >= end:
@@ -238,9 +247,10 @@ class XCollector:
             meta = body.get("meta", {})
             if not window["head_committed"]:
                 window["head_committed"] = True
-                data["head_end"], data["last_head_at"] = window["end"], stamp(self.clock())
-                if meta.get("newest_id"):
-                    data["newest_id"] = str(meta["newest_id"])
+                if window["end"] >= data.get("head_end", ""):
+                    data["head_end"], data["last_head_at"] = window["end"], stamp(self.clock())
+                    if meta.get("newest_id"):
+                        data["newest_id"] = str(meta["newest_id"])
             window["last_page_at"] = stamp(self.clock())
             window["partial_response"] = window.get("partial_response", False) or bool(body.get("errors"))
             window["next_token"] = meta.get("next_token") or ""

@@ -235,7 +235,10 @@ class IndustryService:
                         with self.transaction() as session:
                             state = session.get(SourceState, "industry:" + key)
                             state.status = "error"
-                            state.message = "来源暂不可用或响应未通过校验；已保留历史数据，稍后按周期重试。"
+                            state.message = {
+                                "blocked": "来源拒绝服务器访问（HTTP 401/403）；历史数据保留，按周期复查访问状态。",
+                                "rate_limited": "来源请求限流（HTTP 429）；历史数据保留，冷却后按周期重试。",
+                            }.get(getattr(exc, "code", ""), "来源暂不可用或响应未通过校验；已保留历史数据，稍后按周期重试。")
                         logger.warning("Industry source %s failed: %s", key, type(exc).__name__)
             total += self.reuse_free_articles()
             return {"added": total, "checked": checked, "failed": failed}

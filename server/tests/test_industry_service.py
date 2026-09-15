@@ -12,8 +12,8 @@ from radar.config import RadarConfig
 from radar.db import database
 from radar.industry import IndustryService, put_evidence
 from radar.industry_models import IndustryAssessment, IndustryEvidence, IndustryTracking
-from radar.industry_sources import EvidenceInput
-from radar.models import Article
+from radar.industry_sources import EvidenceInput, IndustrySourceError
+from radar.models import Article, SourceState
 
 NOW = datetime(2026, 9, 13, 4, 0, tzinfo=UTC)
 
@@ -315,6 +315,31 @@ async def test_disabled_service_does_not_collect_or_call_models(tmp_path):
         assert not provider.calls
     finally:
         engine.dispose()
+
+
+@pytest.mark.parametrize("error,expected", [
+    (IndustrySourceError("blocked", "private upstream"), "HTTP 401/403"),
+    (IndustrySourceError("rate_limited", "private upstream"), "HTTP 429"),
+    (ValueError("private upstream"), "未通过校验"),
+])
+async def test_source_errors_are_actionable_and_do_not_stop_other_sources(state, monkeypatch, error, expected):
+    service, _, _ = state
+    from radar import industry
+    keys = ["cninfo-inspur", "nvidia-news"]
+    monkeypatch.setattr(industry, "SOURCES", {key: industry.SOURCES[key] for key in keys})
+
+    async def fetch(client, source, **kwargs):
+        if source.id == keys[0]:
+            raise error
+        return []
+
+    monkeypatch.setattr(industry, "fetch_source", fetch)
+    result = await service.collect()
+    assert result["checked"] == 2 and result["failed"] == 1
+    with service.sessions() as session:
+        failed = session.get(SourceState, "industry:" + keys[0])
+        assert expected in failed.message and "private" not in failed.message
+        assert session.get(SourceState, "industry:" + keys[1]).status == "healthy"
 
 
 def test_domestic_evidence_survives_newer_global_volume(state):

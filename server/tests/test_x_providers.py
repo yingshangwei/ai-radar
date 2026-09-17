@@ -87,11 +87,14 @@ async def test_incremental_provider_cursor_isolation_and_atomic_ingestion(store,
     assert [c.accepted for c in calls(store)] == [1, 1]
 
 
-async def test_empty_response_is_billed_without_fake_data(store, respx_mock):
-    respx_mock.get(TWITTERAPI_SEARCH).respond(200, json={"tweets": [], "has_next_page": False})
+@pytest.mark.parametrize("pagination", [{}, {"next_cursor": ""}, {"next_cursor": None}])
+async def test_empty_response_is_billed_without_fake_data(store, respx_mock, pagination):
+    respx_mock.get(TWITTERAPI_SEARCH).respond(200, json={"tweets": [], "has_next_page": False, **pagination})
     result = await collect(store, config())
     assert result.status == "healthy" and result.read_count == 0
     assert calls(store)[0].cost_microusd == 150
+    with store() as session:
+        assert session.get(XCollectionState, "twitterapi_io:watch:alice").data["completed_through"]
 
 
 async def test_timeout_keeps_reservation_and_next_request_is_blocked(store, respx_mock):
@@ -120,6 +123,8 @@ async def test_storage_failure_keeps_paid_receipt_but_rolls_back_cursor(store, r
 
 @pytest.mark.parametrize("body", [
     {"tweets": [], "has_next_page": True},
+    {"tweets": [], "has_next_page": True, "next_cursor": None},
+    {"tweets": [], "has_next_page": False, "next_cursor": 0},
     {"tweets": [tweet(createdAt=(NOW - timedelta(days=2)).isoformat())], "has_next_page": False},
     {"tweets": [tweet(author={})], "has_next_page": False},
     {"tweets": [tweet(handle="wrong_author")], "has_next_page": False},

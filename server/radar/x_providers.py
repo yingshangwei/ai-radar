@@ -25,6 +25,10 @@ def timestamp(value):
 
 
 def vendor_page(tweets, *, next_cursor="", has_next_page=False):
+    # Live TwitterAPI.io responses use null for an exhausted search cursor.
+    # Only an explicit terminal page may omit a usable recovery cursor.
+    if next_cursor is None and has_next_page is False:
+        next_cursor = ""
     if not isinstance(tweets, list) or type(has_next_page) is not bool or not isinstance(next_cursor, str):
         raise ValueError("Invalid vendor pagination")
     if has_next_page and not next_cursor:

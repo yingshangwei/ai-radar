@@ -25,6 +25,7 @@ from .models import Article, ArticleTranslation, Digest, Job, SourceState, Trans
 from .pipeline import Pipeline, as_dict, ingest
 from .schemas import Bookmark, ImportBatch, Toggle, WatchInput
 from .translation import present_articles, translation_status
+from .x_costs import XCostLedger
 
 
 def create_app(settings: Settings | None = None):
@@ -161,6 +162,7 @@ def create_app(settings: Settings | None = None):
             "model": config.provider.model,
             "scheduler_enabled": settings.scheduler_enabled,
             "freshness": freshness_status(session, config),
+            "x_data": XCostLedger(sessions, config).report(),
             "article_count": session.scalar(select(func.count()).select_from(Article)),
             "translation": translation_status(session, config.translation),
             "discovery": discovery_status(session, config),

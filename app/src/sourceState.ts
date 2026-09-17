@@ -9,6 +9,7 @@ export function sourceStatusLabel(status: string): string {
         partial: "部分覆盖",
         auth_required: "待授权",
         payment_required: "余额/计费受限",
+        budget_exhausted: "达到费用上限",
         rate_limited: "请求限流",
         error: "采集异常",
         pending: "等待采集",

@@ -2,6 +2,8 @@
 
 ## X / Twitter
 
+当前默认配置使用 TwitterAPI.io，按 30 分钟轮询关注账号、6 小时运行广泛发现；另有独立金额预算和可选 Apify 小样本对照。授权、费用、供应商隔离与边界见 [X 数据供应商](X-DATA-PROVIDERS.md)。下方官方接口说明为兼容路径，只有显式选择 `[x_data].provider = "official"` 才使用；不会自动回退。TwitterAPI.io 每页固定最多 20 条，忽略仅供官方接口使用的 `x_page_size`。
+
 在服务器私有环境文件配置 `X_BEARER_TOKEN`，其值来自 X Developer 应用的官方授权。使用 `/2/tweets/search/recent`，读取 `created_at`、`public_metrics`、`note_tweet`、`referenced_tweets` 和作者/引用扩展。搜索查询、请求预算、页数和每页条数在 `config.toml` 顶层配置。
 
 ### 请求预算与重点账号轮转

@@ -55,6 +55,23 @@ class XCollectionState(Base):
     updated_at: Mapped[str] = mapped_column(String(40), default=now_iso)
 
 
+class XDataCall(Base):
+    """Persist cost reservations before network I/O, including uncertain charges."""
+    __tablename__ = "x_data_calls"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    provider: Mapped[str] = mapped_column(String(40), index=True)
+    purpose: Mapped[str] = mapped_column(String(80))
+    day: Mapped[str] = mapped_column(String(10), index=True)
+    month: Mapped[str] = mapped_column(String(7), index=True)
+    cost_microusd: Mapped[int] = mapped_column(Integer)
+    reserved_microusd: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(30), default="reserved")
+    returned: Mapped[int] = mapped_column(Integer, default=0)
+    accepted: Mapped[int] = mapped_column(Integer, default=0)
+    details: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[str] = mapped_column(String(40), default=now_iso)
+
+
 class DiscoveryCandidate(Base):
     __tablename__ = "discovery_candidates"
     id: Mapped[str] = mapped_column(String(64), primary_key=True)

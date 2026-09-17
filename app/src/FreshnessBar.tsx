@@ -110,7 +110,12 @@ export default function FreshnessBar({
   };
   const freshness = status?.freshness;
   const xSource = status?.sources.find((source) => source.id === "x");
-  const xPaymentRequired = xSource?.status === "payment_required";
+  const xBlocked = ["payment_required", "budget_exhausted", "auth_required"].includes(xSource?.status || "");
+  const xVendor = status?.x_data;
+  const xCost = xVendor?.providers.find((p) => p.provider === xVendor.provider);
+  const xTotalCost = xVendor?.providers.reduce((sum, p) => sum + p.month_usd, 0) || 0;
+  const xTotalLimit = xVendor?.providers.reduce((sum, p) => sum + p.monthly_usd, 0) || 0;
+  const consoleUrl = xVendor?.console_url || "https://console.x.com/";
   return (
     <View style={{ marginBottom: 18 }}>
       <View style={[s.spread, { gap: 10 }]}>
@@ -155,7 +160,13 @@ export default function FreshnessBar({
           ? `每 ${freshness.collect_minutes} 分钟自动采集 · 原文先到，总结与翻译陆续更新`
           : "原文先到，总结与翻译陆续更新"}
       </Text>
-      {xPaymentRequired && (
+      {!!xCost && (
+        <Text style={[s.muted, { fontSize: 11, marginTop: 4, lineHeight: 18 }]}>
+          {xVendor?.name} · X 数据本月合计 ${xTotalCost.toFixed(2)} / ${xTotalLimit.toFixed(2)}
+          {" · 费用估算，含预留"}
+        </Text>
+      )}
+      {xBlocked && xSource && (
         <View
           style={{
             marginTop: 10,
@@ -168,8 +179,8 @@ export default function FreshnessBar({
             accessibilityLiveRegion="polite"
             style={{ color: C.accent, fontSize: 12, lineHeight: 19 }}
           >
-            X 采集已暂停：API
-            余额不足或计费受限。请检查余额和消费上限，处理后自动恢复。
+            X 采集暂停 · {xVendor?.name || "X 官方 API"}
+            {"\n"}{xSource.message}
             {xSource.last_success_at
               ? ` 上次成功：${publicationLabel(xSource.last_success_at, false, true)}`
               : ""}
@@ -177,19 +188,19 @@ export default function FreshnessBar({
           <Pressable
             accessibilityRole="link"
             onPress={() =>
-              void Linking.openURL("https://console.x.com/").catch(() =>
-                setMessage("暂时无法打开控制台，请访问 console.x.com。"),
+              void Linking.openURL(consoleUrl).catch(() =>
+                setMessage("暂时无法打开供应商控制台，请稍后重试。"),
               )
             }
             style={{ paddingTop: 10, paddingBottom: 4 }}
           >
             <Text style={{ color: C.green, fontSize: 12, fontWeight: "600" }}>
-              打开 X 开发者控制台 ↗
+              打开 {xVendor?.name || "X"} 控制台 ↗
             </Text>
           </Pressable>
         </View>
       )}
-      {!!freshness?.overdue_accounts && !xPaymentRequired && (
+      {!!freshness?.overdue_accounts && !xBlocked && (
         <Text style={{ fontSize: 11, color: C.accent, marginTop: 5 }}>
           {freshness.overdue_accounts}{" "}
           个关注账号尚未达到时效目标，最新窗口仍有延迟。

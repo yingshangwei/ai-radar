@@ -17,6 +17,19 @@ x_query = '(AI OR "artificial intelligence" OR LLM OR agents OR robotics) -is:re
 facebook_version = "v23.0"
 facebook_page_ids = []
 
+[x_data]
+provider = "twitterapi_io"
+api_key_env = "TWITTERAPI_IO_KEY"
+monthly_usd = 8
+daily_usd = 0.4
+request_interval_seconds = 5.1
+discovery_interval_minutes = 360
+# Enable only after Apify authorization and account spending limits are verified.
+shadow_enabled = false
+shadow_monthly_usd = 2
+shadow_daily_usd = 0.1
+shadow_api_key_env = "APIFY_API_TOKEN"
+
 [provider]
 kind = "codex"
 command = ["codex"]

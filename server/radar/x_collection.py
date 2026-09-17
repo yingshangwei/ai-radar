@@ -21,6 +21,9 @@ from sqlalchemy import text
 from .config import RadarConfig, secret
 from .models import XCollectionState
 from .sources import X_EXPANSIONS, X_TWEET_FIELDS, X_USER_FIELDS, SourceUnavailable, get_json, x_page_items
+from .x_costs import XCostLedger
+from .x_data_config import state_key
+from .x_providers import TwitterAPIProvider
 
 ENDPOINT = "https://api.x.com/2/tweets/search/recent"
 CONTROL = "control"
@@ -94,6 +97,9 @@ class XCollector:
         self.sessions, self.config = sessions, config
         self.clock = clock or (lambda: datetime.now(UTC))
         self.force_fresh = force_fresh
+        self.ledger = XCostLedger(sessions, config, clock=self.clock)
+        self.provider = TwitterAPIProvider(config, self.ledger) if config.x_data.provider == "twitterapi_io" else None
+        self.prefix = "" if self.provider is None else self.provider.name + ":"
 
     def head_interval(self):
         return timedelta(minutes=self.config.x_head_refresh_minutes) if self.config.x_head_refresh_minutes \
@@ -131,10 +137,10 @@ class XCollector:
             queries = {"watch:" + handle: f"from:{handle} -is:retweet" for handle in handles}
             queries[DISCOVERY] = self.config.x_query
             for key, query in queries.items():
-                row = session.get(XCollectionState, key)
+                row = session.get(XCollectionState, state_key(self.config, key))
                 fingerprint = hashlib.sha256(query.encode()).hexdigest()
                 if not row:
-                    row = XCollectionState(id=key, data={})
+                    row = XCollectionState(id=state_key(self.config, key), data={})
                     session.add(row)
                 if row.data.get("query_hash") != fingerprint:
                     data = deepcopy(row.data)
@@ -164,24 +170,24 @@ class XCollector:
     def choose_priority(self, keys, used):
         now = self.clock()
         with self.sessions() as session:
-            rows = [session.get(XCollectionState, key) for key in keys
+            rows = [session.get(XCollectionState, state_key(self.config, key)) for key in keys
                     if used[key] < self.config.x_max_pages]
-            due = [row for row in rows if (self.force_fresh and used[row.id] == 0) or not row.data.get("head_end") or
+            due = [row for row in rows if (self.force_fresh and used[row.id.removeprefix(self.prefix)] == 0) or not row.data.get("head_end") or
                    instant(row.data["head_end"]) <= now - self.head_interval()]
             if due:
                 row = min(due, key=lambda row: (row.data.get("last_head_attempt_at", ""), row.id))
-                return row.id, True
+                return row.id.removeprefix(self.prefix), True
             backlog = [row for row in rows if row.data.get("windows")]
             if backlog:
                 row = min(backlog, key=lambda row: (row.data.get("last_backfill_at", ""), row.id))
-                return row.id, False
+                return row.id.removeprefix(self.prefix), False
         return None
 
     def prepare(self, key, head, owner):
         now = self.clock()
         with self.transaction() as session:
             self.owned(session, owner)
-            row = session.get(XCollectionState, key)
+            row = session.get(XCollectionState, state_key(self.config, key))
             data = deepcopy(row.data)
             cutoff = self.cleanup(data, now)
             windows = data["windows"]
@@ -206,13 +212,15 @@ class XCollector:
                     start = data.get("head_end") or stamp(
                         instant(end) - timedelta(hours=min(self.config.x_initial_lookback_hours,
                                                           self.config.lookback_hours, 167)))
+                    if self.provider and data.get("head_end"):
+                        start = stamp(instant(start) - timedelta(minutes=self.config.x_data.overlap_minutes))
                     if start < cutoff:
                         if data.get("head_end"):
                             record_gap(data, {"start": start, "end": cutoff}, "outside_recent_window")
                         start = cutoff
                     data.setdefault("coverage_start", start)
                     window = {"id": str(uuid4()), "start": start, "end": end,
-                              "next_token": "", "page_size": self.config.x_page_size,
+                              "next_token": "", "page_size": self.provider.page_size if self.provider else self.config.x_page_size,
                               "last_page_at": "", "head_committed": False}
                     windows.append(window)
                     while len(windows) > MAX_WINDOWS:
@@ -240,10 +248,11 @@ class XCollector:
     def save_page(self, key, window_id, body, items, owner, ingest_page):
         with self.transaction() as session:
             self.owned(session, owner)
-            row = session.get(XCollectionState, key)
+            row = session.get(XCollectionState, state_key(self.config, key))
             data = deepcopy(row.data)
             window = next(item for item in data["windows"] if item["id"] == window_id)
             accepted = ingest_page(session, items)
+            self.ledger.accepted(session, body.get("_cost_call_id"), accepted)
             meta = body.get("meta", {})
             if not window["head_committed"]:
                 window["head_committed"] = True
@@ -264,7 +273,7 @@ class XCollector:
     def reset_cursor(self, key, window_id, owner):
         with self.transaction() as session:
             self.owned(session, owner)
-            row = session.get(XCollectionState, key)
+            row = session.get(XCollectionState, state_key(self.config, key))
             data = deepcopy(row.data)
             for window in data["windows"]:
                 if window["id"] == window_id:
@@ -278,7 +287,7 @@ class XCollector:
         discovery_enabled = request_budgets(self.config, len(handles))[1] > 0
         enabled_keys = keys + ([DISCOVERY] if discovery_enabled else [])
         with self.sessions() as session:
-            rows = [session.get(XCollectionState, key) for key in enabled_keys]
+            rows = [session.get(XCollectionState, state_key(self.config, key)) for key in enabled_keys]
             summaries = []
             for key, row in zip(enabled_keys, rows, strict=True):
                 data = row.data if row else {}
@@ -289,7 +298,9 @@ class XCollector:
                                   "partial_response": any(window.get("partial_response") for window in data.get("windows", [])) or
                                                       any(gap["reason"] == "partial_response" for gap in data.get("gaps", [])),
                                   "fresh": bool(data.get("head_end") and
-                                                instant(data["head_end"]) > now - self.head_interval())})
+                                                instant(data["head_end"]) > now - (
+                                                    timedelta(minutes=self.config.x_data.discovery_interval_minutes)
+                                                    if self.provider and key == DISCOVERY else self.head_interval()))})
         return {"watched_total": len(keys),
                 "watched_fresh": sum(item["fresh"] for item in summaries if item["scope"] != DISCOVERY),
                 "enabled_scopes": len(enabled_keys), "discovery_enabled": discovery_enabled,
@@ -299,11 +310,19 @@ class XCollector:
                 "gap_count": sum(item["gap_count"] for item in summaries), "scopes": summaries}
 
     async def collect(self, client, handles, ingest_page) -> XCollectionResult:
-        token = secret("X_BEARER_TOKEN")
+        token = self.provider.require_key() if self.provider else secret("X_BEARER_TOKEN")
         if not token:
             raise SourceUnavailable("auth_required", "需要 X Developer Bearer Token；普通登录不等于 API 授权。")
         handles = normalized_handles(handles)
         total_budget, discovery_budget = request_budgets(self.config, len(handles))
+        discovery_scheduled = discovery_budget
+        if self.provider and discovery_budget:
+            with self.sessions() as session:
+                discovery = session.get(XCollectionState, state_key(self.config, DISCOVERY))
+                attempted = discovery.data.get("last_attempt_at") if discovery else None
+                if attempted and instant(attempted) > self.clock() - timedelta(
+                        minutes=self.config.x_data.discovery_interval_minutes):
+                    discovery_budget = 0
         owner, result, used = str(uuid4()), XCollectionResult(), Counter()
         self.initialize(handles, owner)
         error_message = ""
@@ -315,11 +334,16 @@ class XCollector:
                     return False
                 window_id, params = prepared
                 used[key] += 1
+                if self.provider and result.request_count:
+                    await asyncio.sleep(self.config.x_data.request_interval_seconds)
                 result.request_count += 1
                 try:
                     async with asyncio.timeout(30):
-                        body = await get_json(client, ENDPOINT, params=params,
-                                              headers={"Authorization": f"Bearer {token}"}, allow_partial=True)
+                        if self.provider:
+                            body = await self.provider.fetch(client, params, key)
+                        else:
+                            body = await get_json(client, ENDPOINT, params=params,
+                                                  headers={"Authorization": f"Bearer {token}"}, allow_partial=True)
                     # A completed watermark needs explicit pagination metadata;
                     # the shared item parser also serves callers without cursors.
                     if not isinstance(body.get("meta"), dict):
@@ -390,11 +414,17 @@ class XCollector:
             result.message += "已保留已取得且符合筛选条件的内容。"
         if not result.coverage["enabled_scopes"]:
             result.message += "未启用关注账号或广泛发现，本轮未执行 X 请求，尚无已覆盖来源。"
+        elif not discovery_budget and discovery_scheduled:
+            result.message += "广泛关键词发现未到检查周期；关注账号仍按正常频率采集。"
         elif not discovery_budget:
             result.message += "本轮广泛发现未启用，覆盖统计仅包括关注账号。"
         if result.coverage["partial_response"]:
             result.message += "平台部分返回信息不完整，可能仅涉及引用或附加信息；可读主帖已保留。"
         if self.config.x_watch_freshness_first and discovery_budget and used[DISCOVERY] == 0:
             result.message += "本轮优先补齐关注账号的最新窗口，广泛发现等待后续额度；总请求上限未增加。"
+        if self.provider:
+            cost = self.ledger.report()["providers"][0]
+            result.message += (f"{self.provider.name} 本月费用估算及预留 ${cost['month_usd']:.4f}/"
+                               f"${cost['monthly_usd']:g}；今日 ${cost['today_usd']:.4f}/${cost['daily_usd']:g}。")
         result.message += error_message
         return result

@@ -25,6 +25,8 @@ from .summary_evidence import digest_review_evidence, reserve_publication, revie
 from .summary_review import SummaryReviewPending, SummaryReviewService
 from .translation import TranslationService, queue_article
 from .x_collection import XCollectionResult, XCollector
+from .x_data_config import vendor_secret
+from .x_shadow import ApifyShadow
 
 logger = logging.getLogger(__name__)
 RESEARCH_SOURCES = {"hf-papers", "arxiv-theory"}
@@ -160,6 +162,8 @@ class Pipeline:
         self.discovery.recover()
         with sessions.begin() as session:
             sources = [("x", "X / Twitter", "x"), ("facebook", "Facebook", "facebook")]
+            if config.x_data.shadow_enabled:
+                sources.append(("x-shadow", "Apify / Xquik 对照", "x"))
             sources += [(f.id, f.name, "rss") for f in config.feeds]
             sources += [("official-" + key, NEWS_SOURCES[key][0], "web")
                         for key in config.official_news_sources]
@@ -172,6 +176,10 @@ class Pipeline:
             for key, name, platform in sources:
                 if not session.get(SourceState, key):
                     session.add(SourceState(id=key, name=name, platform=platform))
+            if config.x_data.provider == "twitterapi_io" and not vendor_secret(config, config.x_data.api_key_env):
+                source = session.get(SourceState, "x")
+                source.status = "auth_required"
+                source.message = "TwitterAPI.io 尚未授权。配置 API Key 后下轮自动采集，也可点击拉取最新；不调用官方 X API。"
             for article in session.scalars(select(Article)):
                 queue_article(session, article, config.translation)
 
@@ -213,6 +221,8 @@ class Pipeline:
             if self.config.research.arxiv_enabled and self.research_due("arxiv-theory"):
                 entries.append(("arxiv-theory", 1.0, lambda: fetch_arxiv_theory(
                     client, self.config.research, self.config.lookback_hours)))
+            if self.config.x_data.shadow_enabled:
+                entries.append(("x-shadow", 0, lambda: ApifyShadow(self.sessions, self.config).collect(client, handles)))
             total = 0
             for key, authority, fetch in entries:
                 try:

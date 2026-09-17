@@ -180,6 +180,21 @@ export interface Status {
       observed_at: string;
     } | null;
   };
+  x_data?: {
+    provider: string;
+    name: string;
+    console_url: string;
+    automatic_fallback: boolean;
+    providers: Array<{
+      provider: string;
+      name: string;
+      daily_usd: number;
+      monthly_usd: number;
+      today_usd: number;
+      month_usd: number;
+      uncertain_requests: number;
+    }>;
+  };
   sources: Source[];
   jobs: Job[];
 }

@@ -9,6 +9,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .chat_config import ChatConfig
 from .industry_config import IndustryConfig
+from .x_data_config import XDataConfig
 
 
 class ProviderConfig(BaseModel):
@@ -194,6 +195,7 @@ class RadarConfig(BaseModel):
     min_engagement: int = Field(default=30, ge=0)
     x_max_pages: int = Field(default=2, ge=1, le=10)
     x_page_size: int = Field(default=100, ge=10, le=100)
+    x_data: XDataConfig = Field(default_factory=XDataConfig)
     x_request_budget: int | None = Field(default=None, strict=True, ge=1, le=1000)
     x_discovery_requests: int | None = Field(default=None, strict=True, ge=0, le=1000)
     x_watch_freshness_first: bool = False

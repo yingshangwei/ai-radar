@@ -15,6 +15,7 @@ from .models import (
     XCollectionState,
 )
 from .translation import cache_key
+from .x_data_config import state_key
 
 
 def freshness_status(session, config):
@@ -25,7 +26,7 @@ def freshness_status(session, config):
     ages = []
     missing = 0
     for handle in rows:
-        end = states.get("watch:" + handle.lower(), {}).get("head_end")
+        end = states.get(state_key(config, "watch:" + handle.lower()), {}).get("head_end")
         if not end:
             missing += 1
             continue

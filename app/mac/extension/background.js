@@ -1,5 +1,11 @@
 import { config } from "./private-config.js";
-import { identity, permitted, deferred, backoff } from "./policy.mjs";
+import {
+  identity,
+  permitted,
+  deferred,
+  backoff,
+  readyDomains,
+} from "./policy.mjs";
 let busy = false;
 const load = async () => {
   const { state, control } = await chrome.storage.local.get([
@@ -120,7 +126,11 @@ async function tick() {
     const { resumeRequested } =
       await chrome.storage.local.get("resumeRequested");
     if (resumeRequested && !s.active) {
-      const job = s.waiting.shift();
+      const index =
+        typeof resumeRequested === "string"
+          ? s.waiting.findIndex((j) => j.document_id === resumeRequested)
+          : 0;
+      const job = index < 0 ? undefined : s.waiting.splice(index, 1)[0];
       if (job) {
         s.active = { ...job, started: Date.now() };
         delete s.failures[job.document_id];
@@ -154,12 +164,15 @@ async function tick() {
       }
     }
     const excluded = deferred(s.failures);
-    const queue = await api(
-      "/mobile-queue?limit=3&domains=" +
-        encodeURIComponent(s.domains.join(",")) +
-        "&exclude_document_ids=" +
-        encodeURIComponent(excluded.join(",")),
-    );
+    const domains = readyDomains(s.domains, s.waiting);
+    const queue = domains.length
+      ? await api(
+          "/mobile-queue?limit=3&domains=" +
+            encodeURIComponent(domains.join(",")) +
+            "&exclude_document_ids=" +
+            encodeURIComponent(excluded.join(",")),
+        )
+      : [];
     const job = queue.find(
       (j) =>
         permitted(j.url, s.domains) &&
@@ -216,13 +229,11 @@ chrome.tabs.onUpdated.addListener((id, info, tab) => {
   if (info.status !== "complete") return;
   void (async () => {
     const s = await load();
-    if (
-      s.enabled &&
-      s.waiting.some(
-        (j) => j.tab === id && identity(j.url) === identity(tab.url),
-      )
-    )
-      await chrome.storage.local.set({ resumeRequested: true });
+    const job = s.waiting.find(
+      (j) => j.tab === id && identity(j.url) === identity(tab.url),
+    );
+    if (s.enabled && job)
+      await chrome.storage.local.set({ resumeRequested: job.document_id });
     await tick();
   })();
 });

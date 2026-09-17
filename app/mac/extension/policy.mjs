@@ -42,3 +42,8 @@ export function backoff(old, verification, now = Date.now()) {
         : Math.min(6 * 3600_000, 60_000 * 2 ** Math.min(attempts, 9))),
   };
 }
+
+export function readyDomains(domains, waiting) {
+  const blocked = new Set(waiting.map((j) => j.domain.replace(/^www\./, "")));
+  return domains.filter((d) => !blocked.has(d.replace(/^www\./, "")));
+}

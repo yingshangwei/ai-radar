@@ -22,3 +22,14 @@ test("Mac queue admits exact public targets and persists bounded backoff", async
   assert.deepEqual(deferred({ abc: retry }, retry.until + 1), []);
   assert.equal(backoff({ attempts: 50 }, false, 0).until, 6 * 3600000);
 });
+
+test("a challenged domain cannot crowd out the rest of the server queue", async () => {
+  const { readyDomains } = await import("../mac/extension/policy.mjs");
+  assert.deepEqual(
+    readyDomains(
+      ["openai.com", "anthropic.com"],
+      [{ domain: "www.openai.com" }],
+    ),
+    ["anthropic.com"],
+  );
+});

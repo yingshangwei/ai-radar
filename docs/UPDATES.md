@@ -72,3 +72,5 @@ iOS 原生配置、公钥证书和共享更新界面已接入，同样按 platfo
 当前 stable 内容版：**0.13.0.3**（新增免费来源的 AI 行业与投资研究），沿用 Android 0.13.0 / code 14 基础包。原文优先、手动拉取和翻译归档继续保留。新版本验证见 [INDUSTRY-VALIDATION.md](INDUSTRY-VALIDATION.md)，既有时效策略见 [FRESHNESS.md](FRESHNESS.md)。
 
 2026-09-17：本地上传回执目录现在同时保存权限 0600 的 `archive.tar.gz`，发生分块传输中断时可用原始字节核验及补传缺失块。不要重新打包后混用旧分块：gzip 时间戳会使整包哈希变化。没有拿到提交回执不等于远端未写入，须先核对远端块哈希；本次 0.13.0.10 已按此方式完成恢复与 stable 验证。
+
+2026-09-18：stable 更新为 **0.13.0.11**，增加正文/Chat 的 Markdown 与公式排版、管理员通用 Chat、Mac 补采状态。仍匹配 Android 0.13.0 基础包，不需要重装 APK。交付记录见 [RICH-CONTENT-VALIDATION.md](RICH-CONTENT-VALIDATION.md)。

@@ -7,3 +7,7 @@ The generated `src/generated/katexAssets.ts` is ignored by Git and regenerated b
 KaTeX runs with `trust: false`, expansion/size limits and a restrictive content security policy. The document has no external scripts, fonts, image requests, navigation or shared cookies. Article text is HTML-escaped; unsupported TeX remains visible as source text.
 
 Upstream: https://github.com/KaTeX/KaTeX
+
+# Markdown
+
+markdown-it 15.0.2 (MIT, https://github.com/markdown-it/markdown-it) renders CommonMark paragraphs, emphasis, lists, quotes, code and tables. Raw HTML is disabled. Only explicit HTTP(S) links can be opened by a user gesture; remote images are shown as labels, so reading content does not contact trackers. Formulas keep the existing offline KaTeX path. Long prose receives presentation-only paragraph breaks; stored originals and complete translations are unchanged.

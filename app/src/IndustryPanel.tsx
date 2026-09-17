@@ -1,3 +1,4 @@
+import MathText from "./MathText";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -590,9 +591,10 @@ function AssessmentCard({
         {assessmentFreshness(assessment.as_of)}
         {stale ? "。当前连接异常，尚未核对最新报告。" : ""}
       </Text>
-      <Text selectable style={[s.body, { marginTop: 18 }]}>
-        {assessment.summary_zh || "报告未提供总结。"}
-      </Text>
+      <MathText
+        style={[s.body, { marginTop: 18 }]}
+        text={assessment.summary_zh || "报告未提供总结。"}
+      />
       <Text style={[s.muted, { marginTop: 10 }]}>
         观察期限：{assessment.horizon || "未提供"}
       </Text>

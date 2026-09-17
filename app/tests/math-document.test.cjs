@@ -8,11 +8,14 @@ function load(file) {
   const source = ts.transpileModule(fs.readFileSync(file, "utf8"), {
     compilerOptions: {
       module: ts.ModuleKind.CommonJS,
+      esModuleInterop: true,
       target: ts.ScriptTarget.ES2022,
     },
   }).outputText;
   new Function("exports", "require", source)(module.exports, (name) =>
-    load(path.resolve(path.dirname(file), name + ".ts")),
+    name.startsWith(".")
+      ? load(path.resolve(path.dirname(file), name + ".ts"))
+      : require(name),
   );
   return module.exports;
 }
@@ -51,7 +54,7 @@ test("offline HTML escapes untrusted prose and restricts math/network capabiliti
     '<img src="https://invalid.test" onerror="alert(1)">$x_t$',
     opts,
   );
-  assert.ok(html.includes("&lt;img src=&quot;"));
+  assert.ok(html.includes("&lt;img src="));
   assert.ok(!html.includes('<img src="https://invalid.test"'));
   assert.ok(html.includes("trust:false") && html.includes("maxExpand:300"));
   assert.ok(
@@ -73,4 +76,39 @@ test("over-limit formulas and parse failures retain the complete source rather t
   assert.equal((html.match(/class="formula /g) || []).length, 256);
   assert.ok(html.includes("$x_257$"));
   assert.ok(html.includes("el.textContent=el.dataset.source"));
+});
+
+test("Markdown renders emphasis, code, tables and links while external content stays inert", () => {
+  const html = math.mathDocument(
+    '# 结论\n\n**重点**：见[来源](https://example.com/a)。\n\n- 第一项\n- 第二项\n\n| 模型 | 结果 |\n| --- | --- |\n| A | 1 |\n\n```sh\necho "$HOME"\n```\n\n![外部图片](https://tracker.invalid/a)\n\n[运行](javascript:alert(1))\n<script>alert(2)</script>',
+    opts,
+  );
+  assert.match(html, /<strong>重点<\/strong>/);
+  assert.match(html, /<h1>结论<\/h1>/);
+  assert.match(html, /<table>/);
+  assert.match(html, /<ul>/);
+  assert.match(html, /<pre><code class="language-sh">/);
+  assert.match(html, /href="https:\/\/example.com\/a"/);
+  assert.doesNotMatch(html, /<img|href="javascript:|<script>alert/);
+  assert.equal(
+    math.richPreview("**重点** [来源](https://example.com)"),
+    "重点 来源",
+  );
+  assert.match(math.richPlainText("```js\nconst x = 1;\n```"), /const x = 1/);
+});
+test("long prose has paragraph breaks without rewriting words; code and math stay unchanged", () => {
+  const text = "这是一句完整的研究发现，保留事实与限定条件。".repeat(50);
+  const formatted = math.readableParagraphs(text);
+  assert.ok(formatted.includes("\n\n"));
+  assert.equal(formatted.replace(/\n/g, ""), text);
+  assert.equal(
+    math.readableParagraphs("```\n" + text + "\n```"),
+    "```\n" + text + "\n```",
+  );
+  const html = math.mathDocument(
+    "**边界** $x_t^2$\n\n\\[x+y\\]\n\n`$code$`",
+    opts,
+  );
+  assert.equal((html.match(/class="formula /g) || []).length, 2);
+  assert.match(html, /<code>\$code\$<\/code>/);
 });

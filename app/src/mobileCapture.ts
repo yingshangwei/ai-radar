@@ -132,8 +132,11 @@ export function extractionScript(nonce: string): string {
       var module = undefined;
       ${READABILITY_SOURCE}
       if (!/^https?:$/.test(location.protocol)) throw new Error("unsupported_url");
-      var original = document.querySelectorAll("*");
-      if (original.length > 50000) throw new Error("page_too_large");
+      // A huge app shell should not prevent reading its small article subtree.
+      var articleRoot = document.querySelector("article") || document.querySelector("main") || document.body;
+      var original = articleRoot.querySelectorAll("*");
+      var limited = original.length > 50000;
+
       // Inspect only element type, layout and frame origin, never input values or
       // frame contents. A visible login/challenge overlay must not be stripped
       // away and mistaken for permission to read the article underneath it.
@@ -154,11 +157,37 @@ export function extractionScript(nonce: string): string {
         } catch (_) { return false; }
       });
       if (credentialsVisible || challengeVisible) { reply({error: "verification_required"}); return; }
-      var copy = document.cloneNode(true);
-      var cloned = copy.querySelectorAll("*");
+      var copy = document.implementation.createHTMLDocument(document.title);
+      var rootCopy = limited ? copy.createElement("article") : articleRoot.cloneNode(true);
+      copy.body.appendChild(rootCopy);
+      var cloned = rootCopy.querySelectorAll("*");
+      if (limited) {
+        // Drop non-content branches before Readability. This is explicitly partial.
+        rootCopy.querySelectorAll("script,style,svg,nav,footer,aside,form,iframe").forEach(function(n){n.remove();});
+        var candidates = Array.from(articleRoot.querySelectorAll("p,h1,h2,h3,pre,blockquote,li"));
+        var fragment = copy.createElement("article"), budget = 0;
+        candidates.some(function(n) {
+          if (n.parentElement && n.parentElement.closest("p,pre,blockquote,li")) return false;
+          if (!visibleControl(n) || n.closest('form,[contenteditable]:not([contenteditable="false"]),[role="dialog"],[role="alertdialog"]')) return false;
+          if (budget >= ${MAX_CAPTURE_CHARS}) return true;
+          // Only transfer a bounded text node; no page markup or input values.
+          var clean = copy.createElement(n.tagName);
+          var walker = document.createTreeWalker(n, 4), pieces = [], length = 0, leaf;
+          while ((leaf = walker.nextNode()) && length < ${MAX_CAPTURE_CHARS} - budget) {
+            if (!leaf.parentElement || leaf.parentElement.closest('input,textarea,select,button,script,style,iframe,form,[contenteditable]:not([contenteditable="false"])') || !visibleControl(leaf.parentElement)) continue;
+            var piece = leaf.textContent.slice(0, ${MAX_CAPTURE_CHARS} - budget - length);
+            pieces.push(piece); length += piece.length;
+          }
+          clean.textContent = pieces.join("");
+          budget += clean.textContent.length;
+          fragment.appendChild(clean);
+          return false;
+        });
+        copy.body.replaceChildren(fragment);
+      }
       // Remove hidden content using computed styles on the live DOM, before parsing
       // its detached clone. Never inspect cookies, storage, input values or frames.
-      for (var i = 0; i < original.length; i++) {
+      for (var i = 0; !limited && i < original.length; i++) {
         if (!cloned[i] || !cloned[i].parentNode) continue;
         var style = window.getComputedStyle(original[i]);
         if (style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse") cloned[i].remove();
@@ -191,7 +220,7 @@ export function extractionScript(nonce: string): string {
       });
       var text = (content.textContent || "").replace(/[\\t ]+/g, " ").replace(/ *\\n */g, "\\n").replace(/\\n{3,}/g, "\\n\\n").trim();
       if (text.length < 80) throw new Error("no_article");
-      reply({ url: location.href, title: (article.title || document.title || "").slice(0,500), text: text.slice(0, ${MAX_CAPTURE_CHARS}), links: links, partial: text.length > ${MAX_CAPTURE_CHARS} });
+      reply({ url: location.href, title: (article.title || document.title || "").slice(0,500), text: text.slice(0, ${MAX_CAPTURE_CHARS}), links: links, partial: limited || text.length > ${MAX_CAPTURE_CHARS} });
     } catch (_) { reply({error: "no_article"}); }
   })(); true;`;
 }

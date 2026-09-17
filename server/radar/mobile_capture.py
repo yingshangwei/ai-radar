@@ -28,7 +28,7 @@ class MobileCapture(BaseModel):
     text: str = Field(min_length=80, max_length=60000)
     links: list[CaptureLink] = Field(default_factory=list, max_length=30)
     partial: bool = False
-    method: Literal["mobile_browser", "manual"] = "mobile_browser"
+    method: Literal["mobile_browser", "mac_browser", "manual"] = "mobile_browser"
 
 
 def target_identity(url):
@@ -55,7 +55,7 @@ def validate_capture(body, doc):
             or (len(text) < 1500 and any(marker in text.lower() for marker in (
                 "verifying you are human", "verify you are human", "performing security verification",
                 "enable javascript and cookies to continue", "正在验证您是否是真人")))):
-        raise HTTPException(422, "提交的是登录或验证页面，尚未取得原文，请先在手机完成验证。")
+        raise HTTPException(422, "提交的是登录或验证页面，尚未取得原文，请先在采集设备完成验证。")
     links = {}
     for link in body.links:
         normalized = normalize_link(link.url, url)
@@ -106,4 +106,4 @@ def mount_mobile_capture(router, sessions, admin, enqueue):
             with sessions.begin() as session:
                 session.get(DocumentCapture, body.document_id).job_id = uid
             return {"ready": True, "already_saved": False, "job_id": uid,
-                    "message": "手机正文已保存，正在生成中文解读；网站登录状态仍留在手机。"}
+                    "message": "正文已保存，正在生成中文解读；网站登录状态仍留在采集设备。"}

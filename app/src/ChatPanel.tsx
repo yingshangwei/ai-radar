@@ -1,3 +1,5 @@
+import { deviceAdminConnection } from "./deviceReadingStorage";
+import MathText from "./MathText";
 import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -38,6 +40,7 @@ type Message = {
 };
 type Overview = {
   enabled: boolean;
+  worker_online?: boolean;
   sessions: Session[];
   models: { id: string; name: string; model: string; effort: string }[];
 };
@@ -49,7 +52,7 @@ const labels: Record<string, string> = {
 };
 const states: Record<string, string> = {
   queued: "排队中",
-  running: "正在分析…",
+  running: "正在处理任务…",
   outcome_unknown: "结果未知",
   error: "未完成",
   expired: "排队已超时",
@@ -85,7 +88,23 @@ export default function ChatPanel({ connection }: { connection: Connection }) {
   );
 }
 
-function ChatConnection({ connection }: { connection: Connection }) {
+function ChatConnection({
+  connection: baseConnection,
+}: {
+  connection: Connection;
+}) {
+  const [connection, setConnection] = useState(baseConnection);
+  useEffect(() => {
+    let alive = true;
+    void deviceAdminConnection(baseConnection)
+      .then((c) => {
+        if (alive) setConnection(c);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [baseConnection.url, baseConnection.token]);
   const client = useQueryClient();
   const key = ["analysis-chat", connection.url, connection.token];
   const [sid, setSid] = useState<string>(
@@ -205,7 +224,7 @@ function ChatConnection({ connection }: { connection: Connection }) {
     >
       <View style={h.heading}>
         <View style={{ flex: 1 }}>
-          <Text style={h.eyebrow}>CODEX / 分析助手</Text>
+          <Text style={h.eyebrow}>CODEX / 通用助手</Text>
           <Text style={h.title} numberOfLines={1}>
             {detail.data?.title || "和你的雷达聊一聊"}
           </Text>
@@ -248,7 +267,7 @@ function ChatConnection({ connection }: { connection: Connection }) {
           </Pressable>
         ))}
       </View>
-      <Text style={h.caption}>分析已有资料 · 读取最新状态 · 不修改服务</Text>
+      <Text style={h.caption}>数据分析 · 服务诊断与修复 · 通用任务</Text>
       {error && (
         <View style={h.error}>
           <Text style={s.body}>
@@ -264,6 +283,17 @@ function ChatConnection({ connection }: { connection: Connection }) {
             <Text style={h.action}>刷新状态</Text>
           </Pressable>
         </View>
+      )}
+      {overview.data?.worker_online === false && (
+        <Text style={s.muted}>
+          对话执行进程暂时离线，消息不会丢失；请等待恢复。
+        </Text>
+      )}
+      {denied && (
+        <Text style={s.muted}>
+          运维对话需要管理令牌，请在「网页采集中心 →
+          设备管理权限」保存后重新进入 Chat。
+        </Text>
       )}
       {overview.data && !overview.data.enabled && (
         <Text style={h.error}>服务器尚未启用 Codex 对话。</Text>
@@ -309,9 +339,7 @@ function ChatConnection({ connection }: { connection: Connection }) {
                 {m.context_at ? ` · ${time(m.context_at)}` : ""}
               </Text>
               {m.answer ? (
-                <Text selectable style={[s.body, { marginTop: 8 }]}>
-                  {m.answer}
-                </Text>
+                <MathText text={m.answer} style={[s.body, { marginTop: 8 }]} />
               ) : (
                 <View style={[s.row, { gap: 8, marginTop: 10 }]}>
                   {["queued", "running"].includes(m.status) && (
@@ -355,7 +383,7 @@ function ChatConnection({ connection }: { connection: Connection }) {
           accessibilityLabel="对话消息"
           value={text}
           onChangeText={setText}
-          placeholder="询问数据、行业或服务状态…"
+          placeholder="提问，或让 Codex 检查、修复服务…"
           placeholderTextColor={C.muted}
           multiline
           maxLength={6000}

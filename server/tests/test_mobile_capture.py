@@ -15,7 +15,7 @@ def mobile_app(tmp_path, monkeypatch):
     config = tmp_path / "config.toml"
     config.write_text('anthropic_news_enabled=false\n[provider]\nkind="extractive"\n')
     app = create_app(Settings(config_path=str(config), database_url=f"sqlite:///{tmp_path}/db",
-                             reader_token="reader", admin_token="admin"))
+                             reader_token="reader", admin_token="admin", companion_token="collector"))
     with app.state.sessions.begin() as session:
         ingest(session, [item(platform="web", url="https://example.org/ai", external_id="web")],
                app.state.pipeline.config)
@@ -174,3 +174,21 @@ async def test_inflight_server_read_cannot_overwrite_new_phone_capture(mobile_ap
         doc = session.get(WebDocument, capture()["document_id"])
         assert doc.text == capture()["text"].strip() and doc.status == "fetched"
         assert session.get(DocumentCapture, doc.id).content_hash == doc.content_hash
+
+
+def test_mac_credential_only_collects_bound_documents_and_reports_liveness(mobile_app):
+    with TestClient(mobile_app) as c:
+        c.headers["Authorization"] = "Bearer collector"
+        assert c.get("/v1/chat").status_code == 401
+        assert c.post("/v1/admin/jobs", json={"kind": "collect"}).status_code == 401
+        assert c.post("/v1/browser/mobile-import", json=capture()).status_code == 401
+        q = c.get("/v1/companion/mobile-queue?domains=example.org").json()
+        assert len(q) == 1
+        assert c.post("/v1/companion/mobile-import", json=capture(method="mac_browser")).status_code == 200
+        assert c.post("/v1/companion/mobile-import", json=capture(method="mac_browser")).json()["already_saved"]
+        assert c.post("/v1/companion/heartbeat", json={"device": "mac_test_1234", "state": "ready", "domains": ["example.org"], "saved": 1}).status_code == 200
+        c.headers["Authorization"] = "Bearer reader"
+        status = c.get("/v1/companion/status").json()
+        assert status["devices"][0]["online"]
+        assert status["devices"][0]["saved"] == 1
+        assert c.get("/v1/companion/mobile-queue?domains=example.org").status_code == 401

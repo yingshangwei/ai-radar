@@ -49,3 +49,5 @@ CLI 运行使用 `read-only`、禁用 shell/web 工具、忽略用户配置和�
 - Android stable 内容版 `0.13.0.4` 已发布，沿用原生 runtime `0.13.0`。更新 ID `d2ea1942-d4a6-453f-92cd-2ee5d4700ac0`，发布后从公网取得 manifest，验证签名和两份资源哈希通过。现有 `0.13.0` 原生包在「设置 → 检查更新 → 立即应用更新」获取，无新增原生依赖。本轮未在实体手机验证，也未发布新 APK、iOS 安装包或 iOS OTA。
 
 此次状态对话如实识别了服务器既有的 X 限流、Facebook 待授权及翻译积压；这些状态不表示本次国内来源和对话开发已经修复对应上游问题。
+
+2026-09-18 更新：管理员 Chat 可执行通用任务和服务自检/修复，独立 worker 支持重启主 API。此前只读快照限制仅适用于未启用 agent 的部署。详见 [CHAT-OPERATIONS.md](CHAT-OPERATIONS.md)。Mac 补采见 [MAC-COLLECTOR.md](MAC-COLLECTOR.md)。

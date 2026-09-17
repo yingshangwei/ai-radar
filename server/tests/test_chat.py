@@ -162,3 +162,28 @@ def test_snapshot_public_fields_and_migration(app):
     with app.state.sessions() as db:
         assert not list(db.scalars(select(ChatTurn)))
         assert not list(db.scalars(select(ChatSession)))
+
+async def test_agent_chat_requires_admin_for_all_history_and_tools_survive_api_mode(tmp_path):
+    script = tmp_path / "agent.py"
+    script.write_text(SCRIPT.replace("send({'type':'turn.started'})", "send({'type':'turn.started'})\nsend({'type':'item.completed','item':{'type':'command_execution','command':'pwd'}})"))
+    cfg = tmp_path / "agent.toml"
+    cfg.write_text('anthropic_news_enabled=false\n[provider]\nkind="codex"\ncommand=' +
+        json.dumps([sys.executable, str(script)]) + '\n[chat]\nenabled=true\nagent_enabled=true\nexternal_worker=true\n' +
+        'state_directory=' + json.dumps(str(tmp_path / "state")) + '\nworkspace=' + json.dumps(str(tmp_path)) + '\n')
+    app = create_app(Settings(config_path=str(cfg), database_url=f"sqlite:///{tmp_path}/db",
+                              reader_token="reader", admin_token="admin", scheduler_enabled=False))
+    reader = TestClient(app, headers={"Authorization": "Bearer reader"})
+    admin = TestClient(app, headers={"Authorization": "Bearer admin"})
+    assert reader.get("/v1/chat").status_code == 403
+    sid = admin.post("/v1/chat/sessions").json()["id"]
+    assert reader.get(f"/v1/chat/sessions/{sid}").status_code == 403
+    body = {"id": "admin_agent_test_123", "question": "检查并修复服务"}
+    assert reader.post(f"/v1/chat/sessions/{sid}/messages", json=body).status_code == 403
+    assert admin.post(f"/v1/chat/sessions/{sid}/messages", json=body).status_code == 200
+    await app.state.chat.start()
+    assert app.state.chat.task is None  # API must not recover/cancel the independent worker's turns.
+    assert await app.state.chat.run_one()
+    assert admin.get(f"/v1/chat/sessions/{sid}").json()["messages"][0]["status"] == "completed"
+    invoked = json.loads((tmp_path / "invocation.json").read_text())
+    assert "features.shell_tool=true" in invoked["args"]
+    assert "不能执行命令" not in invoked["prompt"]

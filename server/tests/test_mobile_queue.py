@@ -86,7 +86,7 @@ def test_latest_association_wins_and_bound_documents_are_deduplicated(queue):
 
 def test_finished_prohibited_oversize_rate_limited_and_unbound_documents_are_excluded(queue):
     client, sessions = queue
-    for status in ["blocked", "restricted", "too_large", "rate_limited"]:
+    for status in ["blocked", "restricted", "rate_limited"]:
         add(sessions, f"https://example.org/{status}", status=status)
     add(sessions, "https://example.org/fetched", text="Acquired source text", status="fetched")
     add(sessions, "https://example.org/stale-failure", text="Retained source text", status="unavailable")
@@ -154,3 +154,8 @@ def test_excluded_ids_are_bounded_and_do_not_relax_admin_permissions(queue):
                       headers={"Authorization": "Bearer reader"}).status_code == 403
     assert get(client, "example.org", exclude_document_ids=",".join(ids)).status_code == 422
     assert get(client, "example.org", exclude_document_ids=",".join(["a"] * 101)).status_code == 400
+
+def test_large_pages_are_offered_to_permitted_device(queue):
+    client, sessions = queue
+    key = add(sessions, "https://example.org/large", status="too_large")
+    assert [row["document_id"] for row in get(client, "example.org").json()] == [key]

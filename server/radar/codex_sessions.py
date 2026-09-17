@@ -144,7 +144,8 @@ def _read_json(path, limit=MAX_PROMPT_BYTES + 200_000):
 
 
 class _Events:
-    def __init__(self, expected_session=None):
+    def __init__(self, expected_session=None, tools_enabled=False):
+        self.tools_enabled = tools_enabled
         self.expected_session = expected_session
         self.session_id = None
         self.started = False
@@ -190,7 +191,7 @@ class _Events:
             item = event.get("item")
             if not self.started or not isinstance(item, dict):
                 raise CodexSessionError("invalid_turn_order")
-            if item.get("type") in {"command_execution", "file_change", "mcp_tool_call", "web_search"}:
+            if not self.tools_enabled and item.get("type") in {"command_execution", "file_change", "mcp_tool_call", "web_search"}:
                 raise CodexSessionError("unexpected_tool_event")
             if kind == "item.completed" and item.get("type") == "agent_message":
                 text = item.get("text")
@@ -200,11 +201,11 @@ class _Events:
         return None
 
 
-def _parse_log(path, expected_session):
+def _parse_log(path, expected_session, execution=None):
     raw = _read_bytes(path, MAX_STREAM_BYTES)
     if not raw or not raw.endswith(b"\n"):
         raise CodexSessionError("incomplete_event_stream")
-    events = _Events(expected_session)
+    events = _Events(expected_session, bool(execution))
     for line in raw.splitlines():
         if not line or len(line) > MAX_LINE_BYTES:
             raise CodexSessionError("invalid_event")
@@ -215,15 +216,18 @@ def _parse_log(path, expected_session):
 
 
 def _request_key(request):
-    return _hash({key: request[key] for key in ("version", "prompt", "schema", "provider_fingerprint", "session_id")})
+    fields = {key: request[key] for key in ("version", "prompt", "schema", "provider_fingerprint", "session_id")}
+    if request.get("execution"):
+        fields["execution"] = request["execution"]
+    return _hash(fields)
 
 
-def request_fingerprint(config, prompt, schema_type, session_id=None):
+def request_fingerprint(config, prompt, schema_type, session_id=None, *, execution=None):
     """The caller stores this exact key beside its pre-call database reservation."""
     if session_id is not None:
         _uuid(session_id)
     return _request_key({"version": VERSION, "prompt": prompt, "schema": schema_type.model_json_schema(),
-        "provider_fingerprint": _hash(config.model_dump(mode="json")), "session_id": session_id})
+        "provider_fingerprint": _hash(config.model_dump(mode="json")), "session_id": session_id, "execution": execution})
 
 
 def _completed(root, turn, schema_type=None):
@@ -235,7 +239,7 @@ def _completed(root, turn, schema_type=None):
     exit_receipt = _read_json(turn / "exit.json", 10_000)
     if exit_receipt != {"returncode": 0, "request_fingerprint": key}:
         raise CodexSessionError("nonzero_exit")
-    events, events_hash = _parse_log(turn / "events.jsonl", request["session_id"])
+    events, events_hash = _parse_log(turn / "events.jsonl", request["session_id"], request.get("execution"))
     binding = _read_json(root / "thread.json", 10_000)
     if binding != {"session_id": events.session_id, "provider_fingerprint": request["provider_fingerprint"]}:
         raise CodexSessionError("session_id_mismatch")
@@ -283,15 +287,17 @@ def scan_artifacts(workdir, schema_type: type[BaseModel] | None = None) -> list[
     return results
 
 
-def _argv(config, schema_path, session_id):
+def _argv(config, schema_path, session_id, execution=None):
     if config.kind != "codex" or not config.command:
         raise CodexSessionError("provider_unsupported", outcome_unknown=False)
-    argv = [*config.command, "exec", "--sandbox", "read-only", "--color", "never"]
+    sandbox = "danger-full-access" if execution else "read-only"
+    argv = [*config.command, "exec", "--sandbox", sandbox, "--color", "never"]
     if session_id:
         argv += ["resume"]
     argv += ["--ignore-user-config", "--ignore-rules", "--skip-git-repo-check", "--json",
-             "-c", 'approval_policy="never"', "-c", 'sandbox_mode="read-only"',
-             "-c", "features.shell_tool=false", "-c", 'web_search="disabled"',
+             "-c", 'approval_policy="never"', "-c", f'sandbox_mode="{sandbox}"',
+             "-c", "features.shell_tool=" + ("true" if execution else "false"),
+             "-c", 'web_search="live"' if execution else 'web_search="disabled"',
              "--output-schema", str(schema_path)]
     if provider_model(config):
         argv += ["--model", provider_model(config)]
@@ -316,7 +322,7 @@ async def _kill_wait(process):
 
 
 async def _stream(process, root, turn, request, prompt, on_thread):
-    events = _Events(request["session_id"])
+    events = _Events(request["session_id"], bool(request.get("execution")))
     temporary = turn / "events.partial"
     descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     os.fchmod(descriptor, 0o600)
@@ -392,7 +398,7 @@ async def _stream(process, root, turn, request, prompt, on_thread):
 async def run(config: ProviderConfig, workdir, prompt: str, schema_type: type[BaseModel],
               session_id: str | None = None,
               on_thread: Callable[[str], Awaitable[None]] | None = None,
-              lock_fd: int | None = None) -> TransportResult:
+              lock_fd: int | None = None, *, execution: dict | None = None) -> TransportResult:
     """Execute once, or reuse this exact completed request without starting a CLI."""
     if session_id is not None:
         _uuid(session_id)
@@ -405,6 +411,9 @@ async def run(config: ProviderConfig, workdir, prompt: str, schema_type: type[Ba
             os.fstat(lock_fd)
         except OSError:
             raise CodexSessionError("invalid_lock_fd", outcome_unknown=False) from None
+    if execution and (set(execution) != {"workspace"} or not Path(execution["workspace"]).is_dir()
+                      or not Path(execution["workspace"]).is_absolute()):
+        raise CodexSessionError("invalid_execution_workspace", outcome_unknown=False)
     root = Path(workdir)
     _private_directory(root)
     descriptor = os.open(root / ".transport.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
@@ -415,15 +424,17 @@ async def run(config: ProviderConfig, workdir, prompt: str, schema_type: type[Ba
         except BlockingIOError:
             raise CodexSessionError("session_busy", outcome_unknown=False) from None
         return await _run_locked(config, root, prompt, schema_type, session_id, on_thread,
-                                 tuple(dict.fromkeys((descriptor,) + ((lock_fd,) if lock_fd is not None else ()))))
+                                 tuple(dict.fromkeys((descriptor,) + ((lock_fd,) if lock_fd is not None else ()))), execution)
     finally:
         os.close(descriptor)
 
 
-async def _run_locked(config, root, prompt, schema_type, session_id, on_thread, pass_fds):
+async def _run_locked(config, root, prompt, schema_type, session_id, on_thread, pass_fds, execution=None):
     request = {"version": VERSION, "prompt": prompt, "schema": schema_type.model_json_schema(),
                "provider_fingerprint": _hash(config.model_dump(mode="json")), "session_id": session_id}
-    key = request_fingerprint(config, prompt, schema_type, session_id)
+    if execution:
+        request["execution"] = execution
+    key = request_fingerprint(config, prompt, schema_type, session_id, execution=execution)
     request["request_fingerprint"] = key
     turn = root / ("turn-" + key)
     if turn.exists():
@@ -449,7 +460,7 @@ async def _run_locked(config, root, prompt, schema_type, session_id, on_thread, 
             # A malformed but fully completed response may be followed by a format repair.
             old = _read_json(previous / "request.json")
             exit_receipt = _read_json(previous / "exit.json", 10_000)
-            events, _ = _parse_log(previous / "events.jsonl", old["session_id"])
+            events, _ = _parse_log(previous / "events.jsonl", old["session_id"], old.get("execution"))
             if exit_receipt != {"returncode": 0, "request_fingerprint": old["request_fingerprint"]} or not events.completed:
                 raise ValueError()
         except (CodexSessionError, OSError, ValueError, TypeError, KeyError):
@@ -463,10 +474,10 @@ async def _run_locked(config, root, prompt, schema_type, session_id, on_thread, 
     process = None
     receipt = usage.Call("codex", provider_model(config), key=usage.session_key(root, key))
     try:
-        argv = _argv(config, turn / "schema.json", session_id)
+        argv = _argv(config, turn / "schema.json", session_id, execution)
         spawning = asyncio.create_task(asyncio.create_subprocess_exec(*argv, stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-            cwd=root, env=_environment(config), start_new_session=True, pass_fds=pass_fds))
+            cwd=execution["workspace"] if execution else root, env=_environment(config), start_new_session=True, pass_fds=pass_fds))
         try:
             process = await asyncio.shield(spawning)
         except asyncio.CancelledError:

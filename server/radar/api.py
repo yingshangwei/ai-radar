@@ -124,7 +124,9 @@ def create_app(settings: Settings | None = None):
     mount_browser(app, settings, sessions, authenticated, admin, enqueue_reading)
     from .industry_api import mount_industry
     mount_industry(app, pipeline, supervisor, authenticated)
-    mount_chat(app, chat, authenticated)
+    mount_chat(app, chat, authenticated, admin)
+    from .companion import mount_companion
+    mount_companion(app, settings, sessions, authenticated, enqueue_reading)
     mount_market(app, settings, authenticated)
 
     @app.get("/healthz")

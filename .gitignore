@@ -30,3 +30,5 @@ server/.billing-venv/
 credentials.json
 secrets/
 app/src/generated/
+
+app/mac/extension/private-config.js

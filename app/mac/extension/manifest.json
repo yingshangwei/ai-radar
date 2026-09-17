@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "AI Radar · Mac 补采",
+  "version": "1.0.0",
+  "description": "在本机 Chrome 自动补采已许可网站的雷达文章，登录状态留在 Mac。",
+  "permissions": ["storage", "alarms", "scripting"],
+  "host_permissions": ["https://radar.yswdra.cn/*"],
+  "optional_host_permissions": ["https://*/*", "http://*/*"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": { "default_title": "AI Radar 补采", "default_popup": "popup.html" }
+}

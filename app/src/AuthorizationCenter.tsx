@@ -46,6 +46,15 @@ export default function AuthorizationCenter({
   onClose: () => void;
   onRefresh: () => void;
 }) {
+  const [companion, setCompanion] = useState<{
+    configured: boolean;
+    devices: {
+      online: boolean;
+      state: string;
+      saved: number;
+      waiting: number;
+    }[];
+  }>();
   const [data, setData] = useState<Sites>();
   const [admin, setAdmin] = useState("");
   const [draft, setDraft] = useState("");
@@ -59,6 +68,17 @@ export default function AuthorizationCenter({
   const [notice, setNotice] = useState("");
   const adminConnection = { ...connection, token: admin || connection.token };
   const refresh = async () => {
+    void api<{
+      configured: boolean;
+      devices: {
+        online: boolean;
+        state: string;
+        saved: number;
+        waiting: number;
+      }[];
+    }>(connection, "/v1/companion/status")
+      .then(setCompanion)
+      .catch(() => setCompanion(undefined));
     try {
       setData(await api<Sites>(connection, "/v1/browser/sites"));
     } catch (e) {
@@ -255,8 +275,34 @@ export default function AuthorizationCenter({
                   公开网页自动采集，你只需关注需要处理的来源。
                 </Text>
                 <Text style={[s.muted, { marginTop: 8 }]}>
-                  正文已采集的网页无需处理。受限网站只需在手机授权一次，之后 App
-                  在前台时会自动补采、翻译和解读，不用逐篇点采集。
+                  正文已采集的网页无需处理。可优先使用 Mac 的 Chrome
+                  补采受限网页；手机也可授权后在前台自动补采。网站仍可能要求重新验证，任务会保留，不用逐篇重新提交。
+                </Text>
+              </View>
+              <View style={[s.note, { marginBottom: 20 }]}>
+                <Text style={s.label}>MAC 补采</Text>
+                <Text style={[s.body, { marginTop: 8 }]}>
+                  {companion?.devices.some(
+                    (d) => d.online && d.state !== "paused",
+                  )
+                    ? "Mac 已连接，正在自动补齐网页正文"
+                    : "Mac 离线或尚未启用补采扩展"}
+                </Text>
+                <Text style={[s.muted, { marginTop: 8 }]}>
+                  在 Mac 的 Chrome 启用「AI Radar · Mac
+                  补采」，一次许可后自动读取待采文章。使用 Mac
+                  的网络与登录状态，正文由服务器去重、总结和翻译。
+                </Text>
+                {!!companion?.devices.length && (
+                  <Text style={[s.muted, { marginTop: 8 }]}>
+                    已补采 {companion.devices.reduce((n, d) => n + d.saved, 0)}{" "}
+                    页 · 待网站验证{" "}
+                    {companion.devices.reduce((n, d) => n + d.waiting, 0)} 项
+                  </Text>
+                )}
+                <Text style={[s.muted, { marginTop: 8 }]}>
+                  手机打不开或网页过大时，可交给 Mac 自动处理。Mac
+                  休眠不影响服务器采集；网站验证在 Mac 完成。
                 </Text>
               </View>
               {(needsAdmin || !admin) && (

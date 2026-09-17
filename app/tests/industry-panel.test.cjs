@@ -40,6 +40,7 @@ const native = {
 };
 const modules = new Map();
 const mocks = {
+  "./MathText": { default: ({ text }) => React.createElement("p", null, text) },
   react: React,
   "react/jsx-runtime": require("react/jsx-runtime"),
   "react-native": native,

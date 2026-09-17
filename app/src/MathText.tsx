@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Platform,
+  Linking,
   StyleSheet,
   Text,
   View,
@@ -10,7 +11,12 @@ import {
   type ViewStyle,
 } from "react-native";
 import { WebView } from "react-native-webview";
-import { mathDocument, mathSpans, mathPreview } from "./mathDocument";
+import {
+  mathDocument,
+  mathSpans,
+  richPreview,
+  richPlainText,
+} from "./mathDocument";
 
 export default function MathText({
   text,
@@ -25,7 +31,13 @@ export default function MathText({
 }) {
   const size = useWindowDimensions();
   const flat = StyleSheet.flatten(style) || {};
-  const hasMath = useMemo(() => mathSpans(text).length > 0, [text]);
+  const hasMath = useMemo(
+    () =>
+      mathSpans(text).length > 0 ||
+      /[\n*`#>[\]~]|^\d+\./.test(text) ||
+      text.length > 400,
+    [text],
+  );
   const nonce = useMemo(
     () => Math.random().toString(36).slice(2) + Date.now().toString(36),
     [text],
@@ -59,7 +71,21 @@ export default function MathText({
   );
   const receive = (message: unknown) => {
     if (!message || typeof message !== "object") return;
-    const data = message as { type?: string; nonce?: string; height?: number };
+    const data = message as {
+      type?: string;
+      nonce?: string;
+      height?: number;
+      url?: string;
+    };
+    if (
+      data.type === "rich-link" &&
+      data.nonce === nonce &&
+      typeof data.url === "string" &&
+      /^https?:\/\//i.test(data.url)
+    ) {
+      void Linking.openURL(data.url).catch(() => {});
+      return;
+    }
     if (
       data.type === "math-size" &&
       data.nonce === nonce &&
@@ -97,7 +123,7 @@ export default function MathText({
         numberOfLines={preview ? lines : undefined}
         style={style}
       >
-        {preview ? mathPreview(text) : text}
+        {preview ? richPreview(text) : failed ? richPlainText(text) : text}
       </Text>
     );
   return (
@@ -111,7 +137,7 @@ export default function MathText({
         React.createElement("iframe", {
           ref: frame,
           srcDoc: html,
-          title: "含公式的正文",
+          title: "排版正文",
           sandbox: "allow-scripts",
           style: {
             width: "100%",

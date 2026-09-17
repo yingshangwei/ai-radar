@@ -15,7 +15,7 @@ from .models import Article, ArticleDocument, WebDocument
 
 _LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", re.ASCII)
 _DOCUMENT_ID = re.compile(r"[a-f0-9]{64}", re.ASCII)
-_EXCLUDED = {"blocked", "restricted", "too_large", "rate_limited"}
+_EXCLUDED = {"blocked", "restricted", "rate_limited"}
 
 
 def permitted_domains(value: str) -> set[str]:

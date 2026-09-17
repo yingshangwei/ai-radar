@@ -1,0 +1,2 @@
+# The agent writes Radar code/config as ai-radar; only service control needs elevation.
+ai-radar ALL=(root) NOPASSWD: /usr/bin/systemctl restart ai-radar.service, /usr/bin/systemctl start ai-radar.service, /usr/bin/systemctl reset-failed ai-radar.service, /usr/bin/systemctl restart ai-radar-browser.service

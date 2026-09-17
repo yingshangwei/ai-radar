@@ -1,0 +1,32 @@
+[Unit]
+Description=AI Radar administrator Codex conversations
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ai-radar
+Group=ai-radar
+SupplementaryGroups=systemd-journal
+WorkingDirectory=/opt/ai-radar/current
+EnvironmentFile=/etc/ai-radar/server.env
+Environment=HOME=/var/lib/ai-radar
+Environment=CODEX_HOME=/var/lib/ai-radar/codex
+Environment=PATH=/opt/ai-radar/tools/bin:/opt/ai-radar/current/.venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=RADAR_CONFIG_PATH=/etc/ai-radar/config.toml
+Environment=RADAR_DATABASE_URL=sqlite:////var/lib/ai-radar/radar.db
+ExecStart=/opt/ai-radar/current/.venv/bin/python -m radar.chat_worker
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+UMask=0077
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/ai-radar /opt/ai-radar/current /etc/ai-radar/config.toml
+MemoryMax=1200M
+CPUQuota=100%
+TasksMax=160
+
+[Install]
+WantedBy=multi-user.target

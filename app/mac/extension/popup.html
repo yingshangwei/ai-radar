@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-CN">
+  <meta charset="utf-8" /><title>AI Radar · Mac 补采</title>
+  <style>
+    body {
+      width: 350px;
+      padding: 22px;
+      margin: 0;
+      background: #f5f4ed;
+      color: #26372b;
+      font: 14px/1.6 system-ui;
+    }
+    small {
+      color: #647262;
+      letter-spacing: 2px;
+    }
+    h1 {
+      font-size: 24px;
+      margin: 8px 0;
+    }
+    p {
+      color: #647262;
+    }
+    button {
+      border: 0;
+      border-radius: 10px;
+      background: #344f3b;
+      color: white;
+      padding: 11px 16px;
+      cursor: pointer;
+      margin: 5px 7px 5px 0;
+    }
+    #pause {
+      background: #e1e5db;
+      color: #344f3b;
+    }
+    #status {
+      padding: 14px;
+      background: white;
+      border-radius: 12px;
+      margin: 15px 0;
+    }
+    a {
+      display: block;
+      color: #426d52;
+    }
+    details {
+      font-size: 12px;
+      color: #647262;
+    }
+  </style>
+  <small>AI RADAR / COMPANION</small>
+  <h1>让 Mac 补齐正文</h1>
+  <p>
+    使用这台 Mac 的网络与 Chrome 登录状态。仅读取雷达待采文章；不上传
+    Cookie、密码或浏览历史。
+  </p>
+  <div id="status">正在连接…</div>
+  <div id="waiting"></div>
+  <button id="start">授权网站并启动</button
+  ><button id="pause">暂停</button
+  ><button id="resume">已完成验证，继续</button>
+  <details>
+    <summary>本次许可网站</summary>
+    <p id="domains"></p>
+  </details>
+  <p>
+    Chrome 保持运行即可自动补采。Mac
+    休眠或断网后，下次上线继续；服务端的其他采集持续运行。
+  </p>
+  <script type="module" src="popup.js"></script>
+</html>

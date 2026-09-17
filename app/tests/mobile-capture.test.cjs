@@ -337,6 +337,21 @@ test(
         "PASSWORD_SECRET",
         "cloned parsing preserves the visible page",
       );
+      // Large page shells used to fail at 50,000 DOM nodes even for a small article.
+      await page.evaluate(() => {
+        const nav = document.createElement("nav");
+        nav.id = "large-shell";
+        nav.innerHTML = "<i>navigation</i>".repeat(51000);
+        document.body.appendChild(nav);
+      });
+      await page.evaluate(extractionScript("large-shell"));
+      assert.match(
+        await page.evaluate(() => JSON.parse(window.replies.at(-1)).text),
+        /Researchers carefully evaluated/,
+      );
+      await page.evaluate(() =>
+        document.getElementById("large-shell").remove(),
+      );
       // A login overlay on the unchanged article URL is not readable yet.
       await page.evaluate(() => {
         const overlay = document.createElement("div");

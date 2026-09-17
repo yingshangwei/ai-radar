@@ -1,3 +1,6 @@
+import json
+from datetime import UTC, datetime
+from pathlib import Path
 from uuid import uuid4
 
 from fastapi import Depends, HTTPException
@@ -15,19 +18,32 @@ class Message(BaseModel):
     profile: str = Field(pattern=r"^(standard|confirmation|adjudication)$", default="standard")
 
 
-def mount_chat(app, service, authenticated):
-    @app.get("/v1/chat", dependencies=[Depends(authenticated)])
+def mount_chat(app, service, authenticated, admin=None):
+    # Privileged chat includes command output/history: protect every endpoint.
+    access = admin if service.options.agent_enabled else authenticated
+    if access is None:
+        raise ValueError("Agent chat requires administrator authentication")
+    @app.get("/v1/chat", dependencies=[Depends(access)])
     def overview():
+        worker_online = True
+        if service.options.external_worker:
+            try:
+                heartbeat = json.loads((Path(service.options.state_directory) / "heartbeat.json").read_text())
+                worker_online = (datetime.now(UTC) - datetime.fromisoformat(heartbeat["at"])).total_seconds() < 45
+            except (OSError, ValueError, KeyError):
+                worker_online = False
         with service.sessions() as db:
             rows = list(db.scalars(select(ChatSession).order_by(ChatSession.updated_at.desc()).limit(100)))
             return {
                 "enabled": service.available(),
+                "agent_enabled": service.options.agent_enabled,
+                "worker_online": worker_online,
                 "models": service.models(),
                 "sessions": [public_session(s) for s in rows],
                 "max_pending": service.options.max_pending,
             }
 
-    @app.post("/v1/chat/sessions", dependencies=[Depends(authenticated)])
+    @app.post("/v1/chat/sessions", dependencies=[Depends(access)])
     def create_session():
         if not service.available():
             raise HTTPException(409, "服务器尚未启用 Codex 对话")
@@ -45,7 +61,7 @@ def mount_chat(app, service, authenticated):
                 db.flush()
             return public_session(row)
 
-    @app.get("/v1/chat/sessions/{sid}", dependencies=[Depends(authenticated)])
+    @app.get("/v1/chat/sessions/{sid}", dependencies=[Depends(access)])
     def read_session(sid: str):
         with service.sessions() as db:
             row = db.get(ChatSession, sid)
@@ -65,7 +81,7 @@ def mount_chat(app, service, authenticated):
                 "history_limit": 100,
             }
 
-    @app.post("/v1/chat/sessions/{sid}/messages", dependencies=[Depends(authenticated)])
+    @app.post("/v1/chat/sessions/{sid}/messages", dependencies=[Depends(access)])
     def send_message(sid: str, body: Message):
         if not body.question.strip():
             raise HTTPException(422, "请输入消息")

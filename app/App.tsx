@@ -895,14 +895,13 @@ function Reader({
             <>
               <View style={s.section}>
                 <T style={s.h2}>{d.title}</T>
-                <T
+                <MathText
                   style={[
                     s.body,
                     { marginTop: 13, color: "#62685D", lineHeight: 28 },
                   ]}
-                >
-                  {d.overview}
-                </T>
+                  text={d.overview}
+                />
               </View>
               <View style={[s.spread, { paddingVertical: 10 }]}>
                 <T style={s.sectionTitle}>值得关注</T>
@@ -936,15 +935,15 @@ function Reader({
                       <Icon name="arrow-up-right" size={16} color={C.muted} />
                     </View>
                     <T style={s.cardTitle}>{story.title}</T>
-                    <T
-                      numberOfLines={3}
+                    <MathText
+                      preview
+                      lines={3}
                       style={[
                         s.muted,
                         { fontSize: 13, lineHeight: 23, marginTop: 9 },
                       ]}
-                    >
-                      {story.summary}
-                    </T>
+                      text={story.summary}
+                    />
                     <T style={[s.muted, { marginTop: 12, fontSize: 10 }]}>
                       {story.source_ids.length} 个原始来源 · 点击展开
                     </T>
@@ -1340,19 +1339,18 @@ function Reader({
                   {detail.story.category} / 前沿观察
                 </T>
                 <T style={s.h1}>{detail.story.title}</T>
-                <T
+                <MathText
                   style={[
                     s.body,
                     { marginTop: 25, lineHeight: 30, fontSize: 16 },
                   ]}
-                >
-                  {detail.story.summary}
-                </T>
+                  text={detail.story.summary}
+                />
                 <View style={[s.note, { marginVertical: 28, padding: 20 }]}>
                   <T style={[s.label, { color: C.green, marginBottom: 10 }]}>
                     为什么值得关注
                   </T>
-                  <T style={s.body}>{detail.story.why_it_matters}</T>
+                  <MathText style={s.body} text={detail.story.why_it_matters} />
                 </View>
                 <T style={s.sectionTitle}>回到一手来源</T>
                 {detail.story.source_ids.map((uid) => {
@@ -1943,7 +1941,7 @@ function ResourceCard({
             style={[s.body, { marginTop: 16, lineHeight: 27 }]}
             text={[
               r.summary_zh || "",
-              ...r.key_points_zh.map((point) => "• " + point),
+              ...r.key_points_zh.map((point) => "- " + point),
             ].join("\n\n")}
           />
           {!!r.why_it_matters_zh && (

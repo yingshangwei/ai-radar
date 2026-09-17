@@ -469,3 +469,21 @@ async def test_live_model_does_not_receive_unallowlisted_environment(setup, monk
     assert "CODEX_TEST_PRIVATE_SECRET" not in called["env"]
     assert called["env"]["CODEX_HOME"] == str(root / "canonical-auth-home")
     assert not (root / "canonical-auth-home").exists()  # Not read, copied, or created by transport.
+
+async def test_explicit_agent_tools_workspace_and_recovery_keep_default_transport_closed(setup):
+    root, config = setup
+    workspace = root / "agent-workspace"
+    workspace.mkdir()
+    execution = {"workspace": str(workspace)}
+    provider = config("tool")
+    receipt = await run(provider, root / "agent-artifacts", "diagnose", Decision, execution=execution)
+    args = json.loads((workspace / "invoked.json").read_text())["argv"]
+    assert "danger-full-access" in args
+    assert "features.shell_tool=true" in args
+    assert 'web_search="live"' in args
+    assert receipt.request_fingerprint == request_fingerprint(provider, "diagnose", Decision, execution=execution)
+    assert receipt.request_fingerprint != request_fingerprint(provider, "diagnose", Decision)
+    assert scan_artifacts(root / "agent-artifacts", Decision)[0].text == receipt.text
+    assert (await run(provider, root / "agent-artifacts", "diagnose", Decision, execution=execution)).recovered
+    with pytest.raises(CodexSessionError, match="unexpected_tool_event"):
+        await run(provider, root / "default-artifacts", "diagnose", Decision)

@@ -47,3 +47,13 @@ App 显示 X 数据月度合计、供应商和授权/余额/预算暂停原因�
 - https://apify.com/xquik/x-tweet-scraper
 - https://docs.apify.com/api/v2/actors-runs-post
 - https://apify.com/pricing
+
+## 2026-09-17 部署记录
+
+服务端实现提交 `66cce4e` 已上线，生产 manifest SHA-256 为 `113222e106e62925fef35d1e7798802e4b4edd3fb83c5dcfbaf742cb199f36f4`。切换前原 27 张业务表逐表一致，仅新增费用账本；只重启 AI Radar API，其他 8 个 systemd 服务及原 8080 进程保持。当前 30 个关注账号，主供应商状态为 `auth_required`：两家的新凭据均未提供，账本请求数和费用均为 0，不能声称 X 已恢复或真实质量测试完成。Apify 自动对照保持关闭。
+
+149 项相关后端检查、67 项 App 检查通过（另有 1 项原有跳过），类型检查和 Ruff 通过；服务器隔离导入验证及生产只读状态检查通过。
+
+Android 内容版 `0.13.0.10` 已发布 stable，runtime `0.13.0`，更新 ID `cd3e62fa-9608-4516-a150-962c3749c09e`。preview/stable 签名及全部引用资源校验通过，模拟器已下载并应用，保留连接与内容，画面正确显示 TwitterAPI.io 待授权和月度合计预算。无需新 APK；本轮未发布 iOS OTA。
+
+本次 OTA 上传发生两个网络中断：在远端逐块校验后仅补传确认缺失的 33/35 两块，整包 SHA-256 保持一致，再校验后激活。上传工具现在会保留原始压缩包字节，供之后断点恢复使用。部署回执、校验记录和截图位于忽略目录 `dist/x-providers-20260917/`，不进入公开仓库。

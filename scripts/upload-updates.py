@@ -95,6 +95,11 @@ def main():
     upload = uuid.uuid4().hex
     receipts = ROOT / "dist/ota" / ("upload-" + upload)
     receipts.mkdir(parents=True)
+    # Preserve exact gzip bytes so interrupted uploads can resume missing parts.
+    # Recreating tar.gz later changes its header timestamp and whole-file hash.
+    archive_path = receipts / "archive.tar.gz"
+    archive_path.write_bytes(data)
+    archive_path.chmod(0o600)
     remote = "/tmp/radar-ota-upload-" + upload
     parts = [data[i : i + 30000] for i in range(0, len(data), 30000)]
     (receipts / "upload.json").write_text(

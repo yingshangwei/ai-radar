@@ -137,6 +137,10 @@ def remember_references(session, article: Article, references: list[dict]):
 
 
 def sync_documents(session, article: Article, config: RadarConfig):
+    from .models import ArticleAdmission
+    admission = session.get(ArticleAdmission, article.id)
+    if admission and not admission.visible:
+        return
     source = session.get(ArticleReading, article.id)
     seeds = []
     root_url = normalize_link(article.url)
@@ -336,6 +340,7 @@ class ReadingService:
                     row.retry_at = (datetime.now(UTC) + timedelta(hours=6)).isoformat()
 
     async def pending(self, *, force=False, translate=True, limit: int | None = None) -> dict:
+        from .admission import visible_clause
         if limit is not None and (type(limit) is not int or limit < 1):
             raise ValueError("网页处理数量必须为正整数。")
         if not self.config.reading.enabled:
@@ -345,7 +350,7 @@ class ReadingService:
         reviewed = self.config.summary_review.enabled and self.config.provider.kind != "extractive"
         source_documents = {}
         with self.sessions.begin() as session:
-            articles = session.scalars(select(Article).order_by(Article.published_at.desc())).all()
+            articles = session.scalars(select(Article).where(visible_clause()).order_by(Article.published_at.desc())).all()
             for article in articles:
                 sync_documents(session, article, self.config)
             ids = [a.id for a in articles]
@@ -372,7 +377,7 @@ class ReadingService:
             for article in session.scalars(select(Article).where(Article.id.in_(ids))):
                 sync_documents(session, article, self.config)
             docs = session.scalars(select(WebDocument).join(ArticleDocument).join(Article).where(
-                WebDocument.text != "").order_by(Article.published_at.desc())).unique().all()
+                WebDocument.text != "", visible_clause()).order_by(Article.published_at.desc())).unique().all()
             payloads, seen = [], set()
             selected_documents = set(fetched)
             for doc in docs:

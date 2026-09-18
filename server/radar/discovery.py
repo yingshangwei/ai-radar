@@ -13,6 +13,7 @@ from uuid import uuid4
 from sqlalchemy import func, select
 
 from . import usage
+from .admission import evaluate
 from .discovery_contracts import DiscoveryDecision, decision_prompt, validate_decision
 from .discovery_priority import day_start, deadline, ordered
 from .discovery_priority import score as priority_score
@@ -99,6 +100,8 @@ def queue_candidate(session, item, config, source_priority=False):
         if previous.status != "reserved":
             previous.status = "superseded"
         previous.error_code, previous.updated_at = "source_changed", now.isoformat()
+    if not evaluate(item.platform, item.text, payload.get("references", []))[0]:
+        return None
     if not classify(item) or not (
         now - timedelta(hours=settings.max_age_hours) <= item.published_at <= now + timedelta(minutes=5)
     ) or not _qualified(item, config, source_priority):
@@ -186,6 +189,9 @@ class DiscoveryService:
         return other is None
 
     def _eligible(self, session, row, now):
+        if not evaluate(row.payload.get("platform"), row.payload.get("text", ""),
+                        row.payload.get("references", []))[0]:
+            return False
         if not self._latest(session, row):
             return False
         if row.status == "accepted":

@@ -125,12 +125,13 @@ class ArticlePresentationService:
         self.reviews = SummaryReviewService(sessions, config)
 
     def _pending_items(self, limit=None):
+        from .admission import visible_clause
         if not self.config.summary_review.enabled or self.config.provider.kind == "extractive":
             return []
         chosen = []
         with self.sessions() as session:
             cutoff = (datetime.now(UTC) - timedelta(hours=self.config.lookback_hours)).isoformat()
-            articles = list(session.scalars(select(Article).where(Article.published_at >= cutoff)
+            articles = list(session.scalars(select(Article).where(Article.published_at >= cutoff, visible_clause())
                                            .order_by(Article.published_at.desc(), Article.id)))
             views = presentation_views(session, articles, self.config)
             for article in articles:

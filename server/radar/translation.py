@@ -25,10 +25,12 @@ from sqlalchemy import func, select, update
 
 from . import translation_workflow as workflow
 from . import usage
+from .admission import visible_clause
 from .config import TranslationConfig, TranslationStage, secret
 from .math_text import formula_issues, math_spans, technical_document, without_math
 from .models import (
     Article,
+    ArticleAdmission,
     ArticleDocument,
     ArticleTranslation,
     Translation,
@@ -619,6 +621,9 @@ def publish_translation_parts(row: Translation, parts: list[dict]) -> None:
 def queue_article(session, article: Article, config: TranslationConfig):
     if not config.enabled:
         return
+    admission = session.get(ArticleAdmission, article.id)
+    if admission and not admission.visible:
+        return
     row = ensure_translation(session, article.title, article.text, config)
     binding = session.get(ArticleTranslation, article.id)
     if binding:
@@ -687,6 +692,7 @@ def bound_resource_texts(session):
     linked = (
         select(ArticleDocument.document_id, func.max(Article.published_at).label("latest"))
         .join(Article, Article.id == ArticleDocument.article_id)
+        .where(visible_clause())
         .group_by(ArticleDocument.document_id)
         .subquery()
     )
@@ -704,6 +710,8 @@ def translation_status(session, config: TranslationConfig) -> dict:
         session.execute(
             select(Translation.status, func.count(ArticleTranslation.article_id))
             .join(ArticleTranslation, ArticleTranslation.translation_id == Translation.id)
+            .join(Article, Article.id == ArticleTranslation.article_id)
+            .where(visible_clause())
             .group_by(Translation.status)
         ).all()
     )
@@ -808,7 +816,7 @@ class TranslationService:
 
     def queue_state(self, session):
         """Read-only eligibility for current sources and safe retry times."""
-        sources = [(a.title, a.text) for a in session.scalars(select(Article))]
+        sources = [(a.title, a.text) for a in session.scalars(select(Article).where(visible_clause()))]
         sources += [(d.title, d.text) for d in bound_resource_texts(session)]
         keys = {cache_key(title, text, self.config) for title, text in sources}
         rows = {r.id: r for r in session.scalars(select(Translation).where(Translation.id.in_(keys)))}
@@ -1623,13 +1631,13 @@ class TranslationService:
                     select(Article, Translation)
                     .join(ArticleTranslation, ArticleTranslation.article_id == Article.id)
                     .join(Translation, Translation.id == ArticleTranslation.translation_id)
-                    .where(Translation.status == ("error" if errors_only else "review_required"))
+                    .where(Translation.status == ("error" if errors_only else "review_required"), visible_clause())
                     .order_by(Article.published_at.desc(), Article.id)
                 )
                 keys = [row.id for article, row in articles
                         if row.id == cache_key(article.title, article.text, self.config)]
             else:
-                for article in session.scalars(select(Article).order_by(Article.published_at.desc(), Article.id)):
+                for article in session.scalars(select(Article).where(visible_clause()).order_by(Article.published_at.desc(), Article.id)):
                     queue_article(session, article, self.config)
                 session.flush()
                 keys = list(
@@ -1637,7 +1645,7 @@ class TranslationService:
                         select(ArticleTranslation.translation_id)
                         .join(Article)
                         .join(Translation, Translation.id == ArticleTranslation.translation_id)
-                        .where(Translation.status != "ready")
+                        .where(Translation.status != "ready", visible_clause())
                         .order_by(Article.published_at.desc(), Article.id)
                     )
                 )

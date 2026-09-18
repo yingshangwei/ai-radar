@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta
 from pydantic import Field
 from sqlalchemy import select
 
+from .admission import visible_clause
 from .config import RadarConfig
 from .models import Article, Digest
 from .schemas import Story
@@ -54,6 +55,7 @@ def select_digest_articles(session, config: RadarConfig, day: date,
         select(Article.canonical_url).where(Article.id.in_(reported_ids))
     )) if reported_ids else set()
     rows = session.scalars(select(Article).where(
+        visible_clause(),
         Article.published_at >= min(start, cutoff).isoformat(),
         Article.published_at < end.isoformat(),
     )).all()

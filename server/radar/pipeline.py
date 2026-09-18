@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 import httpx
 from sqlalchemy import select
 
+from .admission import evaluate, reconcile, record, visible_clause
 from .article_presentation import ArticlePresentationService
 from .config import RadarConfig
 from .digest_selection import mark_supplemental_stories, select_digest_articles
@@ -74,6 +75,7 @@ def ingest(session, items: list[IncomingArticle], config: RadarConfig, authority
         item = merge_research_item(session, item, existing)
         item_authority = max(authority, 1.5) if item.source_id == "hf-papers" else authority
         priority = item.handle.lower() in handles or item_authority >= 1.5
+        informative, _ = evaluate(item.platform, item.text, [r.model_dump(mode="json") for r in item.references])
         if queue_discovery:
             queue_candidate(session, item, config, source_priority=priority)
         topics = classify(item)
@@ -108,12 +110,15 @@ def ingest(session, items: list[IncomingArticle], config: RadarConfig, authority
         else:
             existing = Article(**values)
             session.add(existing)
-            accepted += 1
+            accepted += int(informative)
         session.flush()
+        references = [r.model_dump(mode="json") for r in item.references]
+        remember_references(session, existing, references)
+        if not record(session, existing, references):
+            continue
         if verified_signal or article_signal(session, existing):
             existing.topics = ["前瞻", *[topic for topic in topics if topic != "前瞻"]]
         queue_article(session, existing, config.translation)
-        remember_references(session, existing, [r.model_dump(mode="json") for r in item.references])
         if config.reading.enabled:
             cache_research_abstract(session, existing, config)
             sync_documents(session, existing, config)
@@ -180,7 +185,8 @@ class Pipeline:
                 source = session.get(SourceState, "x")
                 source.status = "auth_required"
                 source.message = "TwitterAPI.io 尚未授权。配置 API Key 后下轮自动采集，也可点击拉取最新；不调用官方 X API。"
-            for article in session.scalars(select(Article)):
+            reconcile(session)
+            for article in session.scalars(select(Article).where(visible_clause())):
                 queue_article(session, article, config.translation)
 
     def research_due(self, source_id):

@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy import func, select
 
+from .admission import visible_clause
 from .models import (
     Article,
     ArticleDocument,
@@ -43,7 +44,7 @@ def freshness_status(session, config):
 
 def translation_updates(session, config, *, limit=50):
     """Only approved current bindings. Shared source caches produce one event per article/cache."""
-    articles = list(session.scalars(select(Article)))
+    articles = list(session.scalars(select(Article).where(visible_clause())))
     cache = {t.id: t for t in session.scalars(select(Translation).where(Translation.status == "ready"))}
     events = {}
     def add(article, row, resource=None):

@@ -12,6 +12,8 @@ from sqlalchemy import case, func, or_, select
 
 from . import usage
 from .account_status import AccountMonitor
+from .admission import status as admission_status
+from .admission import visible_clause
 from .chat import ChatService
 from .chat_api import mount_chat
 from .config import Settings
@@ -166,6 +168,7 @@ def create_app(settings: Settings | None = None):
             "freshness": freshness_status(session, config),
             "x_data": XCostLedger(sessions, config).report(),
             "article_count": session.scalar(select(func.count()).select_from(Article)),
+            "admission": admission_status(session),
             "translation": translation_status(session, config.translation),
             "discovery": discovery_status(session, config),
             "sources": [as_dict(s) for s in session.scalars(select(SourceState))],
@@ -191,6 +194,8 @@ def create_app(settings: Settings | None = None):
         session=Depends(session_dep),
     ):
         query = select(Article)
+        if not saved:
+            query = query.where(visible_clause())
         if not saved and not q:
             query = query.where(Article.published_at >= (datetime.now(UTC) - timedelta(days=7)).isoformat())
         if q:

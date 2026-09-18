@@ -36,6 +36,16 @@ class Article(Base):
     __table_args__ = (UniqueConstraint("platform", "external_id"),)
 
 
+class ArticleAdmission(Base):
+    __tablename__ = "article_admissions"
+    article_id: Mapped[str] = mapped_column(ForeignKey("articles.id"), primary_key=True)
+    policy: Mapped[str] = mapped_column(String(80))
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    visible: Mapped[bool] = mapped_column(Boolean, index=True)
+    reason: Mapped[str] = mapped_column(String(80))
+    updated_at: Mapped[str] = mapped_column(String(40), default=now_iso)
+
+
 class Watch(Base):
     __tablename__ = "watches"
     id: Mapped[str] = mapped_column(String(80), primary_key=True)

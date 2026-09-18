@@ -1,4 +1,7 @@
 import MarketPanel from "./src/MarketPanel";
+import AuthorFilter from "./src/AuthorFilter";
+import { authorKey } from "./src/authorSelection";
+import type { AuthorOption } from "./src/authorSelection";
 import ChatPanel from "./src/ChatPanel";
 import React, { useEffect, useMemo, useState } from "react";
 import {
@@ -437,6 +440,7 @@ function Reader({
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
   const [platform, setPlatform] = useState("");
+  const [author, setAuthor] = useState<AuthorOption | null>(null);
   const [onlyPriority, setOnlyPriority] = useState(false);
   const [latest, setLatest] = useState(true);
   const [edition, setEdition] = useState("latest");
@@ -528,6 +532,20 @@ function Reader({
   if (platform) params.set("platform", platform);
   if (onlyPriority) params.set("priority", "true");
   if (tab === "saved") params.set("saved", "true");
+  if (author) params.set("author", author.key);
+  const filteredDemo = demoArticles
+    .map((a) => ({ ...a, saved: demoSaved.includes(a.id) }))
+    .filter(
+      (a) =>
+        (tab !== "saved" || a.saved) &&
+        (!platform || a.platform === platform) &&
+        (!onlyPriority || a.priority) &&
+        (topic === "全部" || a.topics.includes(topic)) &&
+        (!query ||
+          `${a.title}${a.text}${a.author}`
+            .toLowerCase()
+            .includes(query.toLowerCase())),
+    );
   const articles = useInfiniteQuery<{
     data: { items: Article[]; total: number };
     offline: boolean;
@@ -542,19 +560,9 @@ function Reader({
           connection,
           `/v1/articles?${params}&offset=${pageParam}`,
         );
-      const items = demoArticles
-        .map((a) => ({ ...a, saved: demoSaved.includes(a.id) }))
-        .filter(
-          (a) =>
-            (tab !== "saved" || a.saved) &&
-            (!platform || a.platform === platform) &&
-            (!onlyPriority || a.priority) &&
-            (topic === "全部" || a.topics.includes(topic)) &&
-            (!query ||
-              `${a.title}${a.text}${a.author}`
-                .toLowerCase()
-                .includes(query.toLowerCase())),
-        );
+      const items = filteredDemo.filter(
+        (a) => !author || authorKey(a) === author.key,
+      );
       return { data: { items, total: items.length }, offline: false };
     },
   });
@@ -1207,6 +1215,13 @@ function Reader({
                   </Pressable>
                 ))}
               </ScrollView>
+              <AuthorFilter
+                connection={connection}
+                params={params}
+                selected={author}
+                onChange={setAuthor}
+                demoItems={filteredDemo}
+              />
               <View
                 style={[
                   s.spread,

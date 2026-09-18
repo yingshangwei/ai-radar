@@ -1,19 +1,19 @@
 import secrets
 import sqlite3
 from contextlib import asynccontextmanager
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from typing import Literal
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import case, func, select
 
 from . import usage
 from .account_status import AccountMonitor
 from .admission import status as admission_status
-from .admission import visible_clause
+from .article_filters import ArticleTopic, article_query, author_options
 from .chat import ChatService
 from .chat_api import mount_chat
 from .config import Settings
@@ -23,7 +23,7 @@ from .discovery_watches import discovery_status, list_entities, on_watch_toggle,
 from .freshness import freshness_status, translation_updates
 from .jobs import JobQueueConflict, JobSupervisor, job_counts, public_job
 from .market_api import mount_market
-from .models import Article, ArticleTranslation, Digest, Job, SourceState, Translation, Watch
+from .models import Article, Digest, Job, SourceState, Watch
 from .pipeline import Pipeline, as_dict, ingest
 from .schemas import Bookmark, ImportBatch, Toggle, WatchInput
 from .translation import present_articles, translation_status
@@ -185,7 +185,8 @@ def create_app(settings: Settings | None = None):
     def articles(
         q: str = Query(default="", max_length=200),
         platform: str | None = None,
-        topic: Literal["模型", "产品", "技术", "开源", "观点", "产业", "学界", "前瞻", "动态"] | None = None,
+        topic: ArticleTopic | None = None,
+        author: str = Query(default="", max_length=440),
         saved: bool = False,
         priority: bool = False,
         sort: Literal["score", "latest"] = "latest",
@@ -193,34 +194,11 @@ def create_app(settings: Settings | None = None):
         offset: int = Query(default=0, ge=0, le=10000),
         session=Depends(session_dep),
     ):
-        query = select(Article)
-        if not saved:
-            query = query.where(visible_clause())
-        if not saved and not q:
-            query = query.where(Article.published_at >= (datetime.now(UTC) - timedelta(days=7)).isoformat())
-        if q:
-            chinese_matches = select(ArticleTranslation.article_id).join(
-                Translation, ArticleTranslation.translation_id == Translation.id
-            ).where(Translation.status == "ready", or_(
-                Translation.title_zh.contains(q, autoescape=True),
-                Translation.text_zh.contains(q, autoescape=True),
-            ))
-            query = query.where(
-                or_(
-                    Article.title.contains(q, autoescape=True),
-                    Article.text.contains(q, autoescape=True),
-                    Article.author.contains(q, autoescape=True),
-                    Article.id.in_(chinese_matches),
-                )
-            )
-        if platform:
-            query = query.where(Article.platform == platform)
-        if topic:
-            query = query.where(Article.topics.contains(topic))
-        if saved:
-            query = query.where(Article.saved.is_(True))
-        if priority:
-            query = query.where(Article.priority.is_(True))
+        try:
+            query = article_query(q=q, platform=platform, topic=topic, saved=saved,
+                                  priority=priority, author=author)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
         total = session.scalar(select(func.count()).select_from(query.subquery()))
         query = (
             query.order_by(Article.score.desc(), Article.id)
@@ -232,6 +210,20 @@ def create_app(settings: Settings | None = None):
                                       config.translation, presentation_config=config),
             "total": total,
         }
+
+    @app.get("/v1/article-authors", dependencies=[Depends(authenticated)])
+    def article_authors(
+        q: str = Query(default="", max_length=200),
+        platform: str | None = None,
+        topic: ArticleTopic | None = None,
+        saved: bool = False,
+        priority: bool = False,
+        session=Depends(session_dep),
+    ):
+        items = author_options(session, article_query(
+            q=q, platform=platform, topic=topic, saved=saved, priority=priority,
+        ))
+        return {"items": items, "total": sum(item["count"] for item in items)}
 
     @app.post("/v1/refresh", dependencies=[Depends(authenticated)])
     async def refresh_latest():

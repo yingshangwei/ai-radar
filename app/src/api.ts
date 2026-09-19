@@ -3,6 +3,8 @@ import * as SecureStore from "expo-secure-store";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { Connection } from "./types";
 
+import { clearMarketCache } from "./marketPersistence";
+
 const KEY = "airadar.connection.v1";
 export const storage = {
   async load(): Promise<Connection | null> {
@@ -23,6 +25,7 @@ export const storage = {
     else await SecureStore.setItemAsync(KEY, JSON.stringify(connection));
   },
   async clear() {
+    await clearMarketCache();
     if (Platform.OS === "web") sessionStorage.removeItem(KEY);
     else await SecureStore.deleteItemAsync(KEY);
     if (Platform.OS === "web") sessionStorage.removeItem("airadar.admin.v1");

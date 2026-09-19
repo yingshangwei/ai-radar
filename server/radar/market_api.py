@@ -40,8 +40,11 @@ def mount_market(app, settings, authenticated):
         ):
             raise HTTPException(401, "需要独立的数据同步令牌")
 
+    @app.get("/v1/market/view-update", dependencies=[Depends(authenticated)])
     @app.get("/v1/market/view", dependencies=[Depends(authenticated)])
     async def view(
+        request: Request,
+        since: str | None = Query(default=None, pattern=r"^[a-f0-9]{64}$"),
         payment: Literal["bank", "alipay", "merged"] = "merged",
         ticket: int = Query(default=10000, ge=0, le=100_000_000),
         mode: Literal["strict", "rateOnly"] = "strict",
@@ -55,6 +58,12 @@ def mount_market(app, settings, authenticated):
         params = dict(payment=payment, ticket=ticket, mode=mode, hours=hours, interval=interval, smoothing=smoothing)
         if end is not None:
             params["end"] = end
+        if request.url.path.endswith("view-update"):
+            if since is not None:
+                params["since"] = since
+            response = await forward("/view-update", params=params)
+            response.headers["Cache-Control"] = "private, no-store"
+            return response
         return await forward("/view", params=params)
 
     @app.get("/v1/market/sync/state", dependencies=[Depends(sync_auth)])

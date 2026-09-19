@@ -16,11 +16,10 @@ import Svg, {
   Rect,
   Text as SvgText,
 } from "react-native-svg";
-import { useQuery } from "@tanstack/react-query";
-import { api, APIError } from "./api";
+import { useMarket } from "./useMarket";
 import { C, s } from "./theme";
 import type { Connection } from "./types";
-import type { MarketChart, MarketView } from "./marketTypes";
+import type { MarketChart } from "./marketTypes";
 import { marketReading } from "./marketView";
 
 const colors = ["#0072B2", "#D55E00", "#242424", "#8B4BA8", "#00815F"];
@@ -97,7 +96,7 @@ function Choices({
     </View>
   );
 }
-function Trend({
+const Trend = React.memo(function Trend({
   title,
   unit,
   chart,
@@ -313,7 +312,7 @@ function Trend({
       )}
     </View>
   );
-}
+});
 export default function MarketPanel({
   connection,
   active = true,
@@ -343,24 +342,13 @@ export default function MarketPanel({
       }).toString(),
     [payment, ticket, mode, hours, interval, smoothing, end],
   );
-  const query = useQuery({
-    queryKey: ["market", connection.url, connection.token, params],
-    queryFn: ({ signal }) =>
-      api<MarketView>(
-        connection,
-        `/v1/market/view?${params}`,
-        { signal },
-        70000,
-      ),
-    enabled: active && connection.url !== "demo",
-    refetchInterval: active ? 30000 : false,
-    retry: (n, e) =>
-      !(e instanceof APIError && [401, 403, 404].includes(e.status)) && n < 1,
-  });
+  const query = useMarket(connection, params, active);
   const data = query.data,
     latest = data?.dashboard.latestCycle;
   const age = latest ? Date.now() / 1000 - latest.endedAt : Infinity;
   const healthy = Boolean(
+    query.verified &&
+    !query.refreshing &&
     data?.dashboard.service.running &&
     latest &&
     age < 180 &&
@@ -386,11 +374,15 @@ export default function MarketPanel({
       <View style={m.hero}>
         <View style={s.spread}>
           <Text style={m.heroLabel}>
-            {healthy
-              ? "● 云端持续采集"
-              : data
-                ? "◐ 请关注采集状态"
-                : "○ 正在连接行情服务"}
+            {data && !query.verified
+              ? "◷ 本地缓存 · 等待联网更新"
+              : query.refreshing
+                ? "◷ 已保存快照 · 后台更新中"
+                : healthy
+                  ? "● 云端持续采集"
+                  : data
+                    ? "◐ 请关注采集状态"
+                    : "○ 正在连接行情服务"}
           </Text>
           <Pressable
             accessibilityRole="button"
@@ -406,6 +398,12 @@ export default function MarketPanel({
             : "连接后显示服务器已保存的数据"}
         </Text>
       </View>
+      {data && (
+        <Text style={[s.muted, { marginTop: 10, fontSize: 11 }]}>
+          视图更新 {stamp(data.generatedAt)} · 每 60 秒检查变化
+          {!query.verified ? " · 当前展示缓存数据" : ""}
+        </Text>
+      )}
       {query.isPending && (
         <ActivityIndicator style={{ margin: 24 }} color={C.accent} />
       )}

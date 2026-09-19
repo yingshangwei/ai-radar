@@ -72,3 +72,21 @@ def test_market_upstream_failures_and_unconfigured(market):
     before = len(calls)
     assert client.get("/v1/market/view", headers=headers).status_code == 503
     assert len(calls) == before
+
+
+def test_versioned_market_proxy_keeps_filter_scope_and_private_cache(market):
+    client, calls, response, _ = market
+    assert client.get('/v1/market/view-update').status_code == 401
+    revision = 'a' * 64
+    response['body'] = {'protocol': 2, 'kind': 'unchanged', 'revision': revision}
+    result = client.get('/v1/market/view-update?payment=bank&hours=12&since='+revision,
+                        headers={'Authorization': 'Bearer reader'})
+    assert result.json() == response['body']
+    assert result.headers['cache-control'] == 'private, no-store'
+    assert calls[-1].url.path == '/view-update'
+    assert calls[-1].url.params['since'] == revision
+    assert calls[-1].url.params['payment'] == 'bank'
+    assert calls[-1].url.params['hours'] == '12'
+    count = len(calls)
+    assert client.get('/v1/market/view-update?since=bad', headers={'Authorization': 'Bearer reader'}).status_code == 422
+    assert len(calls) == count

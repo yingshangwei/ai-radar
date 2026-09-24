@@ -30,10 +30,12 @@ python3 ops/private-surge/build-install.py --private-dir "$SURGE_PRIVATE_DIR"
 
 ## 本次验证
 
-- 官方 Surge Mac CLI 对最终 profile `--check` 返回 `OK`。测试工具由官方 v6 下载地址取得，macOS codesign 完整签名验证通过；只运行校验工具，没有安装 App、启用系统代理或变更本机路由。
+- 官方 Surge Mac 6.9.1 CLI 对最终 profile `--check` 返回 `OK`。测试工具由官方 v6 下载地址取得，macOS codesign 完整签名验证通过；只运行校验工具，没有安装 App、启用系统代理或变更本机路由。
 - 真实公网 HTTPS 下载与本地 profile 字节一致，GET/HEAD 成功；缺失令牌、错误令牌、路径穿越请求返回 404。
 - 真实 Trojan 客户端：服务器出口正确，Google 204、GitHub 200、UDP DNS 成功，错误密码及服务端内网/元数据访问被拒绝。
 - 原 VLESS/REALITY 节点 Google 204、服务器出口检查再次通过。
 - 新服务崩溃恢复、证书未变化不重启、权限隔离与原服务基线由独立审计脚本检查。实际用户 Surge App 导入和其所在网络体验仍需客户端使用确认。
 
 参考：[Surge Trojan](https://manual.nssurge.com/policies/trojan.html)、[托管配置](https://manual.nssurge.com/profile/managed-profile.html)、[Surge CLI](https://manual.nssurge.com/tools/cli.html)。
+
+首次下载如受本机已有 VPN 的虚拟 DNS/路由影响，应先退出该 VPN，或从私有目录导入 `surge.conf` 离线副本。配置已带服务器域名的固定 Host 映射，后续托管更新使用同一私有 URL。本次只让临时测试进程绑定物理网卡，没有修改用户电脑全局 DNS、路由或原 VPN。

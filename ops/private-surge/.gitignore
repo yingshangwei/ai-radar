@@ -1,0 +1,6 @@
+*
+!.gitignore
+!README.md
+!prepare.py
+!build-install.py
+!sync-cert.py
